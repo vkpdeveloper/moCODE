@@ -507,10 +507,10 @@ class _CommandList extends ConsumerWidget {
 
         for (final cmd in commands) {
           allItems.add({
-            'name': cmd.name ?? cmd.id,
+            'name': cmd.name,
             'description': cmd.description,
             'type': 'command',
-            'source': 'command',
+            'source': cmd.source ?? 'command',
           });
         }
 

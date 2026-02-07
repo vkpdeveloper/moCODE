@@ -33,50 +33,34 @@ class VcsInfo {
 }
 
 class Command {
-  final String id;
-  final String? name;
+  final String name;
   final String? description;
+  final String? source;
 
-  const Command({required this.id, this.name, this.description});
+  const Command({required this.name, this.description, this.source});
 
   factory Command.fromJson(Map<String, dynamic> json) {
     return Command(
-      id: json['id'] as String,
-      name: json['name'] as String?,
+      name: json['name'] as String? ?? '',
       description: json['description'] as String?,
+      source: json['source'] as String?,
     );
-  }
-
-  Map<String, dynamic> toJson() {
-    return {
-      'id': id,
-      if (name != null) 'name': name,
-      if (description != null) 'description': description,
-    };
   }
 }
 
 class Agent {
-  final String id;
-  final String? name;
+  final String name;
   final String? description;
+  final String? mode;
 
-  const Agent({required this.id, this.name, this.description});
+  const Agent({required this.name, this.description, this.mode});
 
   factory Agent.fromJson(Map<String, dynamic> json) {
     return Agent(
-      id: json['id'] as String,
-      name: json['name'] as String?,
+      name: json['name'] as String? ?? '',
       description: json['description'] as String?,
+      mode: json['mode'] as String?,
     );
-  }
-
-  Map<String, dynamic> toJson() {
-    return {
-      'id': id,
-      if (name != null) 'name': name,
-      if (description != null) 'description': description,
-    };
   }
 }
 

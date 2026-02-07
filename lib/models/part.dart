@@ -6,8 +6,8 @@ class PartTime {
 
   factory PartTime.fromJson(Map<String, dynamic> json) {
     return PartTime(
-      start: json['start'] as int,
-      end: json['end'] as int?,
+      start: (json['start'] as num).toInt(),
+      end: (json['end'] as num?)?.toInt(),
     );
   }
 
@@ -46,6 +46,7 @@ sealed class Part {
       'agent' => AgentPart.fromJson(json),
       'retry' => RetryPart.fromJson(json),
       'compaction' => CompactionPart.fromJson(json),
+      'subtask' => SubtaskPart.fromJson(json),
       _ => UnknownPart.fromJson(json),
     };
   }
@@ -76,10 +77,10 @@ class TextPart extends Part {
       id: json['id'] as String,
       sessionID: json['sessionID'] as String,
       messageID: json['messageID'] as String,
-      text: json['text'] as String,
+      text: json['text'] as String? ?? '',
       synthetic: json['synthetic'] as bool?,
       ignored: json['ignored'] as bool?,
-      time: json['time'] != null
+      time: json['time'] is Map<String, dynamic>
           ? PartTime.fromJson(json['time'] as Map<String, dynamic>)
           : null,
       metadata: json['metadata'] as Map<String, dynamic>?,
@@ -121,18 +122,46 @@ class ToolPart extends Part {
       id: json['id'] as String,
       sessionID: json['sessionID'] as String,
       messageID: json['messageID'] as String,
-      callID: json['callID'] as String,
-      tool: json['tool'] as String,
-      state: Map<String, dynamic>.from(json['state'] as Map),
+      callID: json['callID'] as String? ?? '',
+      tool: json['tool'] as String? ?? '',
+      state: json['state'] is Map<String, dynamic>
+          ? Map<String, dynamic>.from(json['state'] as Map)
+          : <String, dynamic>{},
     );
   }
 
   String get status => state['status'] as String? ?? 'pending';
-  String? get title =>
-      (state['title'] ?? (state['metadata'] as Map?)?['title']) as String?;
-  String? get input => state['input'] as String?;
-  String? get output => state['output'] as String?;
-  String? get error => state['error'] as String?;
+
+  String? get title {
+    final t = state['title'];
+    if (t is String) return t;
+    final meta = state['metadata'];
+    if (meta is Map<String, dynamic>) {
+      final mt = meta['title'];
+      if (mt is String) return mt;
+    }
+    return null;
+  }
+
+  String? get input {
+    final i = state['input'];
+    if (i is String) return i;
+    if (i is Map) return i.toString();
+    return null;
+  }
+
+  String? get output {
+    final o = state['output'];
+    if (o is String) return o;
+    return o?.toString();
+  }
+
+  String? get error {
+    final e = state['error'];
+    if (e is String) return e;
+    if (e is Map) return e['message']?.toString() ?? e.toString();
+    return null;
+  }
 
   @override
   Map<String, dynamic> toJson() {
@@ -150,7 +179,7 @@ class ToolPart extends Part {
 
 class FilePart extends Part {
   final String mime;
-  final String filename;
+  final String? filename;
   final String url;
 
   FilePart({
@@ -158,7 +187,7 @@ class FilePart extends Part {
     required super.sessionID,
     required super.messageID,
     required this.mime,
-    required this.filename,
+    this.filename,
     required this.url,
   }) : super(type: 'file');
 
@@ -167,9 +196,9 @@ class FilePart extends Part {
       id: json['id'] as String,
       sessionID: json['sessionID'] as String,
       messageID: json['messageID'] as String,
-      mime: json['mime'] as String,
-      filename: json['filename'] as String,
-      url: json['url'] as String,
+      mime: json['mime'] as String? ?? '',
+      filename: json['filename'] as String?,
+      url: json['url'] as String? ?? '',
     );
   }
 
@@ -181,7 +210,7 @@ class FilePart extends Part {
       'messageID': messageID,
       'type': type,
       'mime': mime,
-      'filename': filename,
+      if (filename != null) 'filename': filename,
       'url': url,
     };
   }
@@ -189,14 +218,16 @@ class FilePart extends Part {
 
 class ReasoningPart extends Part {
   final String text;
-  final PartTime time;
+  final PartTime? time;
+  final Map<String, dynamic>? metadata;
 
   ReasoningPart({
     required super.id,
     required super.sessionID,
     required super.messageID,
     required this.text,
-    required this.time,
+    this.time,
+    this.metadata,
   }) : super(type: 'reasoning');
 
   factory ReasoningPart.fromJson(Map<String, dynamic> json) {
@@ -204,8 +235,11 @@ class ReasoningPart extends Part {
       id: json['id'] as String,
       sessionID: json['sessionID'] as String,
       messageID: json['messageID'] as String,
-      text: json['text'] as String,
-      time: PartTime.fromJson(json['time'] as Map<String, dynamic>),
+      text: json['text'] as String? ?? '',
+      time: json['time'] is Map<String, dynamic>
+          ? PartTime.fromJson(json['time'] as Map<String, dynamic>)
+          : null,
+      metadata: json['metadata'] as Map<String, dynamic>?,
     );
   }
 
@@ -217,16 +251,20 @@ class ReasoningPart extends Part {
       'messageID': messageID,
       'type': type,
       'text': text,
-      'time': time.toJson(),
+      if (time != null) 'time': time!.toJson(),
+      if (metadata != null) 'metadata': metadata,
     };
   }
 }
 
 class StepStartPart extends Part {
+  final String? snapshot;
+
   StepStartPart({
     required super.id,
     required super.sessionID,
     required super.messageID,
+    this.snapshot,
   }) : super(type: 'step-start');
 
   factory StepStartPart.fromJson(Map<String, dynamic> json) {
@@ -234,6 +272,7 @@ class StepStartPart extends Part {
       id: json['id'] as String,
       sessionID: json['sessionID'] as String,
       messageID: json['messageID'] as String,
+      snapshot: json['snapshot'] as String?,
     );
   }
 
@@ -244,35 +283,47 @@ class StepStartPart extends Part {
       'sessionID': sessionID,
       'messageID': messageID,
       'type': type,
+      if (snapshot != null) 'snapshot': snapshot,
     };
   }
 }
 
 class StepFinishPart extends Part {
-  final String? reason;
+  final String reason;
   final String? snapshot;
-  final Map<String, dynamic>? cost;
-  final Map<String, dynamic>? tokens;
+  final double cost;
+  final int inputTokens;
+  final int outputTokens;
 
   StepFinishPart({
     required super.id,
     required super.sessionID,
     required super.messageID,
-    this.reason,
+    required this.reason,
     this.snapshot,
-    this.cost,
-    this.tokens,
+    required this.cost,
+    required this.inputTokens,
+    required this.outputTokens,
   }) : super(type: 'step-finish');
 
   factory StepFinishPart.fromJson(Map<String, dynamic> json) {
+    final tokens = json['tokens'];
+    int inTok = 0;
+    int outTok = 0;
+    if (tokens is Map<String, dynamic>) {
+      inTok = (tokens['input'] as num?)?.toInt() ?? 0;
+      outTok = (tokens['output'] as num?)?.toInt() ?? 0;
+    }
+
     return StepFinishPart(
       id: json['id'] as String,
       sessionID: json['sessionID'] as String,
       messageID: json['messageID'] as String,
-      reason: json['reason'] as String?,
+      reason: json['reason'] as String? ?? '',
       snapshot: json['snapshot'] as String?,
-      cost: json['cost'] as Map<String, dynamic>?,
-      tokens: json['tokens'] as Map<String, dynamic>?,
+      cost: (json['cost'] as num?)?.toDouble() ?? 0.0,
+      inputTokens: inTok,
+      outputTokens: outTok,
     );
   }
 
@@ -283,10 +334,9 @@ class StepFinishPart extends Part {
       'sessionID': sessionID,
       'messageID': messageID,
       'type': type,
-      if (reason != null) 'reason': reason,
+      'reason': reason,
       if (snapshot != null) 'snapshot': snapshot,
-      if (cost != null) 'cost': cost,
-      if (tokens != null) 'tokens': tokens,
+      'cost': cost,
     };
   }
 }
@@ -306,7 +356,7 @@ class SnapshotPart extends Part {
       id: json['id'] as String,
       sessionID: json['sessionID'] as String,
       messageID: json['messageID'] as String,
-      snapshot: json['snapshot'] as String,
+      snapshot: json['snapshot'] as String? ?? '',
     );
   }
 
@@ -324,7 +374,7 @@ class SnapshotPart extends Part {
 
 class PatchPart extends Part {
   final String hash;
-  final List<dynamic> files;
+  final List<String> files;
 
   PatchPart({
     required super.id,
@@ -339,8 +389,8 @@ class PatchPart extends Part {
       id: json['id'] as String,
       sessionID: json['sessionID'] as String,
       messageID: json['messageID'] as String,
-      hash: json['hash'] as String,
-      files: List<dynamic>.from(json['files'] as List),
+      hash: json['hash'] as String? ?? '',
+      files: (json['files'] as List?)?.map((e) => e.toString()).toList() ?? [],
     );
   }
 
@@ -359,7 +409,7 @@ class PatchPart extends Part {
 
 class AgentPart extends Part {
   final String name;
-  final String? source;
+  final Map<String, dynamic>? source;
 
   AgentPart({
     required super.id,
@@ -374,8 +424,10 @@ class AgentPart extends Part {
       id: json['id'] as String,
       sessionID: json['sessionID'] as String,
       messageID: json['messageID'] as String,
-      name: json['name'] as String,
-      source: json['source'] as String?,
+      name: json['name'] as String? ?? '',
+      source: json['source'] is Map<String, dynamic>
+          ? json['source'] as Map<String, dynamic>
+          : null,
     );
   }
 
@@ -394,8 +446,8 @@ class AgentPart extends Part {
 
 class RetryPart extends Part {
   final int attempt;
-  final String? error;
-  final PartTime? time;
+  final Map<String, dynamic>? error;
+  final Map<String, dynamic>? time;
 
   RetryPart({
     required super.id,
@@ -411,12 +463,23 @@ class RetryPart extends Part {
       id: json['id'] as String,
       sessionID: json['sessionID'] as String,
       messageID: json['messageID'] as String,
-      attempt: json['attempt'] as int,
-      error: json['error'] as String?,
-      time: json['time'] != null
-          ? PartTime.fromJson(json['time'] as Map<String, dynamic>)
+      attempt: (json['attempt'] as num?)?.toInt() ?? 0,
+      error: json['error'] is Map<String, dynamic>
+          ? json['error'] as Map<String, dynamic>
+          : null,
+      time: json['time'] is Map<String, dynamic>
+          ? json['time'] as Map<String, dynamic>
           : null,
     );
+  }
+
+  String? get errorMessage {
+    if (error == null) return null;
+    final data = error!['data'];
+    if (data is Map<String, dynamic>) {
+      return data['message'] as String?;
+    }
+    return error!['name']?.toString();
   }
 
   @override
@@ -428,7 +491,46 @@ class RetryPart extends Part {
       'type': type,
       'attempt': attempt,
       if (error != null) 'error': error,
-      if (time != null) 'time': time!.toJson(),
+      if (time != null) 'time': time,
+    };
+  }
+}
+
+class SubtaskPart extends Part {
+  final String prompt;
+  final String description;
+  final String agent;
+
+  SubtaskPart({
+    required super.id,
+    required super.sessionID,
+    required super.messageID,
+    required this.prompt,
+    required this.description,
+    required this.agent,
+  }) : super(type: 'subtask');
+
+  factory SubtaskPart.fromJson(Map<String, dynamic> json) {
+    return SubtaskPart(
+      id: json['id'] as String,
+      sessionID: json['sessionID'] as String,
+      messageID: json['messageID'] as String,
+      prompt: json['prompt'] as String? ?? '',
+      description: json['description'] as String? ?? '',
+      agent: json['agent'] as String? ?? '',
+    );
+  }
+
+  @override
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'sessionID': sessionID,
+      'messageID': messageID,
+      'type': type,
+      'prompt': prompt,
+      'description': description,
+      'agent': agent,
     };
   }
 }
@@ -448,7 +550,7 @@ class CompactionPart extends Part {
       id: json['id'] as String,
       sessionID: json['sessionID'] as String,
       messageID: json['messageID'] as String,
-      auto: json['auto'] as bool,
+      auto: json['auto'] as bool? ?? false,
     );
   }
 
@@ -477,10 +579,10 @@ class UnknownPart extends Part {
 
   factory UnknownPart.fromJson(Map<String, dynamic> json) {
     return UnknownPart(
-      id: json['id'] as String,
-      sessionID: json['sessionID'] as String,
-      messageID: json['messageID'] as String,
-      type: json['type'] as String,
+      id: json['id'] as String? ?? '',
+      sessionID: json['sessionID'] as String? ?? '',
+      messageID: json['messageID'] as String? ?? '',
+      type: json['type'] as String? ?? 'unknown',
       raw: json,
     );
   }

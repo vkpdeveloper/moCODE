@@ -78,10 +78,12 @@ class MessageTokens {
 
   factory MessageTokens.fromJson(Map<String, dynamic> json) {
     return MessageTokens(
-      input: json['input'] as int,
-      output: json['output'] as int,
-      reasoning: json['reasoning'] as int,
-      cache: MessageCacheTokens.fromJson(json['cache'] as Map<String, dynamic>),
+      input: (json['input'] as num?)?.toInt() ?? 0,
+      output: (json['output'] as num?)?.toInt() ?? 0,
+      reasoning: (json['reasoning'] as num?)?.toInt() ?? 0,
+      cache: json['cache'] != null
+          ? MessageCacheTokens.fromJson(json['cache'] as Map<String, dynamic>)
+          : MessageCacheTokens(read: 0, write: 0),
     );
   }
 
@@ -103,8 +105,8 @@ class MessageCacheTokens {
 
   factory MessageCacheTokens.fromJson(Map<String, dynamic> json) {
     return MessageCacheTokens(
-      read: json['read'] as int,
-      write: json['write'] as int,
+      read: (json['read'] as num?)?.toInt() ?? 0,
+      write: (json['write'] as num?)?.toInt() ?? 0,
     );
   }
 
@@ -114,6 +116,37 @@ class MessageCacheTokens {
       'write': write,
     };
   }
+}
+
+class MessageSummary {
+  final String? title;
+  final String? body;
+
+  MessageSummary({this.title, this.body});
+
+  factory MessageSummary.fromJson(Map<String, dynamic> json) {
+    return MessageSummary(
+      title: json['title'] as String?,
+      body: json['body'] as String?,
+    );
+  }
+}
+
+class MessageError {
+  final String name;
+  final dynamic data;
+
+  MessageError({required this.name, this.data});
+
+  factory MessageError.fromJson(Map<String, dynamic> json) {
+    return MessageError(
+      name: json['name'] as String? ?? 'Unknown',
+      data: json['data'],
+    );
+  }
+
+  @override
+  String toString() => name;
 }
 
 sealed class MessageInfo {
@@ -143,9 +176,9 @@ class UserMessageInfo extends MessageInfo {
   final MessageTime time;
   final String? agent;
   final MessageModel? model;
-  final String? summary;
+  final MessageSummary? summary;
   final String? system;
-  final int? variant;
+  final String? variant;
 
   UserMessageInfo({
     required super.id,
@@ -167,9 +200,11 @@ class UserMessageInfo extends MessageInfo {
       model: json['model'] != null
           ? MessageModel.fromJson(json['model'] as Map<String, dynamic>)
           : null,
-      summary: json['summary'] as String?,
+      summary: json['summary'] is Map<String, dynamic>
+          ? MessageSummary.fromJson(json['summary'] as Map<String, dynamic>)
+          : null,
       system: json['system'] as String?,
-      variant: json['variant'] as int?,
+      variant: json['variant'] is String ? json['variant'] as String : json['variant']?.toString(),
     );
   }
 
@@ -182,7 +217,6 @@ class UserMessageInfo extends MessageInfo {
       'time': time.toJson(),
       if (agent != null) 'agent': agent,
       if (model != null) 'model': model!.toJson(),
-      if (summary != null) 'summary': summary,
       if (system != null) 'system': system,
       if (variant != null) 'variant': variant,
     };
@@ -191,14 +225,14 @@ class UserMessageInfo extends MessageInfo {
 
 class AssistantMessageInfo extends MessageInfo {
   final MessageTime time;
-  final String? error;
+  final MessageError? error;
   final String? parentID;
   final String modelID;
   final String providerID;
   final String mode;
   final String? agent;
-  final MessagePath path;
-  final String? summary;
+  final MessagePath? path;
+  final bool? isSummary;
   final double cost;
   final MessageTokens tokens;
   final String? finish;
@@ -213,8 +247,8 @@ class AssistantMessageInfo extends MessageInfo {
     required this.providerID,
     required this.mode,
     this.agent,
-    required this.path,
-    this.summary,
+    this.path,
+    this.isSummary,
     required this.cost,
     required this.tokens,
     this.finish,
@@ -225,16 +259,27 @@ class AssistantMessageInfo extends MessageInfo {
       id: json['id'] as String,
       sessionID: json['sessionID'] as String,
       time: MessageTime.fromJson(json['time'] as Map<String, dynamic>),
-      error: json['error'] as String?,
+      error: json['error'] is Map<String, dynamic>
+          ? MessageError.fromJson(json['error'] as Map<String, dynamic>)
+          : null,
       parentID: json['parentID'] as String?,
-      modelID: json['modelID'] as String,
-      providerID: json['providerID'] as String,
-      mode: json['mode'] as String,
+      modelID: json['modelID'] as String? ?? '',
+      providerID: json['providerID'] as String? ?? '',
+      mode: json['mode'] as String? ?? '',
       agent: json['agent'] as String?,
-      path: MessagePath.fromJson(json['path'] as Map<String, dynamic>),
-      summary: json['summary'] as String?,
-      cost: (json['cost'] as num).toDouble(),
-      tokens: MessageTokens.fromJson(json['tokens'] as Map<String, dynamic>),
+      path: json['path'] is Map<String, dynamic>
+          ? MessagePath.fromJson(json['path'] as Map<String, dynamic>)
+          : null,
+      isSummary: json['summary'] as bool?,
+      cost: (json['cost'] as num?)?.toDouble() ?? 0.0,
+      tokens: json['tokens'] is Map<String, dynamic>
+          ? MessageTokens.fromJson(json['tokens'] as Map<String, dynamic>)
+          : MessageTokens(
+              input: 0,
+              output: 0,
+              reasoning: 0,
+              cache: MessageCacheTokens(read: 0, write: 0),
+            ),
       finish: json['finish'] as String?,
     );
   }
@@ -246,14 +291,12 @@ class AssistantMessageInfo extends MessageInfo {
       'sessionID': sessionID,
       'role': role,
       'time': time.toJson(),
-      if (error != null) 'error': error,
       if (parentID != null) 'parentID': parentID,
       'modelID': modelID,
       'providerID': providerID,
       'mode': mode,
       if (agent != null) 'agent': agent,
-      'path': path.toJson(),
-      if (summary != null) 'summary': summary,
+      if (path != null) 'path': path!.toJson(),
       'cost': cost,
       'tokens': tokens.toJson(),
       if (finish != null) 'finish': finish,

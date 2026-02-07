@@ -41,6 +41,7 @@ class MessagePartsWidget extends StatelessWidget {
       PatchPart p => _buildPatchPart(p),
       AgentPart p => _buildAgentPart(p),
       RetryPart p => _buildRetryPart(p),
+      SubtaskPart p => _buildSubtaskPart(p),
       CompactionPart _ => const SizedBox.shrink(),
       UnknownPart _ => const SizedBox.shrink(),
     };
@@ -233,8 +234,6 @@ class MessagePartsWidget extends StatelessWidget {
   }
 
   Widget _buildStepFinishPart(StepFinishPart part) {
-    if (part.cost == null && part.tokens == null) return const SizedBox.shrink();
-
     return Container(
       margin: const EdgeInsets.only(bottom: 4),
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
@@ -249,10 +248,10 @@ class MessagePartsWidget extends StatelessWidget {
             'Step complete',
             style: const TextStyle(color: AppTheme.textTertiary, fontSize: 10),
           ),
-          if (part.reason != null) ...[
+          if (part.reason.isNotEmpty) ...[
             const SizedBox(width: 8),
             Text(
-              part.reason!,
+              part.reason,
               style: const TextStyle(color: AppTheme.textTertiary, fontSize: 10),
             ),
           ],
@@ -278,7 +277,7 @@ class MessagePartsWidget extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  part.filename,
+                  part.filename ?? part.url.split('/').last,
                   style: const TextStyle(color: AppTheme.textPrimary, fontSize: 12),
                 ),
                 Text(
@@ -350,15 +349,48 @@ class MessagePartsWidget extends StatelessWidget {
             'Retry #${part.attempt}',
             style: const TextStyle(color: AppTheme.warning, fontSize: 10),
           ),
-          if (part.error != null) ...[
+          if (part.errorMessage != null) ...[
             const SizedBox(width: 8),
             Expanded(
               child: Text(
-                part.error!,
+                part.errorMessage!,
                 style: const TextStyle(color: AppTheme.textTertiary, fontSize: 10),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
               ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSubtaskPart(SubtaskPart part) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 4),
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: AppTheme.surfaceVariant,
+        border: Border.all(color: AppTheme.info.withValues(alpha: 0.3)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.account_tree, size: 14, color: AppTheme.info),
+              const SizedBox(width: 6),
+              Text(
+                'Subtask: ${part.agent}',
+                style: const TextStyle(color: AppTheme.info, fontSize: 11, fontWeight: FontWeight.w600),
+              ),
+            ],
+          ),
+          if (part.description.isNotEmpty) ...[
+            const SizedBox(height: 4),
+            Text(
+              part.description,
+              style: const TextStyle(color: AppTheme.textSecondary, fontSize: 11),
             ),
           ],
         ],
