@@ -1,0 +1,95 @@
+class HealthInfo {
+  final bool healthy;
+  final String? version;
+  final Map<String, dynamic>? raw;
+
+  const HealthInfo({this.healthy = false, this.version, this.raw});
+
+  factory HealthInfo.fromJson(Map<String, dynamic> json) {
+    return HealthInfo(
+      healthy: json['healthy'] as bool? ?? false,
+      version: json['version'] as String?,
+      raw: json,
+    );
+  }
+}
+
+class VcsInfo {
+  final String? branch;
+  final String? commit;
+  final bool? dirty;
+  final Map<String, dynamic>? raw;
+
+  const VcsInfo({this.branch, this.commit, this.dirty, this.raw});
+
+  factory VcsInfo.fromJson(Map<String, dynamic> json) {
+    return VcsInfo(
+      branch: json['branch'] as String?,
+      commit: json['commit'] as String?,
+      dirty: json['dirty'] as bool?,
+      raw: json,
+    );
+  }
+}
+
+class Command {
+  final String id;
+  final String? name;
+  final String? description;
+
+  const Command({required this.id, this.name, this.description});
+
+  factory Command.fromJson(Map<String, dynamic> json) {
+    return Command(
+      id: json['id'] as String,
+      name: json['name'] as String?,
+      description: json['description'] as String?,
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      if (name != null) 'name': name,
+      if (description != null) 'description': description,
+    };
+  }
+}
+
+class Agent {
+  final String id;
+  final String? name;
+  final String? description;
+
+  const Agent({required this.id, this.name, this.description});
+
+  factory Agent.fromJson(Map<String, dynamic> json) {
+    return Agent(
+      id: json['id'] as String,
+      name: json['name'] as String?,
+      description: json['description'] as String?,
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      if (name != null) 'name': name,
+      if (description != null) 'description': description,
+    };
+  }
+}
+
+class AppConfig {
+  final Map<String, dynamic> raw;
+
+  const AppConfig({required this.raw});
+
+  factory AppConfig.fromJson(Map<String, dynamic> json) {
+    return AppConfig(raw: json);
+  }
+
+  dynamic operator [](String key) => raw[key];
+
+  Map<String, dynamic> toJson() => raw;
+}
