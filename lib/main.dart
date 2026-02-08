@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'router/app_router.dart';
 import 'theme/app_theme.dart';
+import 'widgets/active_session_manager.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -15,7 +16,7 @@ void main() {
       systemNavigationBarIconBrightness: Brightness.light,
     ),
   );
-  runApp(const ProviderScope(child: MeCodeApp()));
+  runApp(const ProviderScope(child: ActiveSessionManager(child: MeCodeApp())));
 }
 
 class MeCodeApp extends ConsumerWidget {

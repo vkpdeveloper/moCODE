@@ -6,6 +6,7 @@ class PreferencesService {
   static const String _kSessionModelPrefix = 'session_model_';
   static const String _kSessionModePrefix = 'session_mode_';
   static const String _kProjectModelPrefix = 'project_model_';
+  static const String _kActiveSessionPrefix = 'active_session_';
 
   Future<void> saveDefaultModel(String providerId, String modelId) async {
     final prefs = await SharedPreferences.getInstance();
@@ -102,5 +103,40 @@ class PreferencesService {
   Future<String?> getSessionMode(String sessionId) async {
     final prefs = await SharedPreferences.getInstance();
     return prefs.getString('$_kSessionModePrefix$sessionId');
+  }
+
+  Future<void> markSessionActive(String sessionId, String directory) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('$_kActiveSessionPrefix$sessionId', directory);
+  }
+
+  Future<void> clearSessionActive(String sessionId) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('$_kActiveSessionPrefix$sessionId');
+  }
+
+  Future<Map<String, String>> getActiveSessions() async {
+    final prefs = await SharedPreferences.getInstance();
+    final entries = <String, String>{};
+    for (final key in prefs.getKeys()) {
+      if (!key.startsWith(_kActiveSessionPrefix)) continue;
+      final sessionId = key.substring(_kActiveSessionPrefix.length);
+      final directory = prefs.getString(key);
+      if (directory != null && directory.isNotEmpty) {
+        entries[sessionId] = directory;
+      }
+    }
+    return entries;
+  }
+
+  Future<void> clearActiveSessions() async {
+    final prefs = await SharedPreferences.getInstance();
+    final keys = prefs
+        .getKeys()
+        .where((key) => key.startsWith(_kActiveSessionPrefix))
+        .toList();
+    for (final key in keys) {
+      await prefs.remove(key);
+    }
   }
 }

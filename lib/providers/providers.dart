@@ -488,6 +488,67 @@ final messagesProvider = FutureProvider<List<MessageWrapper>>((ref) async {
   return messageService.getMessages(session.id, directory: session.directory);
 });
 
+class ActiveSessionsNotifier extends StateNotifier<Map<String, String>> {
+  final PreferencesService _preferencesService;
+  static const int _maxActiveSessions = 5;
+
+  ActiveSessionsNotifier(this._preferencesService) : super(const {}) {
+    _load();
+  }
+
+  Future<void> _load() async {
+    final sessions = await _preferencesService.getActiveSessions();
+    if (sessions.length <= _maxActiveSessions) {
+      state = sessions;
+      return;
+    }
+    final trimmed = <String, String>{};
+    var kept = 0;
+    for (final entry in sessions.entries) {
+      if (kept >= _maxActiveSessions) {
+        await _preferencesService.clearSessionActive(entry.key);
+        continue;
+      }
+      trimmed[entry.key] = entry.value;
+      kept += 1;
+    }
+    state = trimmed;
+  }
+
+  Future<void> markActive(String sessionId, String directory) async {
+    await _preferencesService.markSessionActive(sessionId, directory);
+    final next = Map<String, String>.from(state);
+    if (next.containsKey(sessionId)) {
+      next.remove(sessionId);
+    }
+    next[sessionId] = directory;
+    while (next.length > _maxActiveSessions) {
+      final oldest = next.keys.first;
+      next.remove(oldest);
+      await _preferencesService.clearSessionActive(oldest);
+    }
+    state = next;
+  }
+
+  Future<void> clearActive(String sessionId) async {
+    await _preferencesService.clearSessionActive(sessionId);
+    if (!state.containsKey(sessionId)) return;
+    final next = Map<String, String>.from(state);
+    next.remove(sessionId);
+    state = next;
+  }
+
+  Future<void> clearAllActive() async {
+    await _preferencesService.clearActiveSessions();
+    state = const {};
+  }
+}
+
+final activeSessionsProvider =
+    StateNotifierProvider<ActiveSessionsNotifier, Map<String, String>>((ref) {
+      return ActiveSessionsNotifier(ref.watch(preferencesServiceProvider));
+    });
+
 // ---------------------------------------------------------------------------
 // Health
 // ---------------------------------------------------------------------------

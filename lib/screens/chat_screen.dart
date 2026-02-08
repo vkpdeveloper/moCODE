@@ -44,6 +44,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   bool _isSidebarOpen = false;
   bool _showScrollToBottom = false;
   bool _isUndoRedoInFlight = false;
+  Timer? _refreshTimer;
 
   @override
   void initState() {
@@ -54,13 +55,23 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     _listenToSessionMode();
     _scrollController.addListener(_onScroll);
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _loadPendingPermissions();
-      _loadPendingQuestions();
+      final targetId = widget.sessionId;
+      final current = ref.read(selectedSessionProvider);
+      if (targetId != null && targetId.isNotEmpty) {
+        if (current == null || current.id != targetId) {
+          _ensureSelectedSession(targetId);
+          return;
+        }
+      }
+      if (current != null) {
+        _handleSessionSelected(current);
+      }
     });
   }
 
   @override
   void dispose() {
+    _refreshTimer?.cancel();
     _eventSub?.cancel();
     _sessionSub?.close();
     _messagesSub?.close();
@@ -79,6 +90,16 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     }
   }
 
+  void _debouncedRefresh() {
+    _refreshTimer?.cancel();
+    _refreshTimer = Timer(const Duration(milliseconds: 200), () {
+      if (mounted) {
+        ref.invalidate(messagesProvider);
+        _refreshTimer = null;
+      }
+    });
+  }
+
   void _subscribeToEvents() {
     final project = ref.read(selectedProjectProvider);
     if (project == null) return;
@@ -94,7 +115,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             type == 'message.removed' ||
             type == 'message.part.updated' ||
             type == 'message.part.removed') {
-          ref.invalidate(messagesProvider);
+          _debouncedRefresh();
         } else if (type == 'permission.asked') {
           final props = event['properties'];
           if (props is Map<String, dynamic>) {
@@ -123,9 +144,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           }
         } else if (type == 'session.created') {
           ref.invalidate(sessionsProvider);
-        } else if (type == 'session.deleted') {
-          _handleSessionDeleted(event['properties']);
-          ref.invalidate(sessionsProvider);
         } else if (type == 'session.status') {
           final props = event['properties'];
           if (!_isCurrentSessionEvent(props)) return;
@@ -144,17 +162,23 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             });
           }
           if (_isBusy) {
-            ref.invalidate(messagesProvider);
+            _markSessionActive();
+          }
+          if (_isBusy) {
+            _debouncedRefresh();
           }
         } else if (type == 'session.idle') {
           if (!_isCurrentSessionEvent(event['properties'])) return;
           if (mounted) {
             setState(() => _isBusy = false);
           }
-          ref.invalidate(messagesProvider);
+          _debouncedRefresh();
+        } else if (type == 'session.deleted') {
+          _handleSessionDeleted(event['properties']);
+          ref.invalidate(sessionsProvider);
         } else if (type == 'session.compacted') {
           if (!_isCurrentSessionEvent(event['properties'])) return;
-          ref.invalidate(messagesProvider);
+          _debouncedRefresh();
         } else if (type == 'session.error') {
           _handleSessionError(event['properties']);
         } else if (type == 'session.diff') {
@@ -192,22 +216,62 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       next,
     ) {
       if (next != null && (prev == null || prev.id != next.id)) {
-        _resetSessionState(next.id);
-        ref.read(todosProvider.notifier).clear();
-        ref.read(sessionErrorProvider.notifier).clear();
-        ref.read(ptyProvider.notifier).clear();
-        ref.read(sessionDiffProvider.notifier).clear();
-        ref.read(vcsBranchProvider.notifier).state = null;
-        _loadProjectModel(next.projectID, next.id);
-        _loadSessionModel(next.id);
-        _loadSessionMode(next.id);
-        _loadPendingPermissions();
-        _loadPendingQuestions();
-        _loadTodos(next);
-        _loadSessionDiff(next);
-        _loadVcsBranch(next);
+        _handleSessionSelected(next);
       }
     });
+  }
+
+  Future<void> _ensureSelectedSession(String sessionId) async {
+    final project = ref.read(selectedProjectProvider);
+    try {
+      final session = await ref
+          .read(sessionServiceProvider)
+          .getSession(sessionId, directory: project?.worktree);
+      ref.read(selectedSessionProvider.notifier).state = session;
+      await _refreshAfterReconnect(session);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Failed to load session: $e')));
+    }
+  }
+
+  void _handleSessionSelected(Session session) {
+    _resetSessionState(session.id);
+    ref.read(todosProvider.notifier).clear();
+    ref.read(sessionErrorProvider.notifier).clear();
+    ref.read(ptyProvider.notifier).clear();
+    ref.read(sessionDiffProvider.notifier).clear();
+    ref.read(vcsBranchProvider.notifier).state = null;
+    _loadProjectModel(session.projectID, session.id);
+    _loadSessionModel(session.id);
+    _loadSessionMode(session.id);
+    _loadPendingPermissions();
+    _loadPendingQuestions();
+    _loadTodos(session);
+    _loadSessionDiff(session);
+    _loadVcsBranch(session);
+  }
+
+  Future<void> _refreshAfterReconnect(Session session) async {
+    ref.invalidate(messagesProvider);
+    await _loadTodos(session);
+    await _loadSessionDiff(session);
+    await _loadVcsBranch(session);
+  }
+
+  void _markSessionActive() {
+    final session = ref.read(selectedSessionProvider);
+    if (session == null) return;
+    if (!_isBusy) return;
+    ref
+        .read(activeSessionsProvider.notifier)
+        .markActive(session.id, session.directory);
+  }
+
+  void _releaseActiveSession(String sessionId) {
+    ref.read(activeSessionsProvider.notifier).clearActive(sessionId);
   }
 
   void _listenToSessionMode() {
@@ -393,6 +457,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     if (info is! Map<String, dynamic>) return;
     final deletedId = info['id']?.toString();
     if (deletedId == null || deletedId.isEmpty) return;
+    _releaseActiveSession(deletedId);
     final session = ref.read(selectedSessionProvider);
     if (session != null && session.id == deletedId) {
       ref.read(selectedSessionProvider.notifier).state = null;
@@ -1285,6 +1350,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
     try {
       setState(() => _isBusy = true);
+      _markSessionActive();
 
       final messageService = ref.read(messageServiceProvider);
       await messageService.sendMessageAsync(
@@ -1315,6 +1381,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
     try {
       setState(() => _isBusy = true);
+      _markSessionActive();
 
       final messageService = ref.read(messageServiceProvider);
       await messageService.sendCommand(
@@ -1533,7 +1600,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final messagesAsync = ref.watch(messagesProvider);
     final mode = ref.watch(sessionModeProvider);
     final activeModel = ref.watch(activeModelProvider);
-    final branch = ref.watch(vcsBranchProvider);
+
     final errorState = ref.watch(sessionErrorProvider);
 
     final messages = messagesAsync.valueOrNull ?? const <MessageWrapper>[];
@@ -1591,16 +1658,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                     color: _isBusy ? AppTheme.warning : AppTheme.textTertiary,
                   ),
                 ),
-                if (branch != null && branch.isNotEmpty) ...[
-                  const SizedBox(width: 8),
-                  Text(
-                    '• $branch',
-                    style: const TextStyle(
-                      fontSize: 10,
-                      color: AppTheme.textTertiary,
-                    ),
-                  ),
-                ],
               ],
             ),
           ],

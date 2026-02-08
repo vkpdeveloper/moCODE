@@ -353,6 +353,9 @@ class SessionsScreen extends ConsumerWidget {
                     session.id,
                     directory: session.directory,
                   );
+                  await ref
+                      .read(activeSessionsProvider.notifier)
+                      .clearActive(session.id);
                   ref.invalidate(sessionsProvider);
                 } catch (e) {
                   if (context.mounted) {
