@@ -31,7 +31,14 @@ final routerProvider = Provider<GoRouter>((ref) {
       ),
       GoRoute(
         path: '/models',
-        builder: (context, state) => const ModelPickerScreen(),
+        builder: (context, state) {
+          final extra = state.extra;
+          if (extra is Map<String, dynamic>) {
+            final mode = extra['mode'];
+            return ModelPickerScreen(mode: mode is String ? mode : null);
+          }
+          return const ModelPickerScreen();
+        },
       ),
     ],
   );

@@ -232,17 +232,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     size: 18,
                   ),
                   onTap: () {
-                    context.push(
-                      '/models',
-                      extra: {
-                        'onSelection': (String providerId, String modelId) {
-                          ref
-                              .read(defaultModelProvider.notifier)
-                              .setModel(providerId, modelId);
-                        },
-                        'selectedModel': defaultModel,
-                      },
-                    );
+                    context.push('/models', extra: {'mode': 'default'});
                   },
                 ),
               ],

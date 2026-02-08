@@ -15,12 +15,20 @@ class SessionsScreen extends ConsumerWidget {
     final sessionsAsync = ref.watch(sessionsProvider);
     final vcsAsync = ref.watch(vcsInfoProvider);
     final statusAsync = ref.watch(sessionStatusProvider);
+    final projectModelState = ref.watch(projectModelProvider);
 
     if (project == null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         context.go('/projects');
       });
       return const SizedBox.shrink();
+    }
+
+    if (projectModelState.isLoading ||
+        projectModelState.projectId != project.id) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        ref.read(projectModelProvider.notifier).load(project.id);
+      });
     }
 
     final projectName = project.name ?? project.worktree.split('/').last;
@@ -50,7 +58,7 @@ class SessionsScreen extends ConsumerWidget {
                 ],
               ),
               loading: () => const SizedBox.shrink(),
-              error: (_,  _) => const SizedBox.shrink(),
+              error: (_, _) => const SizedBox.shrink(),
             ),
           ],
         ),
@@ -77,12 +85,13 @@ class SessionsScreen extends ConsumerWidget {
               );
             },
             loading: () => const SizedBox.shrink(),
-            error: (_,  _) => const SizedBox.shrink(),
+            error: (_, _) => const SizedBox.shrink(),
           ),
           IconButton(
             icon: const Icon(Icons.swap_horiz, size: 20),
             tooltip: 'Models',
-            onPressed: () => context.push('/models'),
+            onPressed: () =>
+                context.push('/models', extra: {'mode': 'project'}),
           ),
           IconButton(
             icon: const Icon(Icons.settings_outlined, size: 20),
@@ -97,16 +106,26 @@ class SessionsScreen extends ConsumerWidget {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(Icons.chat_bubble_outline, size: 48, color: AppTheme.textTertiary),
+                  Icon(
+                    Icons.chat_bubble_outline,
+                    size: 48,
+                    color: AppTheme.textTertiary,
+                  ),
                   const SizedBox(height: 16),
                   const Text(
                     'No sessions yet',
-                    style: TextStyle(color: AppTheme.textSecondary, fontSize: 14),
+                    style: TextStyle(
+                      color: AppTheme.textSecondary,
+                      fontSize: 14,
+                    ),
                   ),
                   const SizedBox(height: 8),
                   const Text(
                     'Create a new session to get started',
-                    style: TextStyle(color: AppTheme.textTertiary, fontSize: 12),
+                    style: TextStyle(
+                      color: AppTheme.textTertiary,
+                      fontSize: 12,
+                    ),
                   ),
                   const SizedBox(height: 24),
                   ElevatedButton.icon(
@@ -130,7 +149,7 @@ class SessionsScreen extends ConsumerWidget {
             child: ListView.separated(
               padding: const EdgeInsets.all(12),
               itemCount: sessions.length,
-              separatorBuilder: (_,  _) => const SizedBox(height: 6),
+              separatorBuilder: (_, _) => const SizedBox(height: 6),
               itemBuilder: (context, index) {
                 final session = sessions[index];
                 final isArchived = session.time.archived != null;
@@ -143,9 +162,13 @@ class SessionsScreen extends ConsumerWidget {
                   onLongPress: () => _showSessionOptions(context, ref, session),
                   child: Container(
                     decoration: BoxDecoration(
-                      color: isArchived ? AppTheme.background : AppTheme.surface,
+                      color: isArchived
+                          ? AppTheme.background
+                          : AppTheme.surface,
                       border: Border.all(
-                        color: isArchived ? AppTheme.border.withValues(alpha: 0.5) : AppTheme.border,
+                        color: isArchived
+                            ? AppTheme.border.withValues(alpha: 0.5)
+                            : AppTheme.border,
                       ),
                     ),
                     padding: const EdgeInsets.all(12),
@@ -156,9 +179,13 @@ class SessionsScreen extends ConsumerWidget {
                           children: [
                             Expanded(
                               child: Text(
-                                session.title.isEmpty ? 'Untitled Session' : session.title,
+                                session.title.isEmpty
+                                    ? 'Untitled Session'
+                                    : session.title,
                                 style: TextStyle(
-                                  color: isArchived ? AppTheme.textTertiary : AppTheme.textPrimary,
+                                  color: isArchived
+                                      ? AppTheme.textTertiary
+                                      : AppTheme.textPrimary,
                                   fontSize: 13,
                                   fontWeight: FontWeight.w500,
                                 ),
@@ -168,13 +195,21 @@ class SessionsScreen extends ConsumerWidget {
                             ),
                             if (session.parentID != null)
                               Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 4,
+                                  vertical: 1,
+                                ),
                                 decoration: BoxDecoration(
-                                  border: Border.all(color: AppTheme.textTertiary),
+                                  border: Border.all(
+                                    color: AppTheme.textTertiary,
+                                  ),
                                 ),
                                 child: const Text(
                                   'FORK',
-                                  style: TextStyle(color: AppTheme.textTertiary, fontSize: 8),
+                                  style: TextStyle(
+                                    color: AppTheme.textTertiary,
+                                    fontSize: 8,
+                                  ),
                                 ),
                               ),
                           ],
@@ -184,23 +219,35 @@ class SessionsScreen extends ConsumerWidget {
                           children: [
                             Text(
                               _formatTime(session.time.created),
-                              style: const TextStyle(color: AppTheme.textTertiary, fontSize: 10),
+                              style: const TextStyle(
+                                color: AppTheme.textTertiary,
+                                fontSize: 10,
+                              ),
                             ),
                             if (session.summary != null) ...[
                               const SizedBox(width: 12),
                               Text(
                                 '+${session.summary!.additions}',
-                                style: const TextStyle(color: AppTheme.success, fontSize: 10),
+                                style: const TextStyle(
+                                  color: AppTheme.success,
+                                  fontSize: 10,
+                                ),
                               ),
                               const SizedBox(width: 4),
                               Text(
                                 '-${session.summary!.deletions}',
-                                style: const TextStyle(color: AppTheme.error, fontSize: 10),
+                                style: const TextStyle(
+                                  color: AppTheme.error,
+                                  fontSize: 10,
+                                ),
                               ),
                               const SizedBox(width: 4),
                               Text(
                                 '${session.summary!.files}f',
-                                style: const TextStyle(color: AppTheme.textTertiary, fontSize: 10),
+                                style: const TextStyle(
+                                  color: AppTheme.textTertiary,
+                                  fontSize: 10,
+                                ),
                               ),
                             ],
                             const Spacer(),
@@ -208,7 +255,11 @@ class SessionsScreen extends ConsumerWidget {
                               Icon(Icons.share, size: 12, color: AppTheme.info),
                             if (isArchived) ...[
                               const SizedBox(width: 6),
-                              Icon(Icons.archive_outlined, size: 12, color: AppTheme.textTertiary),
+                              Icon(
+                                Icons.archive_outlined,
+                                size: 12,
+                                color: AppTheme.textTertiary,
+                              ),
                             ],
                           ],
                         ),
@@ -229,7 +280,13 @@ class SessionsScreen extends ConsumerWidget {
             children: [
               Icon(Icons.error_outline, size: 48, color: AppTheme.error),
               const SizedBox(height: 16),
-              Text(error.toString(), style: const TextStyle(color: AppTheme.textTertiary, fontSize: 12)),
+              Text(
+                error.toString(),
+                style: const TextStyle(
+                  color: AppTheme.textTertiary,
+                  fontSize: 12,
+                ),
+              ),
               const SizedBox(height: 16),
               OutlinedButton(
                 onPressed: () => ref.invalidate(sessionsProvider),
@@ -240,9 +297,7 @@ class SessionsScreen extends ConsumerWidget {
         ),
       ),
       floatingActionButton: Container(
-        decoration: BoxDecoration(
-          color: AppTheme.accent,
-        ),
+        decoration: BoxDecoration(color: AppTheme.accent),
         child: IconButton(
           icon: const Icon(Icons.add, color: Colors.white),
           onPressed: () => _createSession(context, ref),
@@ -257,7 +312,9 @@ class SessionsScreen extends ConsumerWidget {
 
     try {
       final sessionService = ref.read(sessionServiceProvider);
-      final session = await sessionService.createSession(directory: project.worktree);
+      final session = await sessionService.createSession(
+        directory: project.worktree,
+      );
       ref.invalidate(sessionsProvider);
       ref.read(selectedSessionProvider.notifier).state = session;
       if (context.mounted) {
@@ -265,14 +322,18 @@ class SessionsScreen extends ConsumerWidget {
       }
     } catch (e) {
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to create session: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Failed to create session: $e')));
       }
     }
   }
 
-  void _showSessionOptions(BuildContext context, WidgetRef ref, dynamic session) {
+  void _showSessionOptions(
+    BuildContext context,
+    WidgetRef ref,
+    dynamic session,
+  ) {
     showModalBottomSheet(
       context: context,
       builder: (ctx) => Container(
@@ -288,13 +349,23 @@ class SessionsScreen extends ConsumerWidget {
               margin: const EdgeInsets.only(bottom: 8),
             ),
             ListTile(
-              leading: const Icon(Icons.delete_outline, color: AppTheme.error, size: 20),
-              title: const Text('Delete Session', style: TextStyle(color: AppTheme.error, fontSize: 13)),
+              leading: const Icon(
+                Icons.delete_outline,
+                color: AppTheme.error,
+                size: 20,
+              ),
+              title: const Text(
+                'Delete Session',
+                style: TextStyle(color: AppTheme.error, fontSize: 13),
+              ),
               onTap: () async {
                 Navigator.pop(ctx);
                 try {
                   final sessionService = ref.read(sessionServiceProvider);
-                  await sessionService.deleteSession(session.id, directory: session.directory);
+                  await sessionService.deleteSession(
+                    session.id,
+                    directory: session.directory,
+                  );
                   ref.invalidate(sessionsProvider);
                 } catch (e) {
                   if (context.mounted) {
@@ -306,13 +377,23 @@ class SessionsScreen extends ConsumerWidget {
               },
             ),
             ListTile(
-              leading: const Icon(Icons.fork_right, color: AppTheme.textSecondary, size: 20),
-              title: const Text('Fork Session', style: TextStyle(color: AppTheme.textPrimary, fontSize: 13)),
+              leading: const Icon(
+                Icons.fork_right,
+                color: AppTheme.textSecondary,
+                size: 20,
+              ),
+              title: const Text(
+                'Fork Session',
+                style: TextStyle(color: AppTheme.textPrimary, fontSize: 13),
+              ),
               onTap: () async {
                 Navigator.pop(ctx);
                 try {
                   final sessionService = ref.read(sessionServiceProvider);
-                  final forked = await sessionService.forkSession(session.id, directory: session.directory);
+                  final forked = await sessionService.forkSession(
+                    session.id,
+                    directory: session.directory,
+                  );
                   ref.invalidate(sessionsProvider);
                   ref.read(selectedSessionProvider.notifier).state = forked;
                   if (context.mounted) {
@@ -335,23 +416,32 @@ class SessionsScreen extends ConsumerWidget {
               ),
               title: Text(
                 session.share != null ? 'Unshare' : 'Share',
-                style: const TextStyle(color: AppTheme.textPrimary, fontSize: 13),
+                style: const TextStyle(
+                  color: AppTheme.textPrimary,
+                  fontSize: 13,
+                ),
               ),
               onTap: () async {
                 Navigator.pop(ctx);
                 try {
                   final sessionService = ref.read(sessionServiceProvider);
                   if (session.share != null) {
-                    await sessionService.unshareSession(session.id, directory: session.directory);
+                    await sessionService.unshareSession(
+                      session.id,
+                      directory: session.directory,
+                    );
                   } else {
-                    await sessionService.shareSession(session.id, directory: session.directory);
+                    await sessionService.shareSession(
+                      session.id,
+                      directory: session.directory,
+                    );
                   }
                   ref.invalidate(sessionsProvider);
                 } catch (e) {
                   if (context.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('Failed: $e')),
-                    );
+                    ScaffoldMessenger.of(
+                      context,
+                    ).showSnackBar(SnackBar(content: Text('Failed: $e')));
                   }
                 }
               },

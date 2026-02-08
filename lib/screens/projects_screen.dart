@@ -37,7 +37,9 @@ class ProjectsScreen extends ConsumerWidget {
               data: (health) => Container(
                 padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                 decoration: BoxDecoration(
-                  color: health.healthy ? AppTheme.success.withValues(alpha: 0.15) : AppTheme.error.withValues(alpha: 0.15),
+                  color: health.healthy
+                      ? AppTheme.success.withValues(alpha: 0.15)
+                      : AppTheme.error.withValues(alpha: 0.15),
                   border: Border.all(
                     color: health.healthy ? AppTheme.success : AppTheme.error,
                   ),
@@ -52,7 +54,7 @@ class ProjectsScreen extends ConsumerWidget {
                 ),
               ),
               loading: () => const SizedBox.shrink(),
-              error: (_,  _) => Container(
+              error: (_, _) => Container(
                 padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                 decoration: BoxDecoration(
                   color: AppTheme.error.withValues(alpha: 0.15),
@@ -60,7 +62,11 @@ class ProjectsScreen extends ConsumerWidget {
                 ),
                 child: const Text(
                   'OFFLINE',
-                  style: TextStyle(color: AppTheme.error, fontSize: 10, fontWeight: FontWeight.bold),
+                  style: TextStyle(
+                    color: AppTheme.error,
+                    fontSize: 10,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
               ),
             ),
@@ -80,16 +86,26 @@ class ProjectsScreen extends ConsumerWidget {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(Icons.folder_off_outlined, size: 48, color: AppTheme.textTertiary),
+                  Icon(
+                    Icons.folder_off_outlined,
+                    size: 48,
+                    color: AppTheme.textTertiary,
+                  ),
                   const SizedBox(height: 16),
                   Text(
                     'No projects found',
-                    style: TextStyle(color: AppTheme.textSecondary, fontSize: 14),
+                    style: TextStyle(
+                      color: AppTheme.textSecondary,
+                      fontSize: 14,
+                    ),
                   ),
                   const SizedBox(height: 8),
                   Text(
                     'Start meCode in a project directory',
-                    style: TextStyle(color: AppTheme.textTertiary, fontSize: 12),
+                    style: TextStyle(
+                      color: AppTheme.textTertiary,
+                      fontSize: 12,
+                    ),
                   ),
                 ],
               ),
@@ -106,14 +122,16 @@ class ProjectsScreen extends ConsumerWidget {
             child: ListView.separated(
               padding: const EdgeInsets.all(16),
               itemCount: projects.length,
-              separatorBuilder: (_,  _) => const SizedBox(height: 8),
+              separatorBuilder: (_, _) => const SizedBox(height: 8),
               itemBuilder: (context, index) {
                 final project = projects[index];
-                final projectName = project.name ?? project.worktree.split('/').last;
-                
+                final projectName =
+                    project.name ?? project.worktree.split('/').last;
+
                 return GestureDetector(
                   onTap: () {
                     ref.read(selectedProjectProvider.notifier).state = project;
+                    ref.read(projectModelProvider.notifier).load(project.id);
                     context.push('/sessions');
                   },
                   child: Container(
@@ -127,7 +145,11 @@ class ProjectsScreen extends ConsumerWidget {
                       children: [
                         Row(
                           children: [
-                            Icon(Icons.folder_outlined, color: AppTheme.accent, size: 20),
+                            Icon(
+                              Icons.folder_outlined,
+                              color: AppTheme.accent,
+                              size: 20,
+                            ),
                             const SizedBox(width: 10),
                             Expanded(
                               child: Text(
@@ -139,7 +161,11 @@ class ProjectsScreen extends ConsumerWidget {
                                 ),
                               ),
                             ),
-                            const Icon(Icons.chevron_right, color: AppTheme.textTertiary, size: 20),
+                            const Icon(
+                              Icons.chevron_right,
+                              color: AppTheme.textTertiary,
+                              size: 20,
+                            ),
                           ],
                         ),
                         const SizedBox(height: 8),
@@ -157,19 +183,31 @@ class ProjectsScreen extends ConsumerWidget {
                           children: [
                             if (project.vcs != null) ...[
                               Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 6,
+                                  vertical: 2,
+                                ),
                                 decoration: BoxDecoration(
                                   color: AppTheme.info.withValues(alpha: 0.1),
-                                  border: Border.all(color: AppTheme.info.withValues(alpha: 0.3)),
+                                  border: Border.all(
+                                    color: AppTheme.info.withValues(alpha: 0.3),
+                                  ),
                                 ),
                                 child: Row(
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
-                                    Icon(Icons.commit, color: AppTheme.info, size: 12),
+                                    Icon(
+                                      Icons.commit,
+                                      color: AppTheme.info,
+                                      size: 12,
+                                    ),
                                     const SizedBox(width: 4),
                                     Text(
                                       'VCS',
-                                      style: TextStyle(color: AppTheme.info, fontSize: 10),
+                                      style: TextStyle(
+                                        color: AppTheme.info,
+                                        fontSize: 10,
+                                      ),
                                     ),
                                   ],
                                 ),
@@ -177,14 +215,22 @@ class ProjectsScreen extends ConsumerWidget {
                               const SizedBox(width: 8),
                             ],
                             Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 6,
+                                vertical: 2,
+                              ),
                               decoration: BoxDecoration(
                                 color: AppTheme.surfaceVariant,
                                 border: Border.all(color: AppTheme.border),
                               ),
                               child: Text(
-                                _timeAgo(project.time.updated ?? project.time.created),
-                                style: const TextStyle(color: AppTheme.textTertiary, fontSize: 10),
+                                _timeAgo(
+                                  project.time.updated ?? project.time.created,
+                                ),
+                                style: const TextStyle(
+                                  color: AppTheme.textTertiary,
+                                  fontSize: 10,
+                                ),
                               ),
                             ),
                           ],

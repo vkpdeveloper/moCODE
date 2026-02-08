@@ -5,6 +5,7 @@ class PreferencesService {
   static const String _kDefaultModelId = 'default_model_id';
   static const String _kSessionModelPrefix = 'session_model_';
   static const String _kSessionModePrefix = 'session_mode_';
+  static const String _kProjectModelPrefix = 'project_model_';
 
   Future<void> saveDefaultModel(String providerId, String modelId) async {
     final prefs = await SharedPreferences.getInstance();
@@ -23,6 +24,12 @@ class PreferencesService {
     return null;
   }
 
+  Future<void> clearDefaultModel() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_kDefaultModelProvider);
+    await prefs.remove(_kDefaultModelId);
+  }
+
   Future<void> saveSessionModel(
     String sessionId,
     String providerId,
@@ -30,20 +37,18 @@ class PreferencesService {
   ) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(
-      '${_kSessionModelPrefix}${sessionId}_provider',
+      '$_kSessionModelPrefix${sessionId}_provider',
       providerId,
     );
-    await prefs.setString('${_kSessionModelPrefix}${sessionId}_model', modelId);
+    await prefs.setString('$_kSessionModelPrefix${sessionId}_model', modelId);
   }
 
   Future<Map<String, String>?> getSessionModel(String sessionId) async {
     final prefs = await SharedPreferences.getInstance();
     final providerId = prefs.getString(
-      '${_kSessionModelPrefix}${sessionId}_provider',
+      '$_kSessionModelPrefix${sessionId}_provider',
     );
-    final modelId = prefs.getString(
-      '${_kSessionModelPrefix}${sessionId}_model',
-    );
+    final modelId = prefs.getString('$_kSessionModelPrefix${sessionId}_model');
 
     if (providerId != null && modelId != null) {
       return {'providerID': providerId, 'modelID': modelId};
@@ -53,17 +58,49 @@ class PreferencesService {
 
   Future<void> clearSessionModel(String sessionId) async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.remove('${_kSessionModelPrefix}${sessionId}_provider');
-    await prefs.remove('${_kSessionModelPrefix}${sessionId}_model');
+    await prefs.remove('$_kSessionModelPrefix${sessionId}_provider');
+    await prefs.remove('$_kSessionModelPrefix${sessionId}_model');
+  }
+
+  Future<void> saveProjectModel(
+    String projectId,
+    String providerId,
+    String modelId,
+  ) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+      '$_kProjectModelPrefix${projectId}_provider',
+      providerId,
+    );
+    await prefs.setString('$_kProjectModelPrefix${projectId}_model', modelId);
+  }
+
+  Future<Map<String, String>?> getProjectModel(String projectId) async {
+    final prefs = await SharedPreferences.getInstance();
+    final providerId = prefs.getString(
+      '$_kProjectModelPrefix${projectId}_provider',
+    );
+    final modelId = prefs.getString('$_kProjectModelPrefix${projectId}_model');
+
+    if (providerId != null && modelId != null) {
+      return {'providerID': providerId, 'modelID': modelId};
+    }
+    return null;
+  }
+
+  Future<void> clearProjectModel(String projectId) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('$_kProjectModelPrefix${projectId}_provider');
+    await prefs.remove('$_kProjectModelPrefix${projectId}_model');
   }
 
   Future<void> saveSessionMode(String sessionId, String mode) async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('${_kSessionModePrefix}${sessionId}', mode);
+    await prefs.setString('$_kSessionModePrefix$sessionId', mode);
   }
 
   Future<String?> getSessionMode(String sessionId) async {
     final prefs = await SharedPreferences.getInstance();
-    return prefs.getString('${_kSessionModePrefix}${sessionId}');
+    return prefs.getString('$_kSessionModePrefix$sessionId');
   }
 }

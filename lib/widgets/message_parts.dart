@@ -315,33 +315,36 @@ class MessagePartsWidget extends StatelessWidget {
 
   Widget _buildStepFinishPart(StepFinishPart part) {
     return Container(
+      width: double.infinity,
       margin: const EdgeInsets.only(bottom: 4),
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
         border: Border.all(color: AppTheme.border, width: 0.5),
       ),
-      child: Row(
+      child: Wrap(
+        spacing: 6,
+        runSpacing: 4,
+        crossAxisAlignment: WrapCrossAlignment.center,
         children: [
           const Icon(
             Icons.check_circle_outline,
             size: 12,
             color: AppTheme.success,
           ),
-          const SizedBox(width: 6),
-          Text(
+          const Text(
             'Step complete',
-            style: const TextStyle(color: AppTheme.textTertiary, fontSize: 10),
+            style: TextStyle(color: AppTheme.textTertiary, fontSize: 10),
           ),
-          if (part.reason.isNotEmpty) ...[
-            const SizedBox(width: 8),
+          if (part.reason.isNotEmpty)
             Text(
               part.reason,
               style: const TextStyle(
                 color: AppTheme.textTertiary,
                 fontSize: 10,
               ),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
             ),
-          ],
         ],
       ),
     );
@@ -391,20 +394,23 @@ class MessagePartsWidget extends StatelessWidget {
 
   Widget _buildPatchPart(PatchPart part) {
     return Container(
+      width: double.infinity,
       margin: const EdgeInsets.only(bottom: 4),
       padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
         color: AppTheme.surfaceVariant,
         border: Border.all(color: AppTheme.border),
       ),
-      child: Row(
+      child: Wrap(
+        spacing: 8,
+        runSpacing: 4,
+        crossAxisAlignment: WrapCrossAlignment.center,
         children: [
           const Icon(
             Icons.difference_outlined,
             size: 14,
             color: AppTheme.warning,
           ),
-          const SizedBox(width: 8),
           Text(
             '${part.files.length} file(s) patched',
             style: const TextStyle(color: AppTheme.textSecondary, fontSize: 11),
@@ -416,19 +422,23 @@ class MessagePartsWidget extends StatelessWidget {
 
   Widget _buildAgentPart(AgentPart part) {
     return Container(
+      width: double.infinity,
       margin: const EdgeInsets.only(bottom: 4),
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
         border: Border.all(color: AppTheme.info.withValues(alpha: 0.3)),
       ),
       child: Row(
-        mainAxisSize: MainAxisSize.min,
         children: [
           const Icon(Icons.smart_toy, size: 12, color: AppTheme.info),
           const SizedBox(width: 6),
-          Text(
-            'Agent: ${part.name}',
-            style: const TextStyle(color: AppTheme.info, fontSize: 10),
+          Flexible(
+            child: Text(
+              'Agent: ${part.name}',
+              style: const TextStyle(color: AppTheme.info, fontSize: 10),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
           ),
         ],
       ),
@@ -437,6 +447,7 @@ class MessagePartsWidget extends StatelessWidget {
 
   Widget _buildRetryPart(RetryPart part) {
     return Container(
+      width: double.infinity,
       margin: const EdgeInsets.only(bottom: 4),
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
@@ -471,6 +482,7 @@ class MessagePartsWidget extends StatelessWidget {
 
   Widget _buildSubtaskPart(SubtaskPart part) {
     return Container(
+      width: double.infinity,
       margin: const EdgeInsets.only(bottom: 4),
       padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
@@ -480,10 +492,12 @@ class MessagePartsWidget extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
+          Wrap(
+            spacing: 6,
+            runSpacing: 4,
+            crossAxisAlignment: WrapCrossAlignment.center,
             children: [
               const Icon(Icons.account_tree, size: 14, color: AppTheme.info),
-              const SizedBox(width: 6),
               Text(
                 'Subtask: ${part.agent}',
                 style: const TextStyle(

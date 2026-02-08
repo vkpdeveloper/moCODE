@@ -28,6 +28,12 @@ class ChatInput extends ConsumerStatefulWidget {
 
   @override
   ConsumerState<ChatInput> createState() => _ChatInputState();
+
+  static void appendText(BuildContext context, String text) {
+    final state = context.findAncestorStateOfType<_ChatInputState>();
+    if (state == null) return;
+    state._appendText(text);
+  }
 }
 
 class _ChatInputState extends ConsumerState<ChatInput> {
@@ -203,6 +209,27 @@ class _ChatInputState extends ConsumerState<ChatInput> {
     setState(() {
       _attachedFiles.clear();
     });
+  }
+
+  void _appendText(String text) {
+    if (text.isEmpty) return;
+    final selection = _controller.selection;
+    final base = selection.baseOffset < 0
+        ? _controller.text.length
+        : selection.baseOffset;
+    final extent = selection.extentOffset < 0
+        ? _controller.text.length
+        : selection.extentOffset;
+    final start = base < extent ? base : extent;
+    final end = base < extent ? extent : base;
+    final current = _controller.text;
+    final before = current.substring(0, start);
+    final after = current.substring(end);
+    final next = '$before$text$after';
+    _controller.text = next;
+    final cursor = (before + text).length;
+    _controller.selection = TextSelection.collapsed(offset: cursor);
+    _focusNode.requestFocus();
   }
 
   void _removeFile(int index) {

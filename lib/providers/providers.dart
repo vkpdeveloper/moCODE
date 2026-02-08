@@ -12,6 +12,9 @@ import '../services/project_service.dart';
 import '../services/provider_service.dart';
 import '../services/event_service.dart';
 import '../services/preferences_service.dart';
+import '../services/permission_service.dart';
+import '../services/session_diff_service.dart';
+import '../services/todo_service.dart';
 
 // ---------------------------------------------------------------------------
 // Settings
@@ -113,6 +116,18 @@ final eventServiceProvider = Provider<EventService>((ref) {
   return EventService(ref.watch(apiClientProvider));
 });
 
+final permissionServiceProvider = Provider<PermissionService>((ref) {
+  return PermissionService(ref.watch(apiClientProvider));
+});
+
+final sessionDiffServiceProvider = Provider<SessionDiffService>((ref) {
+  return SessionDiffService(ref.watch(apiClientProvider));
+});
+
+final todoServiceProvider = Provider<TodoService>((ref) {
+  return TodoService(ref.watch(apiClientProvider));
+});
+
 final preferencesServiceProvider = Provider<PreferencesService>((ref) {
   return PreferencesService();
 });
@@ -139,6 +154,323 @@ final sessionsProvider = FutureProvider<List<Session>>((ref) {
 });
 
 final selectedSessionProvider = StateProvider<Session?>((ref) => null);
+
+// ---------------------------------------------------------------------------
+// Session Status
+// ---------------------------------------------------------------------------
+
+final sessionStatusProvider = StreamProvider<Map<String, dynamic>>((
+  ref,
+) async* {
+  final sessionService = ref.watch(sessionServiceProvider);
+  final project = ref.watch(selectedProjectProvider);
+  var disposed = false;
+  ref.onDispose(() => disposed = true);
+  while (!disposed) {
+    try {
+      final status = await sessionService.getSessionStatus(
+        directory: project?.worktree,
+      );
+      yield status;
+    } catch (_) {
+      // ignore status polling errors
+    }
+    await Future.delayed(const Duration(seconds: 4));
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Session Diff
+// ---------------------------------------------------------------------------
+
+class SessionDiffState {
+  final String? sessionID;
+  final List<FileDiff> diffs;
+  final bool isLoading;
+  final String? error;
+
+  const SessionDiffState({
+    this.sessionID,
+    this.diffs = const [],
+    this.isLoading = false,
+    this.error,
+  });
+
+  SessionDiffState copyWith({
+    String? sessionID,
+    List<FileDiff>? diffs,
+    bool? isLoading,
+    String? error,
+  }) {
+    return SessionDiffState(
+      sessionID: sessionID ?? this.sessionID,
+      diffs: diffs ?? this.diffs,
+      isLoading: isLoading ?? this.isLoading,
+      error: error,
+    );
+  }
+}
+
+class SessionDiffNotifier extends StateNotifier<SessionDiffState> {
+  final SessionDiffService _sessionDiffService;
+
+  SessionDiffNotifier(this._sessionDiffService)
+    : super(const SessionDiffState());
+
+  Future<void> loadDiff(
+    String sessionID, {
+    String? directory,
+    String? messageID,
+  }) async {
+    state = state.copyWith(sessionID: sessionID, isLoading: true, error: null);
+    try {
+      final diffs = await _sessionDiffService.getDiff(
+        sessionID,
+        directory: directory,
+        messageID: messageID,
+      );
+      state = state.copyWith(
+        sessionID: sessionID,
+        diffs: diffs,
+        isLoading: false,
+      );
+    } catch (e) {
+      state = state.copyWith(
+        sessionID: sessionID,
+        isLoading: false,
+        error: e.toString(),
+      );
+    }
+  }
+
+  void setDiff(String sessionID, List<FileDiff> diffs) {
+    state = state.copyWith(
+      sessionID: sessionID,
+      diffs: diffs,
+      isLoading: false,
+      error: null,
+    );
+  }
+
+  void clear() {
+    state = const SessionDiffState();
+  }
+}
+
+final sessionDiffProvider =
+    StateNotifierProvider<SessionDiffNotifier, SessionDiffState>((ref) {
+      return SessionDiffNotifier(ref.watch(sessionDiffServiceProvider));
+    });
+
+// ---------------------------------------------------------------------------
+// Todos
+// ---------------------------------------------------------------------------
+
+class TodosState {
+  final String? sessionID;
+  final List<Todo> todos;
+  final bool isLoading;
+  final String? error;
+
+  const TodosState({
+    this.sessionID,
+    this.todos = const [],
+    this.isLoading = false,
+    this.error,
+  });
+
+  TodosState copyWith({
+    String? sessionID,
+    List<Todo>? todos,
+    bool? isLoading,
+    String? error,
+  }) {
+    return TodosState(
+      sessionID: sessionID ?? this.sessionID,
+      todos: todos ?? this.todos,
+      isLoading: isLoading ?? this.isLoading,
+      error: error,
+    );
+  }
+}
+
+class TodosNotifier extends StateNotifier<TodosState> {
+  final TodoService _todoService;
+
+  TodosNotifier(this._todoService) : super(const TodosState());
+
+  Future<void> loadTodos(String sessionID, {String? directory}) async {
+    state = state.copyWith(sessionID: sessionID, isLoading: true, error: null);
+    try {
+      final todos = await _todoService.getTodos(
+        sessionID,
+        directory: directory,
+      );
+      state = state.copyWith(
+        sessionID: sessionID,
+        todos: todos,
+        isLoading: false,
+      );
+    } catch (e) {
+      state = state.copyWith(
+        sessionID: sessionID,
+        isLoading: false,
+        error: e.toString(),
+      );
+    }
+  }
+
+  void setTodos(String sessionID, List<Todo> todos) {
+    state = state.copyWith(
+      sessionID: sessionID,
+      todos: todos,
+      isLoading: false,
+      error: null,
+    );
+  }
+
+  void clear() {
+    state = const TodosState();
+  }
+}
+
+final todosProvider = StateNotifierProvider<TodosNotifier, TodosState>((ref) {
+  return TodosNotifier(ref.watch(todoServiceProvider));
+});
+
+// ---------------------------------------------------------------------------
+// Edited Files
+// ---------------------------------------------------------------------------
+
+class EditedFilesNotifier extends StateNotifier<List<EditedFileEntry>> {
+  EditedFilesNotifier() : super(const []);
+
+  void record(String path, {String? kind, int? timestamp}) {
+    final now = timestamp ?? DateTime.now().millisecondsSinceEpoch;
+    final index = state.indexWhere((entry) => entry.path == path);
+    if (index == -1) {
+      state = [
+        EditedFileEntry(path: path, updatedAt: now, kind: kind),
+        ...state,
+      ];
+      return;
+    }
+    final updated = state[index].copyWith(
+      updatedAt: now,
+      kind: kind ?? state[index].kind,
+    );
+    final next = List<EditedFileEntry>.from(state);
+    next
+      ..removeAt(index)
+      ..insert(0, updated);
+    state = next;
+  }
+
+  void clear() {
+    state = const [];
+  }
+}
+
+final editedFilesProvider =
+    StateNotifierProvider<EditedFilesNotifier, List<EditedFileEntry>>((ref) {
+      return EditedFilesNotifier();
+    });
+
+// ---------------------------------------------------------------------------
+// Pty Sessions
+// ---------------------------------------------------------------------------
+
+class PtyState {
+  final Map<String, PtyInfo> items;
+
+  const PtyState({this.items = const {}});
+
+  PtyState copyWith({Map<String, PtyInfo>? items}) {
+    return PtyState(items: items ?? this.items);
+  }
+}
+
+class PtyNotifier extends StateNotifier<PtyState> {
+  PtyNotifier() : super(const PtyState());
+
+  void upsert(PtyInfo info) {
+    final next = Map<String, PtyInfo>.from(state.items);
+    next[info.id] = info;
+    state = state.copyWith(items: next);
+  }
+
+  void updateExit(String id, int exitCode) {
+    final existing = state.items[id];
+    if (existing == null) return;
+    upsert(existing.copyWith(status: 'exited', exitCode: exitCode));
+  }
+
+  void remove(String id) {
+    if (!state.items.containsKey(id)) return;
+    final next = Map<String, PtyInfo>.from(state.items);
+    next.remove(id);
+    state = state.copyWith(items: next);
+  }
+
+  void clear() {
+    state = const PtyState();
+  }
+}
+
+final ptyProvider = StateNotifierProvider<PtyNotifier, PtyState>((ref) {
+  return PtyNotifier();
+});
+
+// ---------------------------------------------------------------------------
+// Session Error
+// ---------------------------------------------------------------------------
+
+class SessionErrorState {
+  final String? sessionID;
+  final String? message;
+  final String? name;
+
+  const SessionErrorState({this.sessionID, this.message, this.name});
+
+  SessionErrorState copyWith({
+    String? sessionID,
+    String? message,
+    String? name,
+  }) {
+    return SessionErrorState(
+      sessionID: sessionID ?? this.sessionID,
+      message: message ?? this.message,
+      name: name ?? this.name,
+    );
+  }
+}
+
+class SessionErrorNotifier extends StateNotifier<SessionErrorState> {
+  SessionErrorNotifier() : super(const SessionErrorState());
+
+  void setError({String? sessionID, String? message, String? name}) {
+    state = SessionErrorState(
+      sessionID: sessionID,
+      message: message,
+      name: name,
+    );
+  }
+
+  void clear() {
+    state = const SessionErrorState();
+  }
+}
+
+final sessionErrorProvider =
+    StateNotifierProvider<SessionErrorNotifier, SessionErrorState>((ref) {
+      return SessionErrorNotifier();
+    });
+
+// ---------------------------------------------------------------------------
+// VCS Branch
+// ---------------------------------------------------------------------------
+
+final vcsBranchProvider = StateProvider<String?>((ref) => null);
 
 // ---------------------------------------------------------------------------
 // Messages
@@ -221,6 +553,11 @@ class DefaultModelNotifier extends StateNotifier<Map<String, String>?> {
     await _preferencesService.saveDefaultModel(providerId, modelId);
     state = {'providerID': providerId, 'modelID': modelId};
   }
+
+  Future<void> clearModel() async {
+    await _preferencesService.clearDefaultModel();
+    state = null;
+  }
 }
 
 final defaultModelProvider =
@@ -228,41 +565,80 @@ final defaultModelProvider =
       return DefaultModelNotifier(ref.watch(preferencesServiceProvider));
     });
 
+class ProjectModelState {
+  final Map<String, String>? model;
+  final bool isLoading;
+  final String? projectId;
+
+  const ProjectModelState({
+    required this.model,
+    this.isLoading = false,
+    this.projectId,
+  });
+}
+
+class ProjectModelNotifier extends StateNotifier<ProjectModelState> {
+  final PreferencesService _preferencesService;
+
+  ProjectModelNotifier(this._preferencesService)
+    : super(const ProjectModelState(model: null, isLoading: true));
+
+  Future<void> load(String projectId) async {
+    state = ProjectModelState(
+      model: null,
+      isLoading: true,
+      projectId: projectId,
+    );
+    final model = await _preferencesService.getProjectModel(projectId);
+    state = ProjectModelState(
+      model: model,
+      isLoading: false,
+      projectId: projectId,
+    );
+  }
+
+  Future<void> setModel(
+    String projectId,
+    String providerId,
+    String modelId,
+  ) async {
+    await _preferencesService.saveProjectModel(projectId, providerId, modelId);
+    state = ProjectModelState(
+      model: {'providerID': providerId, 'modelID': modelId},
+      isLoading: false,
+      projectId: projectId,
+    );
+  }
+
+  Future<void> clearModel(String projectId) async {
+    await _preferencesService.clearProjectModel(projectId);
+    state = ProjectModelState(
+      model: null,
+      isLoading: false,
+      projectId: projectId,
+    );
+  }
+}
+
+final projectModelProvider =
+    StateNotifierProvider<ProjectModelNotifier, ProjectModelState>((ref) {
+      return ProjectModelNotifier(ref.watch(preferencesServiceProvider));
+    });
+
 final activeModelProvider = Provider<Map<String, String>?>((ref) {
   // 1. Session specific model (if set in current session view)
   final selected = ref.watch(selectedModelProvider);
   if (selected != null) return selected;
 
-  // 2. User default model (persisted)
+  // 2. Project default model (persisted)
+  final projectModel = ref.watch(projectModelProvider).model;
+  if (projectModel != null) return projectModel;
+
+  // 3. User default model (persisted)
   final defaultModel = ref.watch(defaultModelProvider);
   if (defaultModel != null) return defaultModel;
 
-  // 3. System default from server
-  final providersAsync = ref.watch(providersListProvider);
-  return providersAsync.whenOrNull(
-    data: (providerList) {
-      final defaults = providerList.defaults;
-      final defaultModelStr =
-          defaults['default'] ?? defaults.values.firstOrNull;
-      if (defaultModelStr == null) return null;
-
-      final parts = defaultModelStr.split('/');
-      if (parts.length >= 2) {
-        return {'providerID': parts[0], 'modelID': parts.sublist(1).join('/')};
-      }
-      return null;
-    },
-  );
-});
-
-// ---------------------------------------------------------------------------
-// Session Status
-// ---------------------------------------------------------------------------
-
-final sessionStatusProvider = FutureProvider<Map<String, dynamic>>((ref) {
-  final project = ref.watch(selectedProjectProvider);
-  final sessionService = ref.watch(sessionServiceProvider);
-  return sessionService.getSessionStatus(directory: project?.worktree);
+  return null;
 });
 
 // ---------------------------------------------------------------------------
