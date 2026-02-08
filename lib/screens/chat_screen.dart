@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 
 import '../models/message.dart';
 import '../models/permission_request.dart';
+import '../models/question_request.dart';
 import '../models/session.dart';
 import '../models/todo.dart';
 import '../models/pty.dart';
@@ -34,6 +35,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   ProviderSubscription<String>? _sessionModeSub;
   bool _isBusy = false;
   bool _permissionDialogVisible = false;
+  bool _questionDialogVisible = false;
   List<MessageWrapper> _cachedMessages = const [];
   String? _cachedSessionId;
   bool _hasLoadedMessages = false;
@@ -53,6 +55,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     _scrollController.addListener(_onScroll);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _loadPendingPermissions();
+      _loadPendingQuestions();
     });
   }
 
@@ -100,6 +103,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         } else if (type == 'permission.updated' ||
             type == 'permission.replied') {
           _handlePermissionUpdated(event['properties']);
+        } else if (type == 'question.asked') {
+          final props = event['properties'];
+          if (props is Map<String, dynamic>) {
+            _handleQuestionAsked(props);
+          }
+        } else if (type == 'question.replied' || type == 'question.rejected') {
+          _handleQuestionUpdated(event['properties']);
         } else if (type == 'session.updated') {
           ref.invalidate(sessionsProvider);
           final session = ref.read(selectedSessionProvider);
@@ -192,6 +202,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         _loadSessionModel(next.id);
         _loadSessionMode(next.id);
         _loadPendingPermissions();
+        _loadPendingQuestions();
         _loadTodos(next);
         _loadSessionDiff(next);
         _loadVcsBranch(next);
@@ -407,6 +418,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       _cachedMessages = const [];
       _hasLoadedMessages = false;
       _permissionDialogVisible = false;
+      _questionDialogVisible = false;
     });
     _modelSyncSessionId = sessionId;
     _didSyncModelFromMessages = false;
@@ -433,6 +445,27 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     }
   }
 
+  Future<void> _loadPendingQuestions() async {
+    final project = ref.read(selectedProjectProvider);
+    final session = ref.read(selectedSessionProvider);
+    if (project == null || session == null) return;
+    if (_questionDialogVisible) return;
+    try {
+      final questionService = ref.read(questionServiceProvider);
+      final pending = await questionService.listPending(
+        directory: project.worktree,
+      );
+      if (!mounted || pending.isEmpty) return;
+      final matches = pending
+          .where((request) => request.sessionID == session.id)
+          .toList();
+      if (matches.isEmpty) return;
+      await _showQuestionDialog(matches.first);
+    } catch (_) {
+      // ignore question polling failures
+    }
+  }
+
   void _handlePermissionAsked(Map<String, dynamic> props) {
     final session = ref.read(selectedSessionProvider);
     if (session == null) return;
@@ -447,6 +480,22 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     if (session == null) return;
     if (props['sessionID'] != session.id) return;
     _loadPendingPermissions();
+  }
+
+  void _handleQuestionAsked(Map<String, dynamic> props) {
+    final session = ref.read(selectedSessionProvider);
+    if (session == null) return;
+    if (_questionDialogVisible) return;
+    if (props['sessionID'] != session.id) return;
+    _showQuestionDialog(QuestionRequest.fromJson(props));
+  }
+
+  void _handleQuestionUpdated(dynamic props) {
+    if (props is! Map<String, dynamic>) return;
+    final session = ref.read(selectedSessionProvider);
+    if (session == null) return;
+    if (props['sessionID'] != session.id) return;
+    _loadPendingQuestions();
   }
 
   String _formatPermissionTitle(PermissionRequest request) {
@@ -491,6 +540,71 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           context,
         ).showSnackBar(SnackBar(content: Text('Permission failed: $e')));
       }
+    }
+  }
+
+  Future<void> _respondToQuestion(
+    QuestionRequest request,
+    List<List<String>> answers,
+  ) async {
+    final project = ref.read(selectedProjectProvider);
+    if (project == null) return;
+    try {
+      final questionService = ref.read(questionServiceProvider);
+      await questionService.reply(
+        request.id,
+        answers: answers,
+        directory: project.worktree,
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Question reply failed: $e')));
+      }
+    }
+  }
+
+  Future<void> _rejectQuestion(QuestionRequest request) async {
+    final project = ref.read(selectedProjectProvider);
+    if (project == null) return;
+    try {
+      final questionService = ref.read(questionServiceProvider);
+      await questionService.reject(request.id, directory: project.worktree);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Question reject failed: $e')));
+      }
+    }
+  }
+
+  Future<void> _showQuestionDialog(QuestionRequest request) async {
+    if (!mounted) return;
+    _questionDialogVisible = true;
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) {
+        return _QuestionDialog(
+          request: request,
+          onSubmit: (answers) async {
+            Navigator.of(context).pop();
+            await _respondToQuestion(request, answers);
+          },
+          onReject: () async {
+            Navigator.of(context).pop();
+            await _rejectQuestion(request);
+          },
+        );
+      },
+    );
+    if (mounted) {
+      setState(() {
+        _questionDialogVisible = false;
+      });
+      _loadPendingQuestions();
     }
   }
 
@@ -1681,6 +1795,287 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             ),
           ],
         ],
+      ),
+    );
+  }
+}
+
+class _QuestionDialog extends StatefulWidget {
+  final QuestionRequest request;
+  final Future<void> Function(List<List<String>> answers) onSubmit;
+  final Future<void> Function() onReject;
+
+  const _QuestionDialog({
+    required this.request,
+    required this.onSubmit,
+    required this.onReject,
+  });
+
+  @override
+  State<_QuestionDialog> createState() => _QuestionDialogState();
+}
+
+class _QuestionDialogState extends State<_QuestionDialog> {
+  late List<List<String>> _answers;
+  late List<String?> _customAnswers;
+  bool _isSubmitting = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _answers = widget.request.questions.map((_) => <String>[]).toList();
+    _customAnswers = widget.request.questions.map((_) => null).toList();
+  }
+
+  bool _isMultiple(QuestionInfo question) => question.multiple ?? false;
+
+  bool _allowsCustom(QuestionInfo question) => question.custom ?? true;
+
+  void _toggleSelection(int index, String label) {
+    final question = widget.request.questions[index];
+    final current = List<String>.from(_answers[index]);
+    if (_isMultiple(question)) {
+      if (current.contains(label)) {
+        current.remove(label);
+      } else {
+        current.add(label);
+      }
+    } else {
+      current
+        ..clear()
+        ..add(label);
+    }
+    setState(() {
+      _answers[index] = current;
+      if (!_allowsCustom(question)) return;
+      if (current.isNotEmpty && _customAnswers[index]?.isNotEmpty == true) {
+        _customAnswers[index] = null;
+      }
+    });
+  }
+
+  void _setCustomAnswer(int index, String value) {
+    setState(() {
+      _customAnswers[index] = value.trim().isEmpty ? null : value.trim();
+      if (_customAnswers[index] != null && _answers[index].isNotEmpty) {
+        _answers[index] = [];
+      }
+    });
+  }
+
+  bool _canSubmit() {
+    for (var i = 0; i < widget.request.questions.length; i++) {
+      final hasChoice = _answers[i].isNotEmpty;
+      final hasCustom = _customAnswers[i] != null;
+      if (!hasChoice && !hasCustom) return false;
+    }
+    return true;
+  }
+
+  List<List<String>> _buildAnswers() {
+    return List<List<String>>.generate(widget.request.questions.length, (i) {
+      final custom = _customAnswers[i];
+      if (custom != null && custom.isNotEmpty) {
+        return [custom];
+      }
+      return List<String>.from(_answers[i]);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      insetPadding: const EdgeInsets.symmetric(horizontal: 18),
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: AppTheme.surface,
+          border: Border.all(color: AppTheme.border),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Questions',
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.bold,
+                color: AppTheme.textPrimary,
+              ),
+            ),
+            const SizedBox(height: 12),
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxHeight: 320),
+              child: SingleChildScrollView(
+                child: Column(
+                  children: List.generate(widget.request.questions.length, (i) {
+                    final question = widget.request.questions[i];
+                    final allowCustom = _allowsCustom(question);
+                    return Padding(
+                      padding: EdgeInsets.only(
+                        bottom: i == widget.request.questions.length - 1
+                            ? 0
+                            : 16,
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            question.header,
+                            style: const TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: AppTheme.textPrimary,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            question.question,
+                            style: const TextStyle(
+                              fontSize: 11,
+                              color: AppTheme.textSecondary,
+                              height: 1.3,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Column(
+                            children: question.options.map((option) {
+                              final isSelected = _answers[i].contains(
+                                option.label,
+                              );
+                              return InkWell(
+                                onTap: () => _toggleSelection(i, option.label),
+                                child: Container(
+                                  width: double.infinity,
+                                  margin: const EdgeInsets.only(bottom: 6),
+                                  padding: const EdgeInsets.all(8),
+                                  decoration: BoxDecoration(
+                                    color: isSelected
+                                        ? AppTheme.accent.withValues(
+                                            alpha: 0.12,
+                                          )
+                                        : AppTheme.surface,
+                                    border: Border.all(
+                                      color: isSelected
+                                          ? AppTheme.accent
+                                          : AppTheme.border,
+                                    ),
+                                  ),
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        option.label,
+                                        style: TextStyle(
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.w600,
+                                          color: isSelected
+                                              ? AppTheme.accent
+                                              : AppTheme.textPrimary,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 2),
+                                      Text(
+                                        option.description,
+                                        style: const TextStyle(
+                                          fontSize: 10,
+                                          color: AppTheme.textTertiary,
+                                          height: 1.3,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              );
+                            }).toList(),
+                          ),
+                          if (allowCustom) ...[
+                            const SizedBox(height: 6),
+                            TextField(
+                              onChanged: (value) => _setCustomAnswer(i, value),
+                              style: const TextStyle(
+                                fontSize: 11,
+                                color: AppTheme.textPrimary,
+                              ),
+                              decoration: InputDecoration(
+                                hintText: 'Type your own answer',
+                                hintStyle: const TextStyle(
+                                  fontSize: 11,
+                                  color: AppTheme.textTertiary,
+                                ),
+                                isDense: true,
+                                contentPadding: const EdgeInsets.symmetric(
+                                  horizontal: 10,
+                                  vertical: 8,
+                                ),
+                                border: OutlineInputBorder(
+                                  borderSide: const BorderSide(
+                                    color: AppTheme.border,
+                                  ),
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                                enabledBorder: OutlineInputBorder(
+                                  borderSide: const BorderSide(
+                                    color: AppTheme.border,
+                                  ),
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                                focusedBorder: OutlineInputBorder(
+                                  borderSide: const BorderSide(
+                                    color: AppTheme.accent,
+                                  ),
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    );
+                  }),
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: _isSubmitting
+                        ? null
+                        : () async {
+                            setState(() => _isSubmitting = true);
+                            await widget.onReject();
+                          },
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: AppTheme.error,
+                      side: const BorderSide(color: AppTheme.error),
+                    ),
+                    child: const Text('REJECT', style: TextStyle(fontSize: 11)),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: ElevatedButton(
+                    onPressed: _isSubmitting || !_canSubmit()
+                        ? null
+                        : () async {
+                            setState(() => _isSubmitting = true);
+                            await widget.onSubmit(_buildAnswers());
+                          },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppTheme.accent,
+                      foregroundColor: AppTheme.textPrimary,
+                    ),
+                    child: const Text('SUBMIT', style: TextStyle(fontSize: 11)),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }

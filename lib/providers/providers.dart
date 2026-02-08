@@ -13,6 +13,7 @@ import '../services/provider_service.dart';
 import '../services/event_service.dart';
 import '../services/preferences_service.dart';
 import '../services/permission_service.dart';
+import '../services/question_service.dart';
 import '../services/session_diff_service.dart';
 import '../services/todo_service.dart';
 
@@ -118,6 +119,10 @@ final eventServiceProvider = Provider<EventService>((ref) {
 
 final permissionServiceProvider = Provider<PermissionService>((ref) {
   return PermissionService(ref.watch(apiClientProvider));
+});
+
+final questionServiceProvider = Provider<QuestionService>((ref) {
+  return QuestionService(ref.watch(apiClientProvider));
 });
 
 final sessionDiffServiceProvider = Provider<SessionDiffService>((ref) {

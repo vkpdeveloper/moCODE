@@ -7,6 +7,7 @@ export 'edited_file.dart';
 export 'message.dart';
 export 'part.dart';
 export 'permission_request.dart';
+export 'question_request.dart';
 export 'project.dart';
 export 'provider_model.dart';
 export 'session.dart';
