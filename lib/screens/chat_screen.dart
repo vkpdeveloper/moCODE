@@ -29,8 +29,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   void initState() {
     super.initState();
     _subscribeToEvents();
-    _listenToSessionChanges();
-    _listenToMessageUpdates();
   }
 
   @override
@@ -240,6 +238,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final session = ref.watch(selectedSessionProvider);
     final messagesAsync = ref.watch(messagesProvider);
     final mode = ref.watch(sessionModeProvider);
+
+    _listenToSessionChanges();
+    _listenToMessageUpdates();
 
     if (session == null) {
       return Scaffold(
