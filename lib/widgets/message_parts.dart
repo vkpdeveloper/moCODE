@@ -4,6 +4,7 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../models/part.dart';
 import '../theme/app_theme.dart';
+import '../constants/file_icons.dart';
 
 class MessagePartsWidget extends StatelessWidget {
   final List<Part> parts;
@@ -360,8 +361,8 @@ class MessagePartsWidget extends StatelessWidget {
       ),
       child: Row(
         children: [
-          const Icon(
-            Icons.insert_drive_file_outlined,
+          Icon(
+            getIconForExtension((part.filename ?? part.url).split('.').last),
             size: 16,
             color: AppTheme.info,
           ),

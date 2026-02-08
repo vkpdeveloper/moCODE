@@ -1,4 +1,5 @@
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 
 import '../models/session.dart';
 import 'api_client.dart';
@@ -10,25 +11,39 @@ class SessionService {
 
   Future<List<Session>> listSessions({
     String? directory,
-    bool? roots,
+    bool roots = true,
     int? start,
     String? search,
-    int? limit,
+    int limit = 55,
   }) async {
     try {
       final response = await _apiClient.dio.get(
         '/session',
         queryParameters: {
-          'directory': ?directory,
-          'roots': ?roots,
-          'start': ?start,
-          'search': ?search,
-          'limit': ?limit,
+          'directory': directory,
+          'roots': roots,
+          'start': start,
+          'search': search,
+          'limit': limit,
         },
       );
+      debugPrint(
+        '[SessionService] listSessions raw response type: ${response.data.runtimeType}',
+      );
       final data = response.data as List;
+      debugPrint('[SessionService] Received ${data.length} sessions');
       return data
-          .map((item) => Session.fromJson(item as Map<String, dynamic>))
+          .map((item) {
+            try {
+              return Session.fromJson(item as Map<String, dynamic>);
+            } catch (e) {
+              debugPrint(
+                '[SessionService] Failed to parse session: $e\nRaw: $item',
+              );
+              return null;
+            }
+          })
+          .whereType<Session>()
           .toList();
     } on DioException {
       rethrow;
@@ -41,15 +56,14 @@ class SessionService {
     String? directory,
   }) async {
     try {
+      final data = <String, dynamic>{};
+      if (parentID != null) data['parentID'] = parentID;
+      if (title != null) data['title'] = title;
+
       final response = await _apiClient.dio.post(
         '/session',
-        data: {
-          'parentID': ?parentID,
-          'title': ?title,
-        },
-        queryParameters: {
-          'directory': ?directory,
-        },
+        data: data,
+        queryParameters: {'directory': directory},
       );
       return Session.fromJson(response.data as Map<String, dynamic>);
     } on DioException {
@@ -61,9 +75,7 @@ class SessionService {
     try {
       final response = await _apiClient.dio.get(
         '/session/status',
-        queryParameters: {
-          'directory': ?directory,
-        },
+        queryParameters: {'directory': directory},
       );
       return response.data as Map<String, dynamic>;
     } on DioException {
@@ -75,9 +87,7 @@ class SessionService {
     try {
       final response = await _apiClient.dio.get(
         '/session/$sessionID',
-        queryParameters: {
-          'directory': ?directory,
-        },
+        queryParameters: {'directory': directory},
       );
       return Session.fromJson(response.data as Map<String, dynamic>);
     } on DioException {
@@ -89,9 +99,7 @@ class SessionService {
     try {
       await _apiClient.dio.delete(
         '/session/$sessionID',
-        queryParameters: {
-          'directory': ?directory,
-        },
+        queryParameters: {'directory': directory},
       );
       return true;
     } on DioException {
@@ -108,13 +116,8 @@ class SessionService {
     try {
       final response = await _apiClient.dio.patch(
         '/session/$sessionID',
-        data: {
-          'title': ?title,
-          'archived': ?archived,
-        },
-        queryParameters: {
-          'directory': ?directory,
-        },
+        data: {'title': title, 'archived': archived},
+        queryParameters: {'directory': directory},
       );
       return Session.fromJson(response.data as Map<String, dynamic>);
     } on DioException {
@@ -129,13 +132,21 @@ class SessionService {
     try {
       final response = await _apiClient.dio.get(
         '/session/$sessionID/children',
-        queryParameters: {
-          'directory': ?directory,
-        },
+        queryParameters: {'directory': directory},
       );
       final data = response.data as List;
       return data
-          .map((item) => Session.fromJson(item as Map<String, dynamic>))
+          .map((item) {
+            try {
+              return Session.fromJson(item as Map<String, dynamic>);
+            } catch (e) {
+              debugPrint(
+                '[SessionService] Failed to parse child session: $e\nRaw: $item',
+              );
+              return null;
+            }
+          })
+          .whereType<Session>()
           .toList();
     } on DioException {
       rethrow;
@@ -150,12 +161,8 @@ class SessionService {
     try {
       final response = await _apiClient.dio.post(
         '/session/$sessionID/fork',
-        data: {
-          'messageID': ?messageID,
-        },
-        queryParameters: {
-          'directory': ?directory,
-        },
+        data: {'messageID': ?messageID},
+        queryParameters: {'directory': ?directory},
       );
       return Session.fromJson(response.data as Map<String, dynamic>);
     } on DioException {
@@ -167,9 +174,7 @@ class SessionService {
     try {
       await _apiClient.dio.post(
         '/session/$sessionID/abort',
-        queryParameters: {
-          'directory': ?directory,
-        },
+        queryParameters: {'directory': ?directory},
       );
       return true;
     } on DioException {
@@ -181,9 +186,7 @@ class SessionService {
     try {
       final response = await _apiClient.dio.post(
         '/session/$sessionID/share',
-        queryParameters: {
-          'directory': ?directory,
-        },
+        queryParameters: {'directory': ?directory},
       );
       return Session.fromJson(response.data as Map<String, dynamic>);
     } on DioException {
@@ -195,9 +198,7 @@ class SessionService {
     try {
       final response = await _apiClient.dio.delete(
         '/session/$sessionID/share',
-        queryParameters: {
-          'directory': ?directory,
-        },
+        queryParameters: {'directory': ?directory},
       );
       return Session.fromJson(response.data as Map<String, dynamic>);
     } on DioException {
@@ -215,14 +216,8 @@ class SessionService {
     try {
       await _apiClient.dio.post(
         '/session/$sessionID/summarize',
-        data: {
-          'providerID': providerID,
-          'modelID': modelID,
-          'auto': ?auto_,
-        },
-        queryParameters: {
-          'directory': ?directory,
-        },
+        data: {'providerID': providerID, 'modelID': modelID, 'auto': ?auto_},
+        queryParameters: {'directory': ?directory},
       );
       return true;
     } on DioException {
@@ -239,13 +234,8 @@ class SessionService {
     try {
       final response = await _apiClient.dio.post(
         '/session/$sessionID/revert',
-        data: {
-          'messageID': messageID,
-          'partID': ?partID,
-        },
-        queryParameters: {
-          'directory': ?directory,
-        },
+        data: {'messageID': messageID, 'partID': ?partID},
+        queryParameters: {'directory': ?directory},
       );
       return Session.fromJson(response.data as Map<String, dynamic>);
     } on DioException {
@@ -253,16 +243,11 @@ class SessionService {
     }
   }
 
-  Future<Session> unrevertSession(
-    String sessionID, {
-    String? directory,
-  }) async {
+  Future<Session> unrevertSession(String sessionID, {String? directory}) async {
     try {
       final response = await _apiClient.dio.post(
         '/session/$sessionID/unrevert',
-        queryParameters: {
-          'directory': ?directory,
-        },
+        queryParameters: {'directory': ?directory},
       );
       return Session.fromJson(response.data as Map<String, dynamic>);
     } on DioException {

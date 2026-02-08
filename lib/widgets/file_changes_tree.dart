@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../models/file_diff.dart';
 import '../theme/app_theme.dart';
+import '../constants/file_icons.dart';
 
 class FileChangesTree extends StatelessWidget {
   final List<FileDiff> diffs;
@@ -147,8 +148,8 @@ class _FileRow extends StatelessWidget {
       padding: const EdgeInsets.symmetric(vertical: 6),
       child: Row(
         children: [
-          const Icon(
-            Icons.insert_drive_file,
+          Icon(
+            getIconForExtension(name.split('.').last),
             size: 14,
             color: AppTheme.textSecondary,
           ),

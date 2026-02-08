@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../providers/providers.dart';
 import '../theme/app_theme.dart';
+import '../constants/file_icons.dart';
 
 class ChatInput extends ConsumerStatefulWidget {
   final Future<void> Function(
@@ -280,8 +281,12 @@ class _ChatInputState extends ConsumerState<ChatInput> {
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            const Icon(
-                              Icons.insert_drive_file,
+                            Icon(
+                              getIconForExtension(
+                                (entry.value['filename'] as String? ?? 'file')
+                                    .split('.')
+                                    .last,
+                              ),
                               size: 12,
                               color: AppTheme.info,
                             ),
@@ -495,7 +500,7 @@ class _FileSearchList extends ConsumerWidget {
                 child: Row(
                   children: [
                     Icon(
-                      Icons.insert_drive_file_outlined,
+                      getIconForExtension(fileName.split('.').last),
                       size: 14,
                       color: Theme.of(context).colorScheme.primary,
                     ),

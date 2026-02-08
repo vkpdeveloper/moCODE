@@ -20,7 +20,7 @@ const Map<String, IconData> kFileExtensionIcons = {
   'scss': SimpleIcons.sass,
   'sass': SimpleIcons.sass,
   'less': SimpleIcons.less,
-  'java': SimpleIcons.java,
+  'java': Icons.coffee,
   'kt': SimpleIcons.kotlin,
   'kts': SimpleIcons.kotlin,
   'swift': SimpleIcons.swift,
@@ -28,7 +28,8 @@ const Map<String, IconData> kFileExtensionIcons = {
   'cpp': SimpleIcons.cplusplus,
   'h': SimpleIcons.c,
   'hpp': SimpleIcons.cplusplus,
-  'cs': SimpleIcons.csharp,
+  // 'cs': SimpleIcons.csharp, // csharp missing
+  'cs': Icons.code,
   'go': SimpleIcons.go,
   'rb': SimpleIcons.ruby,
   'php': SimpleIcons.php,
@@ -40,9 +41,12 @@ const Map<String, IconData> kFileExtensionIcons = {
   'sh': SimpleIcons.gnubash,
   'bash': SimpleIcons.gnubash,
   'zsh': SimpleIcons.gnubash,
-  'ps1': SimpleIcons.powershell,
-  'bat': SimpleIcons.windows,
-  'cmd': SimpleIcons.windows,
+  // 'ps1': SimpleIcons.powershell, // powershell missing
+  'ps1': Icons.terminal,
+  // 'bat': SimpleIcons.windows, // windows missing
+  'bat': Icons.window,
+  // 'cmd': SimpleIcons.windows,
+  'cmd': Icons.window,
 
   // Data & Config Formats
   'json': SimpleIcons.json,
@@ -51,7 +55,7 @@ const Map<String, IconData> kFileExtensionIcons = {
   'xml': Icons.code, // No specific SimpleIcon for XML, using generic code
   'toml': SimpleIcons.toml,
   'ini': Icons.settings_applications,
-  'env': Icons.settings,
+  'env': SimpleIcons.dotenv,
   'gradle': SimpleIcons.gradle,
   'gitignore': SimpleIcons.git,
   'dockerfile': SimpleIcons.docker,
@@ -62,13 +66,13 @@ const Map<String, IconData> kFileExtensionIcons = {
   // Documents
   'md': SimpleIcons.markdown,
   'markdown': SimpleIcons.markdown,
-  'pdf': SimpleIcons.adobeacrobatreader,
-  'doc': SimpleIcons.microsoftword,
-  'docx': SimpleIcons.microsoftword,
-  'xls': SimpleIcons.microsoftexcel,
-  'xlsx': SimpleIcons.microsoftexcel,
-  'ppt': SimpleIcons.microsoftpowerpoint,
-  'pptx': SimpleIcons.microsoftpowerpoint,
+  'pdf': Icons.picture_as_pdf, // SimpleIcons.adobeacrobatreader missing
+  'doc': Icons.description, // SimpleIcons.microsoftword missing
+  'docx': Icons.description,
+  'xls': Icons.table_chart, // SimpleIcons.microsoftexcel missing
+  'xlsx': Icons.table_chart,
+  'ppt': Icons.slideshow, // SimpleIcons.microsoftpowerpoint missing
+  'pptx': Icons.slideshow,
   'txt': Icons.description,
   'csv': Icons.grid_on,
 

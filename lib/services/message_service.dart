@@ -1,7 +1,15 @@
 import 'package:dio/dio.dart';
 
+import 'package:flutter/foundation.dart';
+
 import '../models/message.dart';
 import 'api_client.dart';
+
+List<MessageWrapper> _parseMessages(List<dynamic> data) {
+  return data
+      .map((item) => MessageWrapper.fromJson(item as Map<String, dynamic>))
+      .toList();
+}
 
 class MessageService {
   final ApiClient _apiClient;
@@ -16,15 +24,10 @@ class MessageService {
     try {
       final response = await _apiClient.dio.get(
         '/session/$sessionID/message',
-        queryParameters: {
-          'limit': ?limit,
-          'directory': ?directory,
-        },
+        queryParameters: {'limit': limit, 'directory': directory},
       );
       final data = response.data as List;
-      return data
-          .map((item) => MessageWrapper.fromJson(item as Map<String, dynamic>))
-          .toList();
+      return compute(_parseMessages, data);
     } on DioException {
       rethrow;
     }
@@ -38,9 +41,7 @@ class MessageService {
     try {
       final response = await _apiClient.dio.get(
         '/session/$sessionID/message/$messageID',
-        queryParameters: {
-          'directory': ?directory,
-        },
+        queryParameters: {'directory': ?directory},
       );
       return MessageWrapper.fromJson(response.data as Map<String, dynamic>);
     } on DioException {
@@ -55,14 +56,9 @@ class MessageService {
     String? agent,
     String? variant,
   }) {
-    final data = <String, dynamic>{
-      'parts': parts,
-    };
+    final data = <String, dynamic>{'parts': parts};
     if (providerID != null && modelID != null) {
-      data['model'] = {
-        'providerID': providerID,
-        'modelID': modelID,
-      };
+      data['model'] = {'providerID': providerID, 'modelID': modelID};
     }
     if (agent != null) data['agent'] = agent;
     if (variant != null) data['variant'] = variant;
@@ -88,9 +84,7 @@ class MessageService {
           agent: agent,
           variant: variant,
         ),
-        queryParameters: {
-          'directory': ?directory,
-        },
+        queryParameters: {'directory': ?directory},
         options: Options(receiveTimeout: Duration.zero),
       );
       return response.data as Map<String, dynamic>;
@@ -118,9 +112,7 @@ class MessageService {
           agent: agent,
           variant: variant,
         ),
-        queryParameters: {
-          'directory': ?directory,
-        },
+        queryParameters: {'directory': ?directory},
         options: Options(receiveTimeout: Duration.zero),
       );
     } on DioException {
@@ -147,9 +139,7 @@ class MessageService {
           'model': ?model,
           'variant': ?variant,
         },
-        queryParameters: {
-          'directory': ?directory,
-        },
+        queryParameters: {'directory': ?directory},
         options: Options(receiveTimeout: Duration.zero),
       );
       return response.data as Map<String, dynamic>;
