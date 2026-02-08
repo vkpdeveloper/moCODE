@@ -11,6 +11,7 @@ import '../models/session.dart';
 import '../models/todo.dart';
 import '../models/pty.dart';
 import '../models/file_diff.dart';
+import '../models/part.dart';
 import '../providers/providers.dart';
 import '../theme/app_theme.dart';
 import '../widgets/chat_input.dart';
@@ -27,11 +28,13 @@ class ChatScreen extends ConsumerStatefulWidget {
   ConsumerState<ChatScreen> createState() => _ChatScreenState();
 }
 
-class _ChatScreenState extends ConsumerState<ChatScreen> {
+class _ChatScreenState extends ConsumerState<ChatScreen>
+    with WidgetsBindingObserver {
   final ScrollController _scrollController = ScrollController();
   StreamSubscription<Map<String, dynamic>>? _eventSub;
   ProviderSubscription<Session?>? _sessionSub;
   ProviderSubscription<AsyncValue<List<MessageWrapper>>>? _messagesSub;
+  ProviderSubscription<AsyncValue<Map<String, dynamic>>>? _statusSub;
   ProviderSubscription<String>? _sessionModeSub;
   bool _isBusy = false;
   bool _permissionDialogVisible = false;
@@ -45,13 +48,24 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   bool _showScrollToBottom = false;
   bool _isUndoRedoInFlight = false;
   Timer? _refreshTimer;
+  final GlobalKey _chatInputKey = GlobalKey();
+  final List<MessageWrapper> _optimisticMessages = [];
+  int? _optimisticBaseCount;
+  String? _optimisticMessageId;
+  bool _isSyncing = false;
+  bool _syncMessagesReady = false;
+  bool _syncStatusReady = false;
+  Timer? _syncTimeout;
+  int _syncToken = 0;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _subscribeToEvents();
     _listenToSessionChanges();
     _listenToMessageUpdates();
+    _listenToStatusUpdates();
     _listenToSessionMode();
     _scrollController.addListener(_onScroll);
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -64,6 +78,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         }
       }
       if (current != null) {
+        _startSync();
         _handleSessionSelected(current);
       }
     });
@@ -72,13 +87,23 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   @override
   void dispose() {
     _refreshTimer?.cancel();
+    _syncTimeout?.cancel();
     _eventSub?.cancel();
     _sessionSub?.close();
     _messagesSub?.close();
+    _statusSub?.close();
     _sessionModeSub?.close();
     _scrollController.removeListener(_onScroll);
     _scrollController.dispose();
+    WidgetsBinding.instance.removeObserver(this);
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _startSync();
+    }
   }
 
   void _onScroll() {
@@ -239,6 +264,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
   void _handleSessionSelected(Session session) {
     _resetSessionState(session.id);
+    _startSync();
     ref.read(todosProvider.notifier).clear();
     ref.read(sessionErrorProvider.notifier).clear();
     ref.read(ptyProvider.notifier).clear();
@@ -286,6 +312,33 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     });
   }
 
+  void _listenToStatusUpdates() {
+    _statusSub = ref.listenManual<AsyncValue<Map<String, dynamic>>>(
+      sessionStatusProvider,
+      (prev, next) {
+        if (!mounted) return;
+        if (_isSyncing) {
+          _syncStatusReady = true;
+          _completeSyncIfReady();
+        }
+        final session = ref.read(selectedSessionProvider);
+        if (session == null) return;
+        final info = next.valueOrNull?[session.id];
+        String? statusType;
+        if (info is Map<String, dynamic>) {
+          statusType = info['type']?.toString();
+        } else if (info is String) {
+          statusType = info;
+        }
+        if (statusType != null && mounted) {
+          setState(() {
+            _isBusy = statusType != 'idle';
+          });
+        }
+      },
+    );
+  }
+
   void _listenToMessageUpdates() {
     _messagesSub = ref.listenManual<AsyncValue<List<MessageWrapper>>>(
       messagesProvider,
@@ -295,6 +348,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         if (session != null && nextMessages != null) {
           _updateCachedMessages(session.id, nextMessages);
           _syncSelectedModelFromMessages(session, nextMessages);
+        }
+
+        if (_isSyncing && nextMessages != null) {
+          _syncMessagesReady = true;
+          _completeSyncIfReady();
         }
 
         final prevLength = prev?.valueOrNull?.length ?? 0;
@@ -358,6 +416,15 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     }
   }
 
+  void _restoreDraft(String text, List<Map<String, dynamic>>? fileParts) {
+    if (!mounted) return;
+    ChatInput.restoreDraft(
+      _chatInputKey.currentContext ?? context,
+      text,
+      fileParts ?? const <Map<String, dynamic>>[],
+    );
+  }
+
   void _handleToastEvent(dynamic props) {
     if (!mounted) return;
     if (props is! Map<String, dynamic>) return;
@@ -377,6 +444,39 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         duration: Duration(milliseconds: durationMs ?? 2800),
       ),
     );
+  }
+
+  void _startSync() {
+    if (!mounted) return;
+    _syncToken++;
+    final token = _syncToken;
+    _syncTimeout?.cancel();
+    setState(() {
+      _isSyncing = true;
+      _syncMessagesReady = false;
+      _syncStatusReady = false;
+    });
+    ref.invalidate(messagesProvider);
+    ref.invalidate(sessionStatusProvider);
+    _syncTimeout = Timer(const Duration(seconds: 8), () {
+      if (!mounted || token != _syncToken) return;
+      setState(() {
+        _isSyncing = false;
+        _syncStatusReady = false;
+        _syncMessagesReady = false;
+      });
+    });
+  }
+
+  void _completeSyncIfReady() {
+    if (!_isSyncing) return;
+    if (!_syncMessagesReady || !_syncStatusReady) return;
+    _syncTimeout?.cancel();
+    setState(() {
+      _isSyncing = false;
+      _syncStatusReady = false;
+      _syncMessagesReady = false;
+    });
   }
 
   void _handlePtyCreated(dynamic props) {
@@ -481,6 +581,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     setState(() {
       _cachedSessionId = sessionId;
       _cachedMessages = const [];
+      _optimisticMessages.clear();
+      _optimisticBaseCount = null;
+      _optimisticMessageId = null;
       _hasLoadedMessages = false;
       _permissionDialogVisible = false;
       _questionDialogVisible = false;
@@ -782,6 +885,15 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       setState(() {
         _cachedSessionId = sessionId;
         _cachedMessages = messages;
+        if (_optimisticBaseCount != null &&
+            _optimisticMessageId != null &&
+            messages.length > _optimisticBaseCount!) {
+          _optimisticMessages.removeWhere(
+            (msg) => msg.info.id == _optimisticMessageId,
+          );
+          _optimisticBaseCount = null;
+          _optimisticMessageId = null;
+        }
         _hasLoadedMessages = true;
       });
     }
@@ -845,6 +957,65 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         );
       }
     });
+  }
+
+  String _optimisticId() {
+    return 'optimistic_${DateTime.now().microsecondsSinceEpoch}';
+  }
+
+  MessageWrapper _buildOptimisticMessage({
+    required String sessionId,
+    required String messageId,
+    required String text,
+    required List<Map<String, dynamic>>? fileParts,
+    required Map<String, dynamic> model,
+    required String mode,
+  }) {
+    final created = DateTime.now().millisecondsSinceEpoch;
+    final info = UserMessageInfo(
+      id: messageId,
+      sessionID: sessionId,
+      time: MessageTime(created: created, completed: created),
+      agent: mode,
+      model: MessageModel(
+        providerID: model['providerID']?.toString() ?? '',
+        modelID: model['modelID']?.toString() ?? '',
+      ),
+    );
+
+    final parts = <Part>[];
+
+    if (fileParts != null) {
+      for (final part in fileParts) {
+        parts.add(
+          FilePart(
+            id: _optimisticId(),
+            sessionID: sessionId,
+            messageID: messageId,
+            mime: part['mime']?.toString() ?? 'text/plain',
+            filename: part['filename']?.toString(),
+            url: part['url']?.toString() ?? '',
+            source: part['source'] is Map<String, dynamic>
+                ? Map<String, dynamic>.from(part['source'] as Map)
+                : null,
+          ),
+        );
+      }
+    }
+
+    if (text.isNotEmpty) {
+      parts.add(
+        TextPart(
+          id: _optimisticId(),
+          sessionID: sessionId,
+          messageID: messageId,
+          text: text,
+          synthetic: true,
+        ),
+      );
+    }
+
+    return MessageWrapper(info: info, parts: parts);
   }
 
   Widget _buildMessagesPanel({
@@ -1319,12 +1490,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     );
   }
 
-  Future<void> _sendMessage(
+  Future<bool> _sendMessage(
     String text, {
     List<Map<String, dynamic>>? fileParts,
   }) async {
     final session = ref.read(selectedSessionProvider);
-    if (session == null) return;
+    if (session == null) return false;
 
     final model = ref.read(activeModelProvider);
     final mode = ref.read(sessionModeProvider);
@@ -1345,10 +1516,30 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           ),
         );
       }
-      return;
+      return false;
     }
 
+    final messageId = _optimisticId();
+    final currentCount =
+        ref.read(messagesProvider).valueOrNull?.length ??
+        _cachedMessages.length;
     try {
+      final optimistic = _buildOptimisticMessage(
+        sessionId: session.id,
+        messageId: messageId,
+        text: text,
+        fileParts: fileParts,
+        model: model,
+        mode: mode,
+      );
+      if (mounted) {
+        setState(() {
+          _optimisticMessages.add(optimistic);
+          _optimisticBaseCount = currentCount;
+          _optimisticMessageId = messageId;
+        });
+        _scrollToBottom();
+      }
       setState(() => _isBusy = true);
       _markSessionActive();
 
@@ -1364,13 +1555,23 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
       ref.invalidate(messagesProvider);
       _scrollToBottom();
+      return true;
     } catch (e) {
       if (mounted) {
-        setState(() => _isBusy = false);
+        setState(() {
+          _isBusy = false;
+        });
+        _restoreDraft(text, fileParts);
+        setState(() {
+          _optimisticMessages.removeWhere((msg) => msg.info.id == messageId);
+          _optimisticBaseCount = null;
+          _optimisticMessageId = null;
+        });
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text('Failed to send: $e')));
       }
+      return false;
     }
   }
 
@@ -1600,14 +1801,32 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final messagesAsync = ref.watch(messagesProvider);
     final mode = ref.watch(sessionModeProvider);
     final activeModel = ref.watch(activeModelProvider);
+    final statusAsync = ref.watch(sessionStatusProvider);
 
     final errorState = ref.watch(sessionErrorProvider);
 
     final messages = messagesAsync.valueOrNull ?? const <MessageWrapper>[];
-    final displayMessages = _cachedMessages.isNotEmpty
+    final baseMessages = _cachedMessages.isNotEmpty
         ? _cachedMessages
         : messages;
+    final displayMessages = _optimisticMessages.isNotEmpty
+        ? [...baseMessages, ..._optimisticMessages]
+        : baseMessages;
     final isInitialLoading = messagesAsync.isLoading && !_hasLoadedMessages;
+    final isSessionBusy = statusAsync.maybeWhen(
+      data: (status) {
+        if (session == null) return false;
+        final info = status[session.id];
+        if (info is Map<String, dynamic>) {
+          return info['type'] == 'busy' || info['type'] == 'retry';
+        }
+        if (info is String) {
+          return info == 'busy' || info == 'retry';
+        }
+        return false;
+      },
+      orElse: () => false,
+    );
 
     if (session == null) {
       return Scaffold(
@@ -1625,6 +1844,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         ),
       );
     }
+
+    final effectiveBusy = _isBusy || isSessionBusy || _isSyncing;
 
     return Scaffold(
       appBar: AppBar(
@@ -1646,16 +1867,20 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 Container(
                   width: 6,
                   height: 6,
-                  color: _isBusy ? AppTheme.warning : AppTheme.success,
+                  color: effectiveBusy ? AppTheme.warning : AppTheme.success,
                 ),
                 const SizedBox(width: 4),
                 Text(
-                  _isBusy
+                  _isSyncing
+                      ? 'Syncing...'
+                      : effectiveBusy
                       ? (mode == 'plan' ? 'Planning...' : 'Building...')
                       : 'Ready${(activeModel != null) ? " • ${activeModel['modelID']}" : ""}',
                   style: TextStyle(
                     fontSize: 10,
-                    color: _isBusy ? AppTheme.warning : AppTheme.textTertiary,
+                    color: effectiveBusy
+                        ? AppTheme.warning
+                        : AppTheme.textTertiary,
                   ),
                 ),
               ],
@@ -1717,7 +1942,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               ],
             ),
           ),
-          if (_isBusy)
+          if (effectiveBusy)
             Container(
               width: double.infinity,
               height: 2,
@@ -1728,11 +1953,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               ),
             ),
           ChatInput(
+            key: _chatInputKey,
             onSendMessage: _sendMessage,
             onSendCommand: _sendCommand,
             onStop: _abortSession,
-            isBusy: _isBusy,
-            enabled: !_isBusy,
+            isBusy: effectiveBusy,
+            enabled: !effectiveBusy,
           ),
         ],
       ),
@@ -1743,6 +1969,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final isUser = msg.info.role == 'user';
     final session = ref.watch(selectedSessionProvider);
     final isAssistant = msg.info.role == 'assistant';
+    final isOptimistic = _optimisticMessages.any(
+      (candidate) => candidate.info.id == msg.info.id,
+    );
     final canUndo =
         isAssistant && !_isBusy && !_isUndoRedoInFlight && session != null;
     final canRedo =
@@ -1778,6 +2007,27 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                     letterSpacing: 1.5,
                   ),
                 ),
+                if (isUser && isOptimistic)
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 6,
+                      vertical: 2,
+                    ),
+                    decoration: BoxDecoration(
+                      color: AppTheme.warning.withValues(alpha: 0.15),
+                      border: Border.all(color: AppTheme.warning),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: const Text(
+                      'SENDING',
+                      style: TextStyle(
+                        color: AppTheme.warning,
+                        fontSize: 8,
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: 1,
+                      ),
+                    ),
+                  ),
                 if (!isUser && msg.info is AssistantMessageInfo)
                   Text(
                     (msg.info as AssistantMessageInfo).modelID,

@@ -11,7 +11,7 @@ import '../theme/app_theme.dart';
 import '../constants/file_icons.dart';
 
 class ChatInput extends ConsumerStatefulWidget {
-  final Future<void> Function(
+  final Future<bool> Function(
     String text, {
     List<Map<String, dynamic>>? fileParts,
   })
@@ -37,6 +37,16 @@ class ChatInput extends ConsumerStatefulWidget {
     final state = context.findAncestorStateOfType<_ChatInputState>();
     if (state == null) return;
     state._appendText(text);
+  }
+
+  static void restoreDraft(
+    BuildContext context,
+    String text,
+    List<Map<String, dynamic>> fileParts,
+  ) {
+    final state = context.findAncestorStateOfType<_ChatInputState>();
+    if (state == null) return;
+    state._setDraft(text, fileParts);
   }
 }
 
@@ -161,30 +171,35 @@ class _ChatInputState extends ConsumerState<ChatInput> {
   void _onFileSelected(String filePath) {
     _removeOverlay();
 
+    final project = ref.read(selectedProjectProvider);
+    var path = filePath;
+
+    if (!path.startsWith('/') && project != null) {
+      if (project.worktree.endsWith('/')) {
+        path = '${project.worktree}$path';
+      } else {
+        path = '${project.worktree}/$path';
+      }
+    }
+
+    if (!path.startsWith('/')) {
+      path = '/$path';
+    }
+
     final text = _controller.text;
     final before = text.substring(0, _triggerPosition);
     final cursorPos = _controller.selection.baseOffset;
     final after = text.substring(cursorPos);
+    final insertion = '@$path';
+    final needsSpace = after.isEmpty || !after.startsWith(' ');
+    final next = '$before$insertion${needsSpace ? ' ' : ''}$after';
 
-    _controller.text = '$before$after';
-    _controller.selection = TextSelection.collapsed(offset: before.length);
+    _controller.text = next;
+    _controller.selection = TextSelection.collapsed(
+      offset: before.length + insertion.length + (needsSpace ? 1 : 0),
+    );
 
     setState(() {
-      final project = ref.read(selectedProjectProvider);
-      var path = filePath;
-
-      if (!path.startsWith('/') && project != null) {
-        if (project.worktree.endsWith('/')) {
-          path = '${project.worktree}$path';
-        } else {
-          path = '${project.worktree}/$path';
-        }
-      }
-
-      if (!path.startsWith('/')) {
-        path = '/$path';
-      }
-
       _attachedFiles.add({
         'type': 'file',
         'mime': 'text/plain',
@@ -206,7 +221,7 @@ class _ChatInputState extends ConsumerState<ChatInput> {
     _controller.clear();
   }
 
-  void _send() {
+  Future<void> _send() async {
     final text = _controller.text.trim();
     if (text.isEmpty && _attachedFiles.isEmpty && _attachedImages.isEmpty) {
       return;
@@ -217,7 +232,16 @@ class _ChatInputState extends ConsumerState<ChatInput> {
       return;
     }
 
-    widget.onSendMessage(text, fileParts: _buildFileParts());
+    final fileParts = _buildFileParts();
+    var success = false;
+    try {
+      success = await widget.onSendMessage(text, fileParts: fileParts);
+    } catch (_) {
+      success = false;
+    }
+
+    if (!success) return;
+
     _controller.clear();
     setState(() {
       _attachedFiles.clear();
@@ -243,6 +267,32 @@ class _ChatInputState extends ConsumerState<ChatInput> {
     _controller.text = next;
     final cursor = (before + text).length;
     _controller.selection = TextSelection.collapsed(offset: cursor);
+    _focusNode.requestFocus();
+  }
+
+  void _setDraft(String text, List<Map<String, dynamic>> fileParts) {
+    _controller.text = text;
+    _controller.selection = TextSelection.collapsed(
+      offset: _controller.text.length,
+    );
+    setState(() {
+      _attachedFiles
+        ..clear()
+        ..addAll(
+          fileParts.where(
+            (part) => part['url']?.toString().startsWith('data:') != true,
+          ),
+        );
+      _attachedImages
+        ..clear()
+        ..addAll(
+          fileParts
+              .where(
+                (part) => part['url']?.toString().startsWith('data:') == true,
+              )
+              .map(_ImageAttachment.fromPart),
+        );
+    });
     _focusNode.requestFocus();
   }
 
@@ -647,6 +697,32 @@ class _ImageAttachment {
     required this.dataUri,
     required this.base64Length,
   });
+
+  factory _ImageAttachment.fromPart(Map<String, dynamic> part) {
+    final dataUri = part['url']?.toString() ?? '';
+    final mime = part['mime']?.toString() ?? 'image/*';
+    final name = part['filename']?.toString() ?? 'image';
+    final base64Data = dataUri.contains(',')
+        ? dataUri.substring(dataUri.indexOf(',') + 1)
+        : '';
+    Uint8List bytes;
+    if (base64Data.isEmpty) {
+      bytes = Uint8List(0);
+    } else {
+      try {
+        bytes = base64Decode(base64Data);
+      } catch (_) {
+        bytes = Uint8List(0);
+      }
+    }
+    return _ImageAttachment(
+      name: name,
+      mime: mime,
+      bytes: bytes,
+      dataUri: dataUri,
+      base64Length: base64Data.length,
+    );
+  }
 }
 
 class _ImagePreviewDialog extends StatefulWidget {
