@@ -52,9 +52,12 @@ class SessionsScreen extends ConsumerWidget {
                 children: [
                   Icon(Icons.commit, size: 10, color: AppTheme.info),
                   const SizedBox(width: 4),
-                  Text(
-                    vcs.branch ?? 'unknown',
-                    style: TextStyle(fontSize: 10, color: AppTheme.info),
+                  Flexible(
+                    child: Text(
+                      vcs.branch ?? 'unknown',
+                      style: TextStyle(fontSize: 10, color: AppTheme.info),
+                      overflow: TextOverflow.ellipsis,
+                    ),
                   ),
                 ],
               ),

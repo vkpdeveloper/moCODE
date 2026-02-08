@@ -28,11 +28,15 @@ class BackgroundTransformerBase extends DefaultTransformer {
       return responseBody;
     }
 
-    final String body = await super.transformResponse(
+    final transformed = await super.transformResponse(
       options.copyWith(responseType: ResponseType.plain),
       responseBody,
     );
 
+    if (transformed == null) return null;
+    if (transformed is! String) return transformed;
+
+    final body = transformed;
     if (body.isEmpty) return null;
 
     if (responseType == ResponseType.json) {

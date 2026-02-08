@@ -186,11 +186,24 @@ class _ChatInputState extends ConsumerState<ChatInput> {
       path = '/$path';
     }
 
+    var displayPath = filePath;
+    if (project != null) {
+      final worktree = project.worktree.endsWith('/')
+          ? project.worktree
+          : '${project.worktree}/';
+      if (path.startsWith(worktree)) {
+        displayPath = path.substring(worktree.length);
+      }
+    }
+    if (displayPath.startsWith('/')) {
+      displayPath = displayPath.substring(1);
+    }
+
     final text = _controller.text;
     final before = text.substring(0, _triggerPosition);
     final cursorPos = _controller.selection.baseOffset;
     final after = text.substring(cursorPos);
-    final insertion = '@$path';
+    final insertion = '@$displayPath';
     final needsSpace = after.isEmpty || !after.startsWith(' ');
     final next = '$before$insertion${needsSpace ? ' ' : ''}$after';
 
@@ -222,7 +235,8 @@ class _ChatInputState extends ConsumerState<ChatInput> {
   }
 
   Future<void> _send() async {
-    final text = _controller.text.trim();
+    final rawText = _controller.text;
+    final text = rawText.trim();
     if (text.isEmpty && _attachedFiles.isEmpty && _attachedImages.isEmpty) {
       return;
     }
@@ -233,6 +247,13 @@ class _ChatInputState extends ConsumerState<ChatInput> {
     }
 
     final fileParts = _buildFileParts();
+    final draftParts = fileParts ?? const <Map<String, dynamic>>[];
+    final draftText = rawText;
+    _controller.clear();
+    setState(() {
+      _attachedFiles.clear();
+      _attachedImages.clear();
+    });
     var success = false;
     try {
       success = await widget.onSendMessage(text, fileParts: fileParts);
@@ -240,13 +261,9 @@ class _ChatInputState extends ConsumerState<ChatInput> {
       success = false;
     }
 
-    if (!success) return;
-
-    _controller.clear();
-    setState(() {
-      _attachedFiles.clear();
-      _attachedImages.clear();
-    });
+    if (!success) {
+      _setDraft(draftText, draftParts);
+    }
   }
 
   void _appendText(String text) {

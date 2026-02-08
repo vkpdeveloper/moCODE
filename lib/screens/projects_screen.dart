@@ -107,10 +107,19 @@ class ProjectsScreen extends ConsumerWidget {
                       fontSize: 12,
                     ),
                   ),
+                  const SizedBox(height: 20),
+                  ElevatedButton.icon(
+                    onPressed: () => context.push('/projects/open'),
+                    icon: const Icon(Icons.add, size: 16),
+                    label: const Text('OPEN PROJECT'),
+                  ),
                 ],
               ),
             );
           }
+
+          final sortedProjects = List.of(projects)
+            ..sort((a, b) => b.time.updated!.compareTo(a.time.updated!));
 
           return RefreshIndicator(
             color: AppTheme.accent,
@@ -121,10 +130,48 @@ class ProjectsScreen extends ConsumerWidget {
             },
             child: ListView.separated(
               padding: const EdgeInsets.all(16),
-              itemCount: projects.length,
+              itemCount: sortedProjects.length + 1,
               separatorBuilder: (_, _) => const SizedBox(height: 8),
               itemBuilder: (context, index) {
-                final project = projects[index];
+                if (index == 0) {
+                  return GestureDetector(
+                    onTap: () => context.push('/projects/open'),
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: AppTheme.surfaceVariant,
+                        border: Border.all(color: AppTheme.border),
+                      ),
+                      padding: const EdgeInsets.all(16),
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.add_circle_outline,
+                            color: AppTheme.accent,
+                            size: 20,
+                          ),
+                          const SizedBox(width: 10),
+                          const Expanded(
+                            child: Text(
+                              'Open a new project',
+                              style: TextStyle(
+                                color: AppTheme.textPrimary,
+                                fontSize: 14,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                          const Icon(
+                            Icons.chevron_right,
+                            color: AppTheme.textTertiary,
+                            size: 20,
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                }
+
+                final project = sortedProjects[index - 1];
                 final projectName =
                     project.name ?? project.worktree.split('/').last;
 
@@ -224,9 +271,7 @@ class ProjectsScreen extends ConsumerWidget {
                                 border: Border.all(color: AppTheme.border),
                               ),
                               child: Text(
-                                _timeAgo(
-                                  project.time.updated ?? project.time.created,
-                                ),
+                                _timeAgo(project.time.updated!),
                                 style: const TextStyle(
                                   color: AppTheme.textTertiary,
                                   fontSize: 10,
@@ -275,8 +320,11 @@ class ProjectsScreen extends ConsumerWidget {
   }
 
   String _timeAgo(int timestampMs) {
-    final now = DateTime.now().millisecondsSinceEpoch;
-    final diff = (now - timestampMs) ~/ 1000;
+    final localTime = DateTime.fromMillisecondsSinceEpoch(
+      timestampMs,
+      isUtc: true,
+    ).toLocal();
+    final diff = DateTime.now().difference(localTime).inSeconds;
     if (diff < 60) return 'just now';
     if (diff < 3600) return '${diff ~/ 60}m ago';
     if (diff < 86400) return '${diff ~/ 3600}h ago';

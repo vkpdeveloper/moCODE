@@ -2,6 +2,7 @@ import 'package:go_router/go_router.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../screens/projects_screen.dart';
+import '../screens/open_project_screen.dart';
 import '../screens/sessions_screen.dart';
 import '../screens/chat_screen.dart';
 import '../screens/settings_screen.dart';
@@ -14,6 +15,10 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/projects',
         builder: (context, state) => const ProjectsScreen(),
+      ),
+      GoRoute(
+        path: '/projects/open',
+        builder: (context, state) => const OpenProjectScreen(),
       ),
       GoRoute(
         path: '/sessions',

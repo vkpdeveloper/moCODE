@@ -1,9 +1,11 @@
+import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/models.dart' hide HealthInfo, ProviderListResponse;
 import '../models/app_models.dart' as app_models;
 import '../models/provider.dart';
+
 import '../services/api_client.dart';
 import '../services/app_service.dart';
 import '../services/session_service.dart';
@@ -11,6 +13,8 @@ import '../services/message_service.dart';
 import '../services/project_service.dart';
 import '../services/provider_service.dart';
 import '../services/event_service.dart';
+import '../services/file_service.dart';
+import '../services/path_service.dart';
 import '../services/preferences_service.dart';
 import '../services/permission_service.dart';
 import '../services/question_service.dart';
@@ -109,6 +113,14 @@ final projectServiceProvider = Provider<ProjectService>((ref) {
   return ProjectService(ref.watch(apiClientProvider));
 });
 
+final pathServiceProvider = Provider<PathService>((ref) {
+  return PathService(ref.watch(apiClientProvider));
+});
+
+final fileServiceProvider = Provider<FileService>((ref) {
+  return FileService(ref.watch(apiClientProvider));
+});
+
 final providerServiceProvider = Provider<ProviderService>((ref) {
   return ProviderService(ref.watch(apiClientProvider));
 });
@@ -146,6 +158,40 @@ final projectsProvider = FutureProvider<List<Project>>((ref) {
   return projectService.listProjects();
 });
 
+class PathInfoNotifier extends StateNotifier<AsyncValue<PathInfo>> {
+  final PathService _pathService;
+
+  PathInfoNotifier(this._pathService) : super(const AsyncValue.loading()) {
+    load();
+  }
+
+  Future<void> load() async {
+    state = const AsyncValue.loading();
+    try {
+      final info = await _pathService.getPaths();
+      if (!mounted) return;
+      state = AsyncValue.data(info);
+    } catch (e, st) {
+      if (!mounted) return;
+      state = AsyncValue.error(e, st);
+    }
+  }
+}
+
+final pathInfoProvider =
+    StateNotifierProvider<PathInfoNotifier, AsyncValue<PathInfo>>((ref) {
+      return PathInfoNotifier(ref.watch(pathServiceProvider));
+    });
+
+final fileListProvider =
+    FutureProvider.family<List<String>, ({String path, String directory})>((
+      ref,
+      args,
+    ) {
+      final fileService = ref.watch(fileServiceProvider);
+      return fileService.listFiles(path: args.path, directory: args.directory);
+    });
+
 final selectedProjectProvider = StateProvider<Project?>((ref) => null);
 
 // ---------------------------------------------------------------------------
@@ -164,24 +210,36 @@ final selectedSessionProvider = StateProvider<Session?>((ref) => null);
 // Session Status
 // ---------------------------------------------------------------------------
 
-final sessionStatusProvider = StreamProvider<Map<String, dynamic>>((
-  ref,
-) async* {
+final sessionStatusProvider = StreamProvider<Map<String, dynamic>>((ref) {
   final sessionService = ref.watch(sessionServiceProvider);
   final project = ref.watch(selectedProjectProvider);
-  var disposed = false;
-  ref.onDispose(() => disposed = true);
-  while (!disposed) {
+  final controller = StreamController<Map<String, dynamic>>();
+
+  Future<void> fetch() async {
+    if (controller.isClosed) return;
     try {
       final status = await sessionService.getSessionStatus(
         directory: project?.worktree,
       );
-      yield status;
+      if (!controller.isClosed) {
+        controller.add(status);
+      }
     } catch (_) {
       // ignore status polling errors
     }
-    await Future.delayed(const Duration(seconds: 4));
   }
+
+  // Initial fetch
+  fetch();
+
+  final timer = Timer.periodic(const Duration(seconds: 4), (_) => fetch());
+
+  ref.onDispose(() {
+    timer.cancel();
+    controller.close();
+  });
+
+  return controller.stream;
 });
 
 // ---------------------------------------------------------------------------
