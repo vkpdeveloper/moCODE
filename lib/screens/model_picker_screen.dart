@@ -7,7 +7,10 @@ import '../providers/providers.dart';
 import '../theme/app_theme.dart';
 
 class ModelPickerScreen extends ConsumerStatefulWidget {
-  const ModelPickerScreen({super.key});
+  final void Function(String providerId, String modelId)? onSelection;
+  final Map<String, String>? selectedModel;
+
+  const ModelPickerScreen({super.key, this.onSelection, this.selectedModel});
 
   @override
   ConsumerState<ModelPickerScreen> createState() => _ModelPickerScreenState();
@@ -26,7 +29,12 @@ class _ModelPickerScreenState extends ConsumerState<ModelPickerScreen> {
   @override
   Widget build(BuildContext context) {
     final providersAsync = ref.watch(providersListProvider);
-    final selectedModel = ref.watch(selectedModelProvider);
+    // Use widget.selectedModel if provided, otherwise fall back to the session-specific provider
+    // If widget.onSelection is provided (Settings mode), we strictly use widget.selectedModel.
+    // If widget.onSelection is null (Chat mode), we use selectedModelProvider.
+    final currentSelection = widget.onSelection != null
+        ? widget.selectedModel
+        : ref.watch(selectedModelProvider);
 
     return Scaffold(
       appBar: AppBar(
@@ -34,14 +42,27 @@ class _ModelPickerScreenState extends ConsumerState<ModelPickerScreen> {
           icon: const Icon(Icons.arrow_back, size: 20),
           onPressed: () => context.pop(),
         ),
-        title: const Text('MODELS', style: TextStyle(fontSize: 14, letterSpacing: 2)),
+        title: const Text(
+          'MODELS',
+          style: TextStyle(fontSize: 14, letterSpacing: 2),
+        ),
         actions: [
-          if (selectedModel != null)
+          if (currentSelection != null)
             TextButton(
               onPressed: () {
-                ref.read(selectedModelProvider.notifier).state = null;
+                if (widget.onSelection != null) {
+                  // In settings mode, we generally don't "reset" to null,
+                  // but maybe we want to unset the default?
+                  // For now let's disable reset in Settings mode or handle it
+                  // But the user might want to "Clear Default".
+                  // Let's implement it if needed, but for now just handle session reset
+                } else {
+                  ref.read(selectedModelProvider.notifier).state = null;
+                }
               },
-              child: const Text('RESET', style: TextStyle(fontSize: 11)),
+              child: widget.onSelection == null
+                  ? const Text('RESET', style: TextStyle(fontSize: 11))
+                  : const SizedBox.shrink(),
             ),
         ],
       ),
@@ -58,7 +79,11 @@ class _ModelPickerScreenState extends ConsumerState<ModelPickerScreen> {
               style: const TextStyle(color: AppTheme.textPrimary, fontSize: 13),
               decoration: const InputDecoration(
                 hintText: 'Search models...',
-                prefixIcon: Icon(Icons.search, size: 18, color: AppTheme.textTertiary),
+                prefixIcon: Icon(
+                  Icons.search,
+                  size: 18,
+                  color: AppTheme.textTertiary,
+                ),
                 prefixIconConstraints: BoxConstraints(minWidth: 36),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.zero,
@@ -73,9 +98,13 @@ class _ModelPickerScreenState extends ConsumerState<ModelPickerScreen> {
                   borderSide: BorderSide(color: AppTheme.accent, width: 1.5),
                 ),
                 isDense: true,
-                contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+                contentPadding: EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 10,
+                ),
               ),
-              onChanged: (value) => setState(() => _query = value.toLowerCase()),
+              onChanged: (value) =>
+                  setState(() => _query = value.toLowerCase()),
             ),
           ),
           Expanded(
@@ -87,9 +116,16 @@ class _ModelPickerScreenState extends ConsumerState<ModelPickerScreen> {
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Icon(Icons.model_training, size: 48, color: AppTheme.textTertiary),
+                        Icon(
+                          Icons.model_training,
+                          size: 48,
+                          color: AppTheme.textTertiary,
+                        ),
                         SizedBox(height: 16),
-                        Text('No providers available', style: TextStyle(color: AppTheme.textSecondary)),
+                        Text(
+                          'No providers available',
+                          style: TextStyle(color: AppTheme.textSecondary),
+                        ),
                       ],
                     ),
                   );
@@ -102,11 +138,18 @@ class _ModelPickerScreenState extends ConsumerState<ModelPickerScreen> {
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        const Icon(Icons.search_off, size: 40, color: AppTheme.textTertiary),
+                        const Icon(
+                          Icons.search_off,
+                          size: 40,
+                          color: AppTheme.textTertiary,
+                        ),
                         const SizedBox(height: 12),
                         Text(
                           'No models matching "$_query"',
-                          style: const TextStyle(color: AppTheme.textSecondary, fontSize: 13),
+                          style: const TextStyle(
+                            color: AppTheme.textSecondary,
+                            fontSize: 13,
+                          ),
                         ),
                       ],
                     ),
@@ -132,13 +175,22 @@ class _ModelPickerScreenState extends ConsumerState<ModelPickerScreen> {
                         children: [
                           Container(
                             width: double.infinity,
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 10,
+                            ),
                             decoration: const BoxDecoration(
-                              border: Border(bottom: BorderSide(color: AppTheme.border)),
+                              border: Border(
+                                bottom: BorderSide(color: AppTheme.border),
+                              ),
                             ),
                             child: Row(
                               children: [
-                                Container(width: 8, height: 8, color: AppTheme.accent),
+                                Container(
+                                  width: 8,
+                                  height: 8,
+                                  color: AppTheme.accent,
+                                ),
                                 const SizedBox(width: 8),
                                 Text(
                                   (provider.name ?? provider.id).toUpperCase(),
@@ -152,60 +204,97 @@ class _ModelPickerScreenState extends ConsumerState<ModelPickerScreen> {
                                 const Spacer(),
                                 Text(
                                   '${models.length} models',
-                                  style: const TextStyle(color: AppTheme.textTertiary, fontSize: 10),
+                                  style: const TextStyle(
+                                    color: AppTheme.textTertiary,
+                                    fontSize: 10,
+                                  ),
                                 ),
                               ],
                             ),
                           ),
                           ...models.map((model) {
-                            final isSelected = selectedModel != null &&
-                                selectedModel['providerID'] == provider.id &&
-                                selectedModel['modelID'] == model.id;
+                            final isSelected =
+                                currentSelection != null &&
+                                currentSelection['providerID'] == provider.id &&
+                                currentSelection['modelID'] == model.id;
 
                             return GestureDetector(
                               onTap: () {
-                                ref.read(selectedModelProvider.notifier).state = {
-                                  'providerID': provider.id,
-                                  'modelID': model.id,
-                                };
+                                if (widget.onSelection != null) {
+                                  widget.onSelection!(provider.id, model.id);
+                                } else {
+                                  ref
+                                      .read(selectedModelProvider.notifier)
+                                      .state = {
+                                    'providerID': provider.id,
+                                    'modelID': model.id,
+                                  };
+                                }
                                 context.pop();
                               },
                               child: Container(
                                 width: double.infinity,
-                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                  vertical: 10,
+                                ),
                                 decoration: BoxDecoration(
-                                  color: isSelected ? AppTheme.accentDim.withValues(alpha: 0.3) : Colors.transparent,
-                                  border: const Border(bottom: BorderSide(color: AppTheme.border, width: 0.5)),
+                                  color: isSelected
+                                      ? AppTheme.accentDim.withValues(
+                                          alpha: 0.3,
+                                        )
+                                      : Colors.transparent,
+                                  border: const Border(
+                                    bottom: BorderSide(
+                                      color: AppTheme.border,
+                                      width: 0.5,
+                                    ),
+                                  ),
                                 ),
                                 child: Row(
                                   children: [
                                     Expanded(
                                       child: Column(
-                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
                                         children: [
                                           Text(
                                             model.name ?? model.id,
                                             style: TextStyle(
-                                              color: isSelected ? AppTheme.accent : AppTheme.textPrimary,
+                                              color: isSelected
+                                                  ? AppTheme.accent
+                                                  : AppTheme.textPrimary,
                                               fontSize: 12,
-                                              fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+                                              fontWeight: isSelected
+                                                  ? FontWeight.w600
+                                                  : FontWeight.normal,
                                             ),
                                           ),
                                           const SizedBox(height: 2),
                                           Text(
                                             model.id,
-                                            style: const TextStyle(color: AppTheme.textTertiary, fontSize: 10),
+                                            style: const TextStyle(
+                                              color: AppTheme.textTertiary,
+                                              fontSize: 10,
+                                            ),
                                           ),
                                         ],
                                       ),
                                     ),
                                     if (isSelected)
                                       Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 6,
+                                          vertical: 2,
+                                        ),
                                         color: AppTheme.accent,
                                         child: const Text(
                                           'ACTIVE',
-                                          style: TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.bold),
+                                          style: TextStyle(
+                                            color: Colors.white,
+                                            fontSize: 9,
+                                            fontWeight: FontWeight.bold,
+                                          ),
                                         ),
                                       ),
                                   ],
@@ -228,7 +317,13 @@ class _ModelPickerScreenState extends ConsumerState<ModelPickerScreen> {
                   children: [
                     Icon(Icons.error_outline, size: 48, color: AppTheme.error),
                     const SizedBox(height: 16),
-                    Text(error.toString(), style: const TextStyle(color: AppTheme.textTertiary, fontSize: 12)),
+                    Text(
+                      error.toString(),
+                      style: const TextStyle(
+                        color: AppTheme.textTertiary,
+                        fontSize: 12,
+                      ),
+                    ),
                     const SizedBox(height: 16),
                     OutlinedButton(
                       onPressed: () => ref.invalidate(providersListProvider),
@@ -253,8 +348,9 @@ class _ModelPickerScreenState extends ConsumerState<ModelPickerScreen> {
 
     final results = <_FilteredProvider>[];
     for (final provider in providers) {
-      final providerNameMatch =
-          (provider.name ?? provider.id).toLowerCase().contains(_query);
+      final providerNameMatch = (provider.name ?? provider.id)
+          .toLowerCase()
+          .contains(_query);
 
       final matchingModels = provider.models.where((m) {
         final name = (m.name ?? m.id).toLowerCase();
@@ -263,9 +359,13 @@ class _ModelPickerScreenState extends ConsumerState<ModelPickerScreen> {
       }).toList();
 
       if (providerNameMatch) {
-        results.add(_FilteredProvider(provider: provider, models: provider.models));
+        results.add(
+          _FilteredProvider(provider: provider, models: provider.models),
+        );
       } else if (matchingModels.isNotEmpty) {
-        results.add(_FilteredProvider(provider: provider, models: matchingModels));
+        results.add(
+          _FilteredProvider(provider: provider, models: matchingModels),
+        );
       }
     }
     return results;

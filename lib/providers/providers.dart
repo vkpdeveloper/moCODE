@@ -11,6 +11,7 @@ import '../services/message_service.dart';
 import '../services/project_service.dart';
 import '../services/provider_service.dart';
 import '../services/event_service.dart';
+import '../services/preferences_service.dart';
 
 // ---------------------------------------------------------------------------
 // Settings
@@ -68,10 +69,11 @@ class SettingsNotifier extends StateNotifier<SettingsState> {
   }
 }
 
-final settingsProvider =
-    StateNotifierProvider<SettingsNotifier, SettingsState>((ref) {
-  return SettingsNotifier();
-});
+final settingsProvider = StateNotifierProvider<SettingsNotifier, SettingsState>(
+  (ref) {
+    return SettingsNotifier();
+  },
+);
 
 // ---------------------------------------------------------------------------
 // API Client
@@ -109,6 +111,10 @@ final providerServiceProvider = Provider<ProviderService>((ref) {
 
 final eventServiceProvider = Provider<EventService>((ref) {
   return EventService(ref.watch(apiClientProvider));
+});
+
+final preferencesServiceProvider = Provider<PreferencesService>((ref) {
+  return PreferencesService();
 });
 
 // ---------------------------------------------------------------------------
@@ -187,28 +193,62 @@ final providersListProvider = FutureProvider<ProviderListResponse>((ref) {
 // Model / Mode Selection
 // ---------------------------------------------------------------------------
 
-final selectedModelProvider =
-    StateProvider<Map<String, String>?>((ref) => null);
+// ---------------------------------------------------------------------------
+// Model / Mode Selection
+// ---------------------------------------------------------------------------
+
+final selectedModelProvider = StateProvider<Map<String, String>?>(
+  (ref) => null,
+);
 
 final sessionModeProvider = StateProvider<String>((ref) => 'plan');
 
+class DefaultModelNotifier extends StateNotifier<Map<String, String>?> {
+  final PreferencesService _preferencesService;
+
+  DefaultModelNotifier(this._preferencesService) : super(null) {
+    _load();
+  }
+
+  Future<void> _load() async {
+    final model = await _preferencesService.getDefaultModel();
+    if (model != null) {
+      state = model;
+    }
+  }
+
+  Future<void> setModel(String providerId, String modelId) async {
+    await _preferencesService.saveDefaultModel(providerId, modelId);
+    state = {'providerID': providerId, 'modelID': modelId};
+  }
+}
+
+final defaultModelProvider =
+    StateNotifierProvider<DefaultModelNotifier, Map<String, String>?>((ref) {
+      return DefaultModelNotifier(ref.watch(preferencesServiceProvider));
+    });
+
 final activeModelProvider = Provider<Map<String, String>?>((ref) {
+  // 1. Session specific model (if set in current session view)
   final selected = ref.watch(selectedModelProvider);
   if (selected != null) return selected;
 
+  // 2. User default model (persisted)
+  final defaultModel = ref.watch(defaultModelProvider);
+  if (defaultModel != null) return defaultModel;
+
+  // 3. System default from server
   final providersAsync = ref.watch(providersListProvider);
   return providersAsync.whenOrNull(
     data: (providerList) {
       final defaults = providerList.defaults;
-      final defaultModel = defaults['default'] ?? defaults.values.firstOrNull;
-      if (defaultModel == null) return null;
+      final defaultModelStr =
+          defaults['default'] ?? defaults.values.firstOrNull;
+      if (defaultModelStr == null) return null;
 
-      final parts = defaultModel.split('/');
+      final parts = defaultModelStr.split('/');
       if (parts.length >= 2) {
-        return {
-          'providerID': parts[0],
-          'modelID': parts.sublist(1).join('/'),
-        };
+        return {'providerID': parts[0], 'modelID': parts.sublist(1).join('/')};
       }
       return null;
     },
@@ -219,8 +259,7 @@ final activeModelProvider = Provider<Map<String, String>?>((ref) {
 // Session Status
 // ---------------------------------------------------------------------------
 
-final sessionStatusProvider =
-    FutureProvider<Map<String, dynamic>>((ref) {
+final sessionStatusProvider = FutureProvider<Map<String, dynamic>>((ref) {
   final project = ref.watch(selectedProjectProvider);
   final sessionService = ref.watch(sessionServiceProvider);
   return sessionService.getSessionStatus(directory: project?.worktree);
@@ -230,8 +269,7 @@ final sessionStatusProvider =
 // Skills
 // ---------------------------------------------------------------------------
 
-final skillsProvider =
-    FutureProvider<List<Map<String, dynamic>>>((ref) {
+final skillsProvider = FutureProvider<List<Map<String, dynamic>>>((ref) {
   final project = ref.watch(selectedProjectProvider);
   final appService = ref.watch(appServiceProvider);
   return appService.listSkills(directory: project?.worktree);
@@ -241,8 +279,10 @@ final skillsProvider =
 // File Search
 // ---------------------------------------------------------------------------
 
-final fileSearchProvider =
-    FutureProvider.family<List<String>, String>((ref, query) {
+final fileSearchProvider = FutureProvider.family<List<String>, String>((
+  ref,
+  query,
+) {
   final project = ref.watch(selectedProjectProvider);
   final appService = ref.watch(appServiceProvider);
   return appService.findFiles(query: query, directory: project?.worktree);

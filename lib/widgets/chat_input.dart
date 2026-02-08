@@ -13,12 +13,16 @@ class ChatInput extends ConsumerStatefulWidget {
   })
   onSendMessage;
   final Future<void> Function(String command, String arguments) onSendCommand;
+  final VoidCallback? onStop;
+  final bool isBusy;
   final bool enabled;
 
   const ChatInput({
     super.key,
     required this.onSendMessage,
     required this.onSendCommand,
+    this.onStop,
+    this.isBusy = false,
     this.enabled = true,
   });
 
@@ -151,12 +155,26 @@ class _ChatInputState extends ConsumerState<ChatInput> {
     _controller.selection = TextSelection.collapsed(offset: before.length);
 
     setState(() {
+      final project = ref.read(selectedProjectProvider);
+      var path = filePath;
+
+      if (!path.startsWith('/') && project != null) {
+        if (project.worktree.endsWith('/')) {
+          path = '${project.worktree}$path';
+        } else {
+          path = '${project.worktree}/$path';
+        }
+      }
+
+      if (!path.startsWith('/')) {
+        path = '/$path';
+      }
+
       _attachedFiles.add({
         'type': 'file',
         'mime': 'text/plain',
-        'url': 'file://$filePath',
+        'url': 'file://$path',
         'filename': filePath.split('/').last,
-        'source': {'type': 'file', 'path': filePath},
       });
     });
   }
@@ -281,9 +299,9 @@ class _ChatInputState extends ConsumerState<ChatInput> {
                             fontSize: 13,
                           ),
                           decoration: InputDecoration(
-                            hintText: widget.enabled
-                                ? 'Message... (@ files, / commands)'
-                                : 'Processing...',
+                            hintText: widget.isBusy
+                                ? 'Processing...'
+                                : 'Message... (@ files, / commands)',
                             border: InputBorder.none,
                             enabledBorder: InputBorder.none,
                             focusedBorder: InputBorder.none,
@@ -301,16 +319,24 @@ class _ChatInputState extends ConsumerState<ChatInput> {
                     ),
                     const SizedBox(width: 4),
                     GestureDetector(
-                      onTap: widget.enabled ? _send : null,
+                      onTap: widget.isBusy
+                          ? widget.onStop
+                          : (widget.enabled ? _send : null),
                       child: Container(
                         padding: const EdgeInsets.all(10),
-                        color: widget.enabled
-                            ? AppTheme.accent
-                            : AppTheme.border,
+                        decoration: BoxDecoration(
+                          color: widget.isBusy
+                              ? AppTheme.error
+                              : (widget.enabled
+                                    ? AppTheme.accent
+                                    : AppTheme.border),
+                          shape: BoxShape.rectangle,
+                          borderRadius: BorderRadius.circular(4),
+                        ),
                         child: Icon(
-                          Icons.arrow_upward,
+                          widget.isBusy ? Icons.stop : Icons.arrow_upward,
                           size: 18,
-                          color: widget.enabled
+                          color: widget.isBusy || widget.enabled
                               ? Colors.white
                               : AppTheme.textTertiary,
                         ),
@@ -359,13 +385,17 @@ class _OverlayContent extends ConsumerWidget {
             child: Container(
               constraints: const BoxConstraints(maxHeight: 250, maxWidth: 400),
               margin: const EdgeInsets.only(bottom: 4),
-              decoration: BoxDecoration(
-                color: AppTheme.surface,
-                border: Border.all(color: AppTheme.border),
+              child: Material(
+                color: Theme.of(context).colorScheme.surface,
+                shape: RoundedRectangleBorder(
+                  side: BorderSide(
+                    color: Theme.of(context).colorScheme.outline,
+                  ),
+                ),
+                child: mode == 'file'
+                    ? _FileSearchList(query: query, onSelect: onSelectFile)
+                    : _CommandList(query: query, onSelect: onSelectCommand),
               ),
-              child: mode == 'file'
-                  ? _FileSearchList(query: query, onSelect: onSelectFile)
-                  : _CommandList(query: query, onSelect: onSelectCommand),
             ),
           ),
         ),
@@ -383,11 +413,14 @@ class _FileSearchList extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     if (query.isEmpty) {
-      return const Padding(
-        padding: EdgeInsets.all(16),
+      return Padding(
+        padding: const EdgeInsets.all(16),
         child: Text(
           'Type to search files...',
-          style: TextStyle(color: AppTheme.textTertiary, fontSize: 12),
+          style: TextStyle(
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+            fontSize: 12,
+          ),
         ),
       );
     }
@@ -397,11 +430,14 @@ class _FileSearchList extends ConsumerWidget {
     return filesAsync.when(
       data: (files) {
         if (files.isEmpty) {
-          return const Padding(
-            padding: EdgeInsets.all(16),
+          return Padding(
+            padding: const EdgeInsets.all(16),
             child: Text(
               'No files found',
-              style: TextStyle(color: AppTheme.textTertiary, fontSize: 12),
+              style: TextStyle(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+                fontSize: 12,
+              ),
             ),
           );
         }
@@ -421,17 +457,20 @@ class _FileSearchList extends ConsumerWidget {
                   horizontal: 12,
                   vertical: 8,
                 ),
-                decoration: const BoxDecoration(
+                decoration: BoxDecoration(
                   border: Border(
-                    bottom: BorderSide(color: AppTheme.border, width: 0.5),
+                    bottom: BorderSide(
+                      color: Theme.of(context).colorScheme.outlineVariant,
+                      width: 0.5,
+                    ),
                   ),
                 ),
                 child: Row(
                   children: [
-                    const Icon(
+                    Icon(
                       Icons.insert_drive_file_outlined,
                       size: 14,
-                      color: AppTheme.info,
+                      color: Theme.of(context).colorScheme.primary,
                     ),
                     const SizedBox(width: 8),
                     Expanded(
@@ -440,15 +479,17 @@ class _FileSearchList extends ConsumerWidget {
                         children: [
                           Text(
                             fileName,
-                            style: const TextStyle(
-                              color: AppTheme.textPrimary,
+                            style: TextStyle(
+                              color: Theme.of(context).colorScheme.onSurface,
                               fontSize: 12,
                             ),
                           ),
                           Text(
                             file,
-                            style: const TextStyle(
-                              color: AppTheme.textTertiary,
+                            style: TextStyle(
+                              color: Theme.of(
+                                context,
+                              ).colorScheme.onSurfaceVariant,
                               fontSize: 10,
                             ),
                             maxLines: 1,
@@ -464,24 +505,27 @@ class _FileSearchList extends ConsumerWidget {
           },
         );
       },
-      loading: () => const Padding(
+      loading: () => Padding(
         padding: EdgeInsets.all(16),
         child: Center(
           child: SizedBox(
             width: 16,
             height: 16,
             child: CircularProgressIndicator(
-              color: AppTheme.accent,
+              color: Theme.of(context).colorScheme.primary,
               strokeWidth: 2,
             ),
           ),
         ),
       ),
-      error: (_, _) => const Padding(
-        padding: EdgeInsets.all(16),
+      error: (_, _) => Padding(
+        padding: const EdgeInsets.all(16),
         child: Text(
           'Search failed',
-          style: TextStyle(color: AppTheme.error, fontSize: 12),
+          style: TextStyle(
+            color: Theme.of(context).colorScheme.error,
+            fontSize: 12,
+          ),
         ),
       ),
     );
@@ -531,11 +575,14 @@ class _CommandList extends ConsumerWidget {
               }).toList();
 
         if (filtered.isEmpty) {
-          return const Padding(
-            padding: EdgeInsets.all(16),
+          return Padding(
+            padding: const EdgeInsets.all(16),
             child: Text(
               'No commands found',
-              style: TextStyle(color: AppTheme.textTertiary, fontSize: 12),
+              style: TextStyle(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+                fontSize: 12,
+              ),
             ),
           );
         }
@@ -555,9 +602,12 @@ class _CommandList extends ConsumerWidget {
                   horizontal: 12,
                   vertical: 8,
                 ),
-                decoration: const BoxDecoration(
+                decoration: BoxDecoration(
                   border: Border(
-                    bottom: BorderSide(color: AppTheme.border, width: 0.5),
+                    bottom: BorderSide(
+                      color: Theme.of(context).colorScheme.outlineVariant,
+                      width: 0.5,
+                    ),
                   ),
                 ),
                 child: Row(
@@ -565,7 +615,9 @@ class _CommandList extends ConsumerWidget {
                     Icon(
                       isSkill ? Icons.auto_awesome : Icons.terminal,
                       size: 14,
-                      color: isSkill ? AppTheme.warning : AppTheme.accent,
+                      color: isSkill
+                          ? Theme.of(context).colorScheme.tertiary
+                          : Theme.of(context).colorScheme.primary,
                     ),
                     const SizedBox(width: 8),
                     Expanded(
@@ -574,8 +626,8 @@ class _CommandList extends ConsumerWidget {
                         children: [
                           Text(
                             '/${item['name']}',
-                            style: const TextStyle(
-                              color: AppTheme.textPrimary,
+                            style: TextStyle(
+                              color: Theme.of(context).colorScheme.onSurface,
                               fontSize: 12,
                             ),
                           ),
@@ -583,8 +635,10 @@ class _CommandList extends ConsumerWidget {
                               false)
                             Text(
                               item['description'] as String,
-                              style: const TextStyle(
-                                color: AppTheme.textTertiary,
+                              style: TextStyle(
+                                color: Theme.of(
+                                  context,
+                                ).colorScheme.onSurfaceVariant,
                                 fontSize: 10,
                               ),
                               maxLines: 1,
@@ -599,12 +653,14 @@ class _CommandList extends ConsumerWidget {
                         vertical: 1,
                       ),
                       decoration: BoxDecoration(
-                        border: Border.all(color: AppTheme.border),
+                        border: Border.all(
+                          color: Theme.of(context).colorScheme.outline,
+                        ),
                       ),
                       child: Text(
                         (item['source'] as String? ?? '').toUpperCase(),
-                        style: const TextStyle(
-                          color: AppTheme.textTertiary,
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
                           fontSize: 8,
                         ),
                       ),
@@ -616,24 +672,27 @@ class _CommandList extends ConsumerWidget {
           },
         );
       },
-      loading: () => const Padding(
+      loading: () => Padding(
         padding: EdgeInsets.all(16),
         child: Center(
           child: SizedBox(
             width: 16,
             height: 16,
             child: CircularProgressIndicator(
-              color: AppTheme.accent,
+              color: Theme.of(context).colorScheme.primary,
               strokeWidth: 2,
             ),
           ),
         ),
       ),
-      error: (_, _) => const Padding(
-        padding: EdgeInsets.all(16),
+      error: (_, _) => Padding(
+        padding: const EdgeInsets.all(16),
         child: Text(
           'Failed to load commands',
-          style: TextStyle(color: AppTheme.error, fontSize: 12),
+          style: TextStyle(
+            color: Theme.of(context).colorScheme.error,
+            fontSize: 12,
+          ),
         ),
       ),
     );

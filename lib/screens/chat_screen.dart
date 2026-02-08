@@ -28,6 +28,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   void initState() {
     super.initState();
     _subscribeToEvents();
+    _listenToSessionChanges();
+    _listenToMessageUpdates();
   }
 
   @override
@@ -42,19 +44,24 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     if (project == null) return;
 
     final eventService = ref.read(eventServiceProvider);
-    _eventSub = eventService.subscribe(directory: project.worktree).listen((event) {
+    _eventSub = eventService.subscribe(directory: project.worktree).listen((
+      event,
+    ) {
       try {
         final type = event['type'] as String? ?? '';
-        
+
         if (type.startsWith('message.')) {
           ref.invalidate(messagesProvider);
         } else if (type == 'session.updated') {
           ref.invalidate(sessionsProvider);
           final session = ref.read(selectedSessionProvider);
           if (session != null) {
-            ref.read(sessionServiceProvider).getSession(session.id, directory: session.directory).then((updated) {
-              ref.read(selectedSessionProvider.notifier).state = updated;
-            });
+            ref
+                .read(sessionServiceProvider)
+                .getSession(session.id, directory: session.directory)
+                .then((updated) {
+                  ref.read(selectedSessionProvider.notifier).state = updated;
+                });
           }
         } else if (type == 'session.status') {
           final props = event['properties'];
@@ -80,6 +87,24 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     });
   }
 
+  void _listenToSessionChanges() {
+    ref.listen<Session?>(selectedSessionProvider, (prev, next) {
+      if (next != null && (prev == null || prev.id != next.id)) {
+        _loadSessionModel(next.id);
+      }
+    });
+  }
+
+  void _listenToMessageUpdates() {
+    ref.listen<AsyncValue<List<MessageWrapper>>>(messagesProvider, (prev, next) {
+      final prevLength = prev?.value?.length ?? 0;
+      final nextLength = next.value?.length ?? 0;
+      if (nextLength > prevLength) {
+        _scrollToBottom();
+      }
+    });
+  }
+
   void _scrollToBottom() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (_scrollController.hasClients) {
@@ -92,24 +117,29 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     });
   }
 
-  Future<void> _sendMessage(String text, {List<Map<String, dynamic>>? fileParts}) async {
+  Future<void> _sendMessage(
+    String text, {
+    List<Map<String, dynamic>>? fileParts,
+  }) async {
     final session = ref.read(selectedSessionProvider);
     if (session == null) return;
 
     final model = ref.read(activeModelProvider);
 
     final parts = <Map<String, dynamic>>[];
-    
+
     if (fileParts != null) {
       parts.addAll(fileParts);
     }
-    
+
     parts.add({'type': 'text', 'text': text});
 
     if (model == null) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('No model selected. Pick a model first.')),
+          const SnackBar(
+            content: Text('No model selected. Pick a model first.'),
+          ),
         );
       }
       return;
@@ -117,7 +147,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
     try {
       setState(() => _isBusy = true);
-      
+
       final messageService = ref.read(messageServiceProvider);
       await messageService.sendMessageAsync(
         session.id,
@@ -126,15 +156,15 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         modelID: model['modelID'],
         directory: session.directory,
       );
-      
+
       ref.invalidate(messagesProvider);
       _scrollToBottom();
     } catch (e) {
       if (mounted) {
         setState(() => _isBusy = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to send: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Failed to send: $e')));
       }
     }
   }
@@ -145,7 +175,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
     try {
       setState(() => _isBusy = true);
-      
+
       final messageService = ref.read(messageServiceProvider);
       await messageService.sendCommand(
         session.id,
@@ -153,15 +183,15 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         arguments: arguments,
         directory: session.directory,
       );
-      
+
       ref.invalidate(messagesProvider);
       _scrollToBottom();
     } catch (e) {
       if (mounted) {
         setState(() => _isBusy = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Failed: $e')));
       }
     }
   }
@@ -172,15 +202,33 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
     try {
       final sessionService = ref.read(sessionServiceProvider);
-      await sessionService.abortSession(session.id, directory: session.directory);
+      await sessionService.abortSession(
+        session.id,
+        directory: session.directory,
+      );
       setState(() => _isBusy = false);
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to abort: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Failed to abort: $e')));
       }
     }
+  }
+
+  Future<void> _loadSessionModel(String sessionId) async {
+    final prefs = ref.read(preferencesServiceProvider);
+    final savedModel = await prefs.getSessionModel(sessionId);
+    // Logic:
+    // If we have a saved model for this session, set it as selected.
+    // If NOT, we ensure selectedModelProvider is null so it falls back to default.
+    // IMPORTANT: We only set state if it's different to avoid loops if this is called repeatedly.
+    // But since this is a one-off load, we can just set it.
+
+    // However, if the user explicitly cleared it in this session before (in memory), we might overwrite?
+    // But since _loadSessionModel is intended to be called on session switch, it's fine.
+
+    ref.read(selectedModelProvider.notifier).state = savedModel;
   }
 
   @override
@@ -198,7 +246,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           ),
         ),
         body: const Center(
-          child: Text('No session selected', style: TextStyle(color: AppTheme.textTertiary)),
+          child: Text(
+            'No session selected',
+            style: TextStyle(color: AppTheme.textTertiary),
+          ),
         ),
       );
     }
@@ -227,7 +278,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 ),
                 const SizedBox(width: 4),
                 Text(
-                  _isBusy ? 'Processing...' : 'Ready',
+                  _isBusy
+                      ? 'Processing...'
+                      : 'Ready${(ref.watch(activeModelProvider) != null) ? " • ${ref.watch(activeModelProvider)!['modelID']}" : ""}',
                   style: TextStyle(
                     fontSize: 10,
                     color: _isBusy ? AppTheme.warning : AppTheme.textTertiary,
@@ -265,15 +318,26 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               ),
             ),
           ),
-          if (_isBusy)
-            IconButton(
-              icon: const Icon(Icons.stop, color: AppTheme.error, size: 20),
-              onPressed: _abortSession,
-              tooltip: 'Abort',
-            ),
+
           IconButton(
             icon: const Icon(Icons.swap_horiz, size: 20),
-            onPressed: () => context.push('/models'),
+            onPressed: () {
+              context.push(
+                '/models',
+                extra: {
+                  'onSelection': (String p, String m) {
+                    ref.read(selectedModelProvider.notifier).state = {
+                      'providerID': p,
+                      'modelID': m,
+                    };
+                    ref
+                        .read(preferencesServiceProvider)
+                        .saveSessionModel(session.id, p, m);
+                  },
+                  'selectedModel': ref.read(activeModelProvider),
+                },
+              );
+            },
             tooltip: 'Models',
           ),
         ],
@@ -293,18 +357,27 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                           decoration: BoxDecoration(
                             border: Border.all(color: AppTheme.border),
                           ),
-                          child: Icon(Icons.terminal, size: 32, color: AppTheme.accent),
+                          child: Icon(
+                            Icons.terminal,
+                            size: 32,
+                            color: AppTheme.accent,
+                          ),
                         ),
                         const SizedBox(height: 16),
                         const Text(
                           'Start a conversation',
-                          style: TextStyle(color: AppTheme.textSecondary, fontSize: 14),
+                          style: TextStyle(
+                            color: AppTheme.textSecondary,
+                            fontSize: 14,
+                          ),
                         ),
                         const SizedBox(height: 6),
                         Text(
                           'Mode: ${mode.toUpperCase()}',
                           style: TextStyle(
-                            color: mode == 'plan' ? AppTheme.info : AppTheme.accent,
+                            color: mode == 'plan'
+                                ? AppTheme.info
+                                : AppTheme.accent,
                             fontSize: 11,
                           ),
                         ),
@@ -313,15 +386,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                   );
                 }
 
-                WidgetsBinding.instance.addPostFrameCallback((_) {
-                  if (_scrollController.hasClients) {
-                    _scrollController.jumpTo(_scrollController.position.maxScrollExtent);
-                  }
-                });
-
                 return ListView.builder(
                   controller: _scrollController,
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 8,
+                  ),
                   itemCount: messages.length,
                   itemBuilder: (context, index) {
                     final msg = messages[index];
@@ -330,13 +400,23 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 );
               },
               loading: () => const Center(
-                child: CircularProgressIndicator(color: AppTheme.accent),
+                child: SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
               ),
               error: (e, _) => Center(
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Text('Error: $e', style: const TextStyle(color: AppTheme.textTertiary, fontSize: 12)),
+                    Text(
+                      'Error: $e',
+                      style: const TextStyle(
+                        color: AppTheme.textTertiary,
+                        fontSize: 12,
+                      ),
+                    ),
                     const SizedBox(height: 12),
                     OutlinedButton(
                       onPressed: () => ref.invalidate(messagesProvider),
@@ -360,6 +440,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           ChatInput(
             onSendMessage: _sendMessage,
             onSendCommand: _sendCommand,
+            onStop: _abortSession,
+            isBusy: _isBusy,
             enabled: !_isBusy,
           ),
         ],
@@ -399,7 +481,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                   const SizedBox(width: 8),
                   Text(
                     (msg.info as AssistantMessageInfo).modelID,
-                    style: const TextStyle(color: AppTheme.textTertiary, fontSize: 9),
+                    style: const TextStyle(
+                      color: AppTheme.textTertiary,
+                      fontSize: 9,
+                    ),
                   ),
                 ],
               ],
@@ -412,7 +497,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               color: isUser ? AppTheme.userBubble : AppTheme.assistantBubble,
               border: Border(
                 left: BorderSide(
-                  color: isUser ? AppTheme.info.withValues(alpha: 0.3) : AppTheme.accent.withValues(alpha: 0.3),
+                  color: isUser
+                      ? AppTheme.info.withValues(alpha: 0.3)
+                      : AppTheme.accent.withValues(alpha: 0.3),
                   width: 2,
                 ),
               ),
@@ -428,18 +515,27 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 children: [
                   Text(
                     '\$${(msg.info as AssistantMessageInfo).cost.toStringAsFixed(4)}',
-                    style: const TextStyle(color: AppTheme.textTertiary, fontSize: 9),
+                    style: const TextStyle(
+                      color: AppTheme.textTertiary,
+                      fontSize: 9,
+                    ),
                   ),
                   const SizedBox(width: 8),
                   Text(
                     '${(msg.info as AssistantMessageInfo).tokens.input + (msg.info as AssistantMessageInfo).tokens.output} tokens',
-                    style: const TextStyle(color: AppTheme.textTertiary, fontSize: 9),
+                    style: const TextStyle(
+                      color: AppTheme.textTertiary,
+                      fontSize: 9,
+                    ),
                   ),
                   if ((msg.info as AssistantMessageInfo).mode.isNotEmpty) ...[
                     const SizedBox(width: 8),
                     Text(
                       (msg.info as AssistantMessageInfo).mode.toUpperCase(),
-                      style: const TextStyle(color: AppTheme.textTertiary, fontSize: 9),
+                      style: const TextStyle(
+                        color: AppTheme.textTertiary,
+                        fontSize: 9,
+                      ),
                     ),
                   ],
                 ],

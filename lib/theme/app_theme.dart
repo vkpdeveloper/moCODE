@@ -29,6 +29,7 @@ class AppTheme {
         surface: surface,
         primary: accent,
         secondary: accentDim,
+        tertiary: warning,
         error: error,
         onSurface: textPrimary,
         onPrimary: Colors.white,
@@ -43,13 +44,22 @@ class AppTheme {
           headlineLarge: TextStyle(color: textPrimary),
           headlineMedium: TextStyle(color: textPrimary),
           headlineSmall: TextStyle(color: textPrimary),
-          titleLarge: TextStyle(color: textPrimary, fontWeight: FontWeight.w600),
-          titleMedium: TextStyle(color: textPrimary, fontWeight: FontWeight.w500),
+          titleLarge: TextStyle(
+            color: textPrimary,
+            fontWeight: FontWeight.w600,
+          ),
+          titleMedium: TextStyle(
+            color: textPrimary,
+            fontWeight: FontWeight.w500,
+          ),
           titleSmall: TextStyle(color: textSecondary),
           bodyLarge: TextStyle(color: textPrimary),
           bodyMedium: TextStyle(color: textPrimary),
           bodySmall: TextStyle(color: textSecondary),
-          labelLarge: TextStyle(color: textPrimary, fontWeight: FontWeight.w500),
+          labelLarge: TextStyle(
+            color: textPrimary,
+            fontWeight: FontWeight.w500,
+          ),
           labelMedium: TextStyle(color: textSecondary),
           labelSmall: TextStyle(color: textTertiary),
         ),
@@ -165,11 +175,13 @@ class AppTheme {
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.zero),
       ),
       switchTheme: SwitchThemeData(
-        thumbColor: WidgetStateProperty.resolveWith((states) =>
-          states.contains(WidgetState.selected) ? accent : textTertiary
+        thumbColor: WidgetStateProperty.resolveWith(
+          (states) =>
+              states.contains(WidgetState.selected) ? accent : textTertiary,
         ),
-        trackColor: WidgetStateProperty.resolveWith((states) =>
-          states.contains(WidgetState.selected) ? accentDim : border
+        trackColor: WidgetStateProperty.resolveWith(
+          (states) =>
+              states.contains(WidgetState.selected) ? accentDim : border,
         ),
       ),
       progressIndicatorTheme: const ProgressIndicatorThemeData(

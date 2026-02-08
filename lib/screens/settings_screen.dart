@@ -21,7 +21,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     super.initState();
     final settings = ref.read(settingsProvider);
     _hostController = TextEditingController(text: settings.serverHost);
-    _portController = TextEditingController(text: settings.serverPort.toString());
+    _portController = TextEditingController(
+      text: settings.serverPort.toString(),
+    );
   }
 
   @override
@@ -35,6 +37,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   Widget build(BuildContext context) {
     final settings = ref.watch(settingsProvider);
     final healthAsync = ref.watch(healthProvider);
+    final defaultModel = ref.watch(defaultModelProvider);
 
     return Scaffold(
       appBar: AppBar(
@@ -42,7 +45,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           icon: const Icon(Icons.arrow_back, size: 20),
           onPressed: () => context.pop(),
         ),
-        title: const Text('SETTINGS', style: TextStyle(fontSize: 14, letterSpacing: 2)),
+        title: const Text(
+          'SETTINGS',
+          style: TextStyle(fontSize: 14, letterSpacing: 2),
+        ),
       ),
       body: ListView(
         padding: const EdgeInsets.all(16),
@@ -58,23 +64,35 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text('Host', style: TextStyle(color: AppTheme.textSecondary, fontSize: 11)),
+                const Text(
+                  'Host',
+                  style: TextStyle(color: AppTheme.textSecondary, fontSize: 11),
+                ),
                 const SizedBox(height: 6),
                 TextField(
                   controller: _hostController,
-                  style: const TextStyle(color: AppTheme.textPrimary, fontSize: 13),
+                  style: const TextStyle(
+                    color: AppTheme.textPrimary,
+                    fontSize: 13,
+                  ),
                   decoration: const InputDecoration(
                     hintText: 'localhost',
                     isDense: true,
                   ),
                 ),
                 const SizedBox(height: 14),
-                const Text('Port', style: TextStyle(color: AppTheme.textSecondary, fontSize: 11)),
+                const Text(
+                  'Port',
+                  style: TextStyle(color: AppTheme.textSecondary, fontSize: 11),
+                ),
                 const SizedBox(height: 6),
                 TextField(
                   controller: _portController,
                   keyboardType: TextInputType.number,
-                  style: const TextStyle(color: AppTheme.textPrimary, fontSize: 13),
+                  style: const TextStyle(
+                    color: AppTheme.textPrimary,
+                    fontSize: 13,
+                  ),
                   decoration: const InputDecoration(
                     hintText: '3000',
                     isDense: true,
@@ -85,7 +103,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   width: double.infinity,
                   child: ElevatedButton(
                     onPressed: _saveSettings,
-                    child: const Text('SAVE & CONNECT', style: TextStyle(fontSize: 12, letterSpacing: 1)),
+                    child: const Text(
+                      'SAVE & CONNECT',
+                      style: TextStyle(fontSize: 12, letterSpacing: 1),
+                    ),
                   ),
                 ),
               ],
@@ -100,11 +121,17 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             padding: const EdgeInsets.all(12),
             child: Row(
               children: [
-                const Text('Current URL', style: TextStyle(color: AppTheme.textTertiary, fontSize: 11)),
+                const Text(
+                  'Current URL',
+                  style: TextStyle(color: AppTheme.textTertiary, fontSize: 11),
+                ),
                 const Spacer(),
                 Text(
                   settings.serverUrl,
-                  style: const TextStyle(color: AppTheme.textSecondary, fontSize: 11),
+                  style: const TextStyle(
+                    color: AppTheme.textSecondary,
+                    fontSize: 11,
+                  ),
                 ),
               ],
             ),
@@ -122,7 +149,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             child: healthAsync.when(
               data: (health) => Column(
                 children: [
-                  _statusRow('Server', health.healthy ? 'Online' : 'Offline', health.healthy),
+                  _statusRow(
+                    'Server',
+                    health.healthy ? 'Online' : 'Offline',
+                    health.healthy,
+                  ),
                   const Divider(height: 20),
                   _statusRow('Version', health.version ?? 'Unknown', null),
                 ],
@@ -130,7 +161,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               loading: () => const Center(
                 child: Padding(
                   padding: EdgeInsets.all(16),
-                  child: CircularProgressIndicator(color: AppTheme.accent, strokeWidth: 2),
+                  child: CircularProgressIndicator(
+                    color: AppTheme.accent,
+                    strokeWidth: 2,
+                  ),
                 ),
               ),
               error: (e, _) => _statusRow('Server', 'Offline', false),
@@ -148,9 +182,20 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             child: Column(
               children: [
                 ListTile(
-                  leading: const Icon(Icons.refresh, color: AppTheme.textSecondary, size: 20),
-                  title: const Text('Refresh All Data', style: TextStyle(fontSize: 13)),
-                  trailing: const Icon(Icons.chevron_right, color: AppTheme.textTertiary, size: 18),
+                  leading: const Icon(
+                    Icons.refresh,
+                    color: AppTheme.textSecondary,
+                    size: 20,
+                  ),
+                  title: const Text(
+                    'Refresh All Data',
+                    style: TextStyle(fontSize: 13),
+                  ),
+                  trailing: const Icon(
+                    Icons.chevron_right,
+                    color: AppTheme.textTertiary,
+                    size: 18,
+                  ),
                   onTap: () {
                     ref.invalidate(healthProvider);
                     ref.invalidate(projectsProvider);
@@ -163,10 +208,42 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 ),
                 const Divider(height: 1),
                 ListTile(
-                  leading: const Icon(Icons.swap_horiz, color: AppTheme.textSecondary, size: 20),
-                  title: const Text('Model Selection', style: TextStyle(fontSize: 13)),
-                  trailing: const Icon(Icons.chevron_right, color: AppTheme.textTertiary, size: 18),
-                  onTap: () => context.push('/models'),
+                  leading: const Icon(
+                    Icons.model_training,
+                    color: AppTheme.textSecondary,
+                    size: 20,
+                  ),
+                  title: const Text(
+                    'Default Model',
+                    style: TextStyle(fontSize: 13),
+                  ),
+                  subtitle: defaultModel != null
+                      ? Text(
+                          '${defaultModel['providerID']}/${defaultModel['modelID']}',
+                          style: const TextStyle(
+                            color: AppTheme.textTertiary,
+                            fontSize: 11,
+                          ),
+                        )
+                      : null,
+                  trailing: const Icon(
+                    Icons.chevron_right,
+                    color: AppTheme.textTertiary,
+                    size: 18,
+                  ),
+                  onTap: () {
+                    context.push(
+                      '/models',
+                      extra: {
+                        'onSelection': (String providerId, String modelId) {
+                          ref
+                              .read(defaultModelProvider.notifier)
+                              .setModel(providerId, modelId);
+                        },
+                        'selectedModel': defaultModel,
+                      },
+                    );
+                  },
                 ),
               ],
             ),
@@ -184,11 +261,24 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             child: const Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('MeCode', style: TextStyle(color: AppTheme.accent, fontSize: 14, fontWeight: FontWeight.w600)),
+                Text(
+                  'MeCode',
+                  style: TextStyle(
+                    color: AppTheme.accent,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
                 SizedBox(height: 4),
-                Text('meCode Mobile Client', style: TextStyle(color: AppTheme.textTertiary, fontSize: 11)),
+                Text(
+                  'meCode Mobile Client',
+                  style: TextStyle(color: AppTheme.textTertiary, fontSize: 11),
+                ),
                 SizedBox(height: 8),
-                Text('v1.0.0', style: TextStyle(color: AppTheme.textTertiary, fontSize: 11)),
+                Text(
+                  'v1.0.0',
+                  style: TextStyle(color: AppTheme.textTertiary, fontSize: 11),
+                ),
               ],
             ),
           ),
@@ -215,7 +305,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   Widget _statusRow(String label, String value, bool? isGood) {
     return Row(
       children: [
-        Text(label, style: const TextStyle(color: AppTheme.textSecondary, fontSize: 12)),
+        Text(
+          label,
+          style: const TextStyle(color: AppTheme.textSecondary, fontSize: 12),
+        ),
         const Spacer(),
         if (isGood != null)
           Container(
@@ -243,8 +336,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     ref.read(settingsProvider.notifier).updateServer(host, port);
     ref.invalidate(healthProvider);
     ref.invalidate(projectsProvider);
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Settings saved')),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('Settings saved')));
   }
 }

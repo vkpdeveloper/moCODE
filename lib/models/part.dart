@@ -12,10 +12,7 @@ class PartTime {
   }
 
   Map<String, dynamic> toJson() {
-    return {
-      'start': start,
-      if (end != null) 'end': end,
-    };
+    return {'start': start, if (end != null) 'end': end};
   }
 }
 
@@ -181,6 +178,7 @@ class FilePart extends Part {
   final String mime;
   final String? filename;
   final String url;
+  final Map<String, dynamic>? source;
 
   FilePart({
     required super.id,
@@ -189,6 +187,7 @@ class FilePart extends Part {
     required this.mime,
     this.filename,
     required this.url,
+    this.source,
   }) : super(type: 'file');
 
   factory FilePart.fromJson(Map<String, dynamic> json) {
@@ -199,6 +198,9 @@ class FilePart extends Part {
       mime: json['mime'] as String? ?? '',
       filename: json['filename'] as String?,
       url: json['url'] as String? ?? '',
+      source: json['source'] is Map<String, dynamic>
+          ? json['source'] as Map<String, dynamic>
+          : null,
     );
   }
 
@@ -212,6 +214,7 @@ class FilePart extends Part {
       'mime': mime,
       if (filename != null) 'filename': filename,
       'url': url,
+      if (source != null) 'source': source,
     };
   }
 }
@@ -500,6 +503,8 @@ class SubtaskPart extends Part {
   final String prompt;
   final String description;
   final String agent;
+  final Map<String, dynamic>? model;
+  final String? command;
 
   SubtaskPart({
     required super.id,
@@ -508,6 +513,8 @@ class SubtaskPart extends Part {
     required this.prompt,
     required this.description,
     required this.agent,
+    this.model,
+    this.command,
   }) : super(type: 'subtask');
 
   factory SubtaskPart.fromJson(Map<String, dynamic> json) {
@@ -518,6 +525,10 @@ class SubtaskPart extends Part {
       prompt: json['prompt'] as String? ?? '',
       description: json['description'] as String? ?? '',
       agent: json['agent'] as String? ?? '',
+      model: json['model'] is Map<String, dynamic>
+          ? json['model'] as Map<String, dynamic>
+          : null,
+      command: json['command'] as String?,
     );
   }
 
@@ -531,6 +542,8 @@ class SubtaskPart extends Part {
       'prompt': prompt,
       'description': description,
       'agent': agent,
+      if (model != null) 'model': model,
+      if (command != null) 'command': command,
     };
   }
 }
