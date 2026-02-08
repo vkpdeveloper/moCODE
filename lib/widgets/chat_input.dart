@@ -1,7 +1,10 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:image_picker/image_picker.dart';
 
 import '../providers/providers.dart';
 import '../theme/app_theme.dart';
@@ -47,7 +50,12 @@ class _ChatInputState extends ConsumerState<ChatInput> {
   String _searchQuery = '';
   int _triggerPosition = -1;
   final List<Map<String, dynamic>> _attachedFiles = [];
+  final ImagePicker _imagePicker = ImagePicker();
+  final List<_ImageAttachment> _attachedImages = [];
   Timer? _debounce;
+  bool _isPickingImages = false;
+
+  static const int _maxAttachmentBase64Length = 10 * 1024 * 1024;
 
   @override
   void initState() {
@@ -200,15 +208,20 @@ class _ChatInputState extends ConsumerState<ChatInput> {
 
   void _send() {
     final text = _controller.text.trim();
-    if (text.isEmpty && _attachedFiles.isEmpty) return;
+    if (text.isEmpty && _attachedFiles.isEmpty && _attachedImages.isEmpty) {
+      return;
+    }
 
-    widget.onSendMessage(
-      text,
-      fileParts: _attachedFiles.isNotEmpty ? List.from(_attachedFiles) : null,
-    );
+    if (_totalImageBase64Length() > _maxAttachmentBase64Length) {
+      _showSizeLimitSnack();
+      return;
+    }
+
+    widget.onSendMessage(text, fileParts: _buildFileParts());
     _controller.clear();
     setState(() {
       _attachedFiles.clear();
+      _attachedImages.clear();
     });
   }
 
@@ -239,6 +252,140 @@ class _ChatInputState extends ConsumerState<ChatInput> {
     });
   }
 
+  void _removeImage(int index) {
+    setState(() {
+      _attachedImages.removeAt(index);
+    });
+  }
+
+  int _totalImageBase64Length() {
+    var total = 0;
+    for (final image in _attachedImages) {
+      total += image.base64Length;
+    }
+    return total;
+  }
+
+  void _showSizeLimitSnack() {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Image attachments must be under 10 MB total.'),
+      ),
+    );
+  }
+
+  Future<void> _openImagePicker() async {
+    if (_isPickingImages) return;
+    if (!mounted) return;
+    setState(() => _isPickingImages = true);
+    try {
+      final picked = await _imagePicker.pickMultiImage();
+      if (!mounted || picked.isEmpty) return;
+      await _showImagePreview(picked);
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Failed to pick images.')));
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isPickingImages = false);
+      }
+    }
+  }
+
+  Future<void> _showImagePreview(List<XFile> files) async {
+    if (!mounted) return;
+    final newImages = await _loadImageAttachments(files);
+    if (!mounted || newImages.isEmpty) return;
+
+    final preview = List<_ImageAttachment>.from(newImages);
+    final confirmed = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) {
+        return _ImagePreviewDialog(
+          images: preview,
+          onRemove: (index) => preview.removeAt(index),
+        );
+      },
+    );
+
+    if (confirmed != true || !mounted) return;
+
+    final totalBase64 =
+        _totalImageBase64Length() +
+        preview.fold<int>(0, (sum, item) => sum + item.base64Length);
+    if (totalBase64 > _maxAttachmentBase64Length) {
+      _showSizeLimitSnack();
+      return;
+    }
+
+    setState(() {
+      _attachedImages.addAll(preview);
+    });
+  }
+
+  Future<List<_ImageAttachment>> _loadImageAttachments(
+    List<XFile> files,
+  ) async {
+    final attachments = <_ImageAttachment>[];
+    for (final file in files) {
+      try {
+        final bytes = await file.readAsBytes();
+        final name = file.name.isNotEmpty
+            ? file.name
+            : file.path.split('/').last;
+        final mime = file.mimeType ?? _guessImageMime(name);
+        final base64Data = base64Encode(bytes);
+        final uri = 'data:$mime;base64,$base64Data';
+        attachments.add(
+          _ImageAttachment(
+            name: name,
+            mime: mime,
+            bytes: bytes,
+            dataUri: uri,
+            base64Length: base64Data.length,
+          ),
+        );
+      } catch (_) {
+        // ignore individual failures
+      }
+    }
+    return attachments;
+  }
+
+  String _guessImageMime(String name) {
+    final ext = name.toLowerCase().split('.').last;
+    return switch (ext) {
+      'jpg' || 'jpeg' => 'image/jpeg',
+      'png' => 'image/png',
+      'gif' => 'image/gif',
+      'webp' => 'image/webp',
+      'bmp' => 'image/bmp',
+      _ => 'image/*',
+    };
+  }
+
+  List<Map<String, dynamic>>? _buildFileParts() {
+    final parts = <Map<String, dynamic>>[];
+    if (_attachedFiles.isNotEmpty) {
+      parts.addAll(List<Map<String, dynamic>>.from(_attachedFiles));
+    }
+
+    for (final image in _attachedImages) {
+      parts.add({
+        'type': 'file',
+        'mime': image.mime,
+        'url': image.dataUri,
+        'filename': image.name,
+      });
+    }
+
+    return parts.isEmpty ? null : parts;
+  }
+
   @override
   Widget build(BuildContext context) {
     return CompositedTransformTarget(
@@ -253,7 +400,7 @@ class _ChatInputState extends ConsumerState<ChatInput> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              if (_attachedFiles.isNotEmpty)
+              if (_attachedFiles.isNotEmpty || _attachedImages.isNotEmpty)
                 Container(
                   width: double.infinity,
                   padding: const EdgeInsets.symmetric(
@@ -268,49 +415,94 @@ class _ChatInputState extends ConsumerState<ChatInput> {
                   child: Wrap(
                     spacing: 6,
                     runSpacing: 4,
-                    children: _attachedFiles.asMap().entries.map((entry) {
-                      return Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 8,
-                          vertical: 4,
-                        ),
-                        decoration: BoxDecoration(
-                          color: AppTheme.surfaceVariant,
-                          border: Border.all(color: AppTheme.border),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(
-                              getIconForExtension(
-                                (entry.value['filename'] as String? ?? 'file')
-                                    .split('.')
-                                    .last,
-                              ),
-                              size: 12,
-                              color: AppTheme.info,
-                            ),
-                            const SizedBox(width: 4),
-                            Text(
-                              entry.value['filename'] as String? ?? 'file',
-                              style: const TextStyle(
-                                color: AppTheme.textSecondary,
-                                fontSize: 11,
-                              ),
-                            ),
-                            const SizedBox(width: 4),
-                            GestureDetector(
-                              onTap: () => _removeFile(entry.key),
-                              child: const Icon(
-                                Icons.close,
+                    children: [
+                      ..._attachedFiles.asMap().entries.map((entry) {
+                        return Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 4,
+                          ),
+                          decoration: BoxDecoration(
+                            color: AppTheme.surfaceVariant,
+                            border: Border.all(color: AppTheme.border),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                getIconForExtension(
+                                  (entry.value['filename'] as String? ?? 'file')
+                                      .split('.')
+                                      .last,
+                                ),
                                 size: 12,
-                                color: AppTheme.textTertiary,
+                                color: AppTheme.info,
                               ),
-                            ),
-                          ],
-                        ),
-                      );
-                    }).toList(),
+                              const SizedBox(width: 4),
+                              Text(
+                                entry.value['filename'] as String? ?? 'file',
+                                style: const TextStyle(
+                                  color: AppTheme.textSecondary,
+                                  fontSize: 11,
+                                ),
+                              ),
+                              const SizedBox(width: 4),
+                              GestureDetector(
+                                onTap: () => _removeFile(entry.key),
+                                child: const Icon(
+                                  Icons.close,
+                                  size: 12,
+                                  color: AppTheme.textTertiary,
+                                ),
+                              ),
+                            ],
+                          ),
+                        );
+                      }),
+                      ..._attachedImages.asMap().entries.map((entry) {
+                        return Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 6,
+                            vertical: 4,
+                          ),
+                          decoration: BoxDecoration(
+                            color: AppTheme.surfaceVariant,
+                            border: Border.all(color: AppTheme.border),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              ClipRRect(
+                                borderRadius: BorderRadius.circular(2),
+                                child: Image.memory(
+                                  entry.value.bytes,
+                                  width: 14,
+                                  height: 14,
+                                  fit: BoxFit.cover,
+                                ),
+                              ),
+                              const SizedBox(width: 4),
+                              Text(
+                                entry.value.name,
+                                style: const TextStyle(
+                                  color: AppTheme.textSecondary,
+                                  fontSize: 11,
+                                ),
+                              ),
+                              const SizedBox(width: 4),
+                              GestureDetector(
+                                onTap: () => _removeImage(entry.key),
+                                child: const Icon(
+                                  Icons.close,
+                                  size: 12,
+                                  color: AppTheme.textTertiary,
+                                ),
+                              ),
+                            ],
+                          ),
+                        );
+                      }),
+                    ],
                   ),
                 ),
               Padding(
@@ -318,6 +510,11 @@ class _ChatInputState extends ConsumerState<ChatInput> {
                 child: Row(
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
+                    IconButton(
+                      onPressed: widget.enabled ? _openImagePicker : null,
+                      icon: const Icon(Icons.image_outlined, size: 18),
+                      tooltip: 'Attach images',
+                    ),
                     Expanded(
                       child: ConstrainedBox(
                         constraints: const BoxConstraints(maxHeight: 120),
@@ -430,6 +627,150 @@ class _OverlayContent extends ConsumerWidget {
               ),
             ),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ImageAttachment {
+  final String name;
+  final String mime;
+  final Uint8List bytes;
+  final String dataUri;
+  final int base64Length;
+
+  const _ImageAttachment({
+    required this.name,
+    required this.mime,
+    required this.bytes,
+    required this.dataUri,
+    required this.base64Length,
+  });
+}
+
+class _ImagePreviewDialog extends StatefulWidget {
+  final List<_ImageAttachment> images;
+  final void Function(int index) onRemove;
+
+  const _ImagePreviewDialog({required this.images, required this.onRemove});
+
+  @override
+  State<_ImagePreviewDialog> createState() => _ImagePreviewDialogState();
+}
+
+class _ImagePreviewDialogState extends State<_ImagePreviewDialog> {
+  @override
+  Widget build(BuildContext context) {
+    final hasImages = widget.images.isNotEmpty;
+    return Dialog(
+      insetPadding: const EdgeInsets.symmetric(horizontal: 18),
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: AppTheme.surface,
+          border: Border.all(color: AppTheme.border),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Attach images',
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.bold,
+                color: AppTheme.textPrimary,
+              ),
+            ),
+            const SizedBox(height: 12),
+            SizedBox(
+              height: 140,
+              child: hasImages
+                  ? GridView.builder(
+                      gridDelegate:
+                          const SliverGridDelegateWithFixedCrossAxisCount(
+                            crossAxisCount: 4,
+                            mainAxisSpacing: 8,
+                            crossAxisSpacing: 8,
+                          ),
+                      itemCount: widget.images.length,
+                      itemBuilder: (context, index) {
+                        final image = widget.images[index];
+                        return Stack(
+                          fit: StackFit.expand,
+                          children: [
+                            ClipRRect(
+                              borderRadius: BorderRadius.circular(4),
+                              child: Image.memory(
+                                image.bytes,
+                                fit: BoxFit.cover,
+                              ),
+                            ),
+                            Positioned(
+                              right: 2,
+                              top: 2,
+                              child: GestureDetector(
+                                onTap: () {
+                                  setState(() {
+                                    widget.onRemove(index);
+                                  });
+                                },
+                                child: Container(
+                                  width: 18,
+                                  height: 18,
+                                  decoration: BoxDecoration(
+                                    color: AppTheme.surface,
+                                    border: Border.all(color: AppTheme.border),
+                                    shape: BoxShape.circle,
+                                  ),
+                                  child: const Icon(
+                                    Icons.close,
+                                    size: 12,
+                                    color: AppTheme.textSecondary,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        );
+                      },
+                    )
+                  : const Center(
+                      child: Text(
+                        'No images selected',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: AppTheme.textTertiary,
+                        ),
+                      ),
+                    ),
+            ),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: () => Navigator.of(context).pop(false),
+                    child: const Text('CANCEL', style: TextStyle(fontSize: 11)),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: ElevatedButton(
+                    onPressed: hasImages
+                        ? () => Navigator.of(context).pop(true)
+                        : null,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppTheme.accent,
+                      foregroundColor: AppTheme.textPrimary,
+                    ),
+                    child: const Text('ATTACH', style: TextStyle(fontSize: 11)),
+                  ),
+                ),
+              ],
+            ),
+          ],
         ),
       ),
     );
