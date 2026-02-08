@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../models/message.dart';
+import '../models/session.dart';
 import '../providers/providers.dart';
 import '../theme/app_theme.dart';
 import '../widgets/chat_input.dart';
@@ -96,7 +97,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   }
 
   void _listenToMessageUpdates() {
-    ref.listen<AsyncValue<List<MessageWrapper>>>(messagesProvider, (prev, next) {
+    ref.listen<AsyncValue<List<MessageWrapper>>>(messagesProvider, (
+      prev,
+      next,
+    ) {
       final prevLength = prev?.value?.length ?? 0;
       final nextLength = next.value?.length ?? 0;
       if (nextLength > prevLength) {

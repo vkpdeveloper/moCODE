@@ -1,16 +1,21 @@
 # mecode
 
-A new Flutter project.
+meCode is a Flutter client for a local/remote AI coding server. It lets you
+pick a project directory, create chat sessions, and work with models through
+a focused, developer-first UI.
 
-## Getting Started
+## Features
 
-This project is a starting point for a Flutter application.
+- Project picker with VCS and health status indicators
+- Session list with create, delete, fork, archive, and share controls
+- Chat UI with plan/build mode toggle and model selection
+- File attachment and command palettes inside the chat input (@ files, / commands)
+- Live session status updates and streaming event handling
+- Per-session model persistence plus user default model selection
+- Server configuration (host/port) and connectivity status
 
-A few resources to get you started if this is your first Flutter project:
+## Tech Stack
 
-- [Lab: Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Cookbook: Useful Flutter samples](https://docs.flutter.dev/cookbook)
-
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+- Flutter + Riverpod
+- GoRouter navigation
+- REST + event stream integration with the backend server
