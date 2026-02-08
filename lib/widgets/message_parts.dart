@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
+import 'package:google_fonts/google_fonts.dart';
 
 import '../models/part.dart';
 import '../theme/app_theme.dart';
@@ -19,7 +20,11 @@ class MessagePartsWidget extends StatelessWidget {
     if (parts.isEmpty) {
       return const Text(
         '(empty)',
-        style: TextStyle(color: AppTheme.textTertiary, fontSize: 12, fontStyle: FontStyle.italic),
+        style: TextStyle(
+          color: AppTheme.textTertiary,
+          fontSize: 12,
+          fontStyle: FontStyle.italic,
+        ),
       );
     }
 
@@ -56,14 +61,32 @@ class MessagePartsWidget extends StatelessWidget {
         data: part.text,
         selectable: true,
         styleSheet: MarkdownStyleSheet(
-          p: const TextStyle(color: AppTheme.textPrimary, fontSize: 13, height: 1.5),
-          h1: const TextStyle(color: AppTheme.textPrimary, fontSize: 18, fontWeight: FontWeight.bold),
-          h2: const TextStyle(color: AppTheme.textPrimary, fontSize: 16, fontWeight: FontWeight.bold),
-          h3: const TextStyle(color: AppTheme.textPrimary, fontSize: 14, fontWeight: FontWeight.bold),
-          code: TextStyle(
-            color: AppTheme.accent,
-            backgroundColor: AppTheme.surfaceVariant,
-            fontSize: 12,
+          p: const TextStyle(
+            color: AppTheme.textPrimary,
+            fontSize: 13,
+            height: 1.5,
+          ),
+          h1: const TextStyle(
+            color: AppTheme.textPrimary,
+            fontSize: 18,
+            fontWeight: FontWeight.bold,
+          ),
+          h2: const TextStyle(
+            color: AppTheme.textPrimary,
+            fontSize: 16,
+            fontWeight: FontWeight.bold,
+          ),
+          h3: const TextStyle(
+            color: AppTheme.textPrimary,
+            fontSize: 14,
+            fontWeight: FontWeight.bold,
+          ),
+          code: GoogleFonts.jetBrainsMono(
+            textStyle: const TextStyle(
+              color: AppTheme.accent,
+              backgroundColor: AppTheme.surfaceVariant,
+              fontSize: 12,
+            ),
           ),
           codeblockDecoration: BoxDecoration(
             color: AppTheme.surfaceVariant,
@@ -72,14 +95,29 @@ class MessagePartsWidget extends StatelessWidget {
           codeblockPadding: const EdgeInsets.all(12),
           blockquoteDecoration: BoxDecoration(
             border: Border(
-              left: BorderSide(color: AppTheme.accent.withValues(alpha: 0.5), width: 3),
+              left: BorderSide(
+                color: AppTheme.accent.withValues(alpha: 0.5),
+                width: 3,
+              ),
             ),
           ),
           blockquotePadding: const EdgeInsets.only(left: 12, top: 4, bottom: 4),
-          listBullet: const TextStyle(color: AppTheme.textSecondary, fontSize: 13),
-          a: const TextStyle(color: AppTheme.info, decoration: TextDecoration.underline),
-          strong: const TextStyle(color: AppTheme.textPrimary, fontWeight: FontWeight.bold),
-          em: const TextStyle(color: AppTheme.textSecondary, fontStyle: FontStyle.italic),
+          listBullet: const TextStyle(
+            color: AppTheme.textSecondary,
+            fontSize: 13,
+          ),
+          a: const TextStyle(
+            color: AppTheme.info,
+            decoration: TextDecoration.underline,
+          ),
+          strong: const TextStyle(
+            color: AppTheme.textPrimary,
+            fontWeight: FontWeight.bold,
+          ),
+          em: const TextStyle(
+            color: AppTheme.textSecondary,
+            fontStyle: FontStyle.italic,
+          ),
           horizontalRuleDecoration: BoxDecoration(
             border: Border(top: BorderSide(color: AppTheme.border)),
           ),
@@ -138,14 +176,21 @@ class MessagePartsWidget extends StatelessWidget {
                 ),
                 child: Text(
                   part.tool,
-                  style: TextStyle(color: statusColor, fontSize: 9, fontWeight: FontWeight.bold),
+                  style: TextStyle(
+                    color: statusColor,
+                    fontSize: 9,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
               ),
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
                   title,
-                  style: const TextStyle(color: AppTheme.textSecondary, fontSize: 11),
+                  style: const TextStyle(
+                    color: AppTheme.textSecondary,
+                    fontSize: 11,
+                  ),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
@@ -158,16 +203,31 @@ class MessagePartsWidget extends StatelessWidget {
                 width: double.infinity,
                 padding: const EdgeInsets.all(10),
                 decoration: const BoxDecoration(
-                  border: Border(top: BorderSide(color: AppTheme.border, width: 0.5)),
+                  border: Border(
+                    top: BorderSide(color: AppTheme.border, width: 0.5),
+                  ),
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text('INPUT', style: TextStyle(color: AppTheme.textTertiary, fontSize: 9, letterSpacing: 1)),
+                    const Text(
+                      'INPUT',
+                      style: TextStyle(
+                        color: AppTheme.textTertiary,
+                        fontSize: 9,
+                        letterSpacing: 1,
+                      ),
+                    ),
                     const SizedBox(height: 4),
                     Text(
                       _truncate(part.input!, 500),
-                      style: const TextStyle(color: AppTheme.textSecondary, fontSize: 11),
+                      style: GoogleFonts.jetBrainsMono(
+                        textStyle: const TextStyle(
+                          color: AppTheme.textSecondary,
+                          fontSize: 11,
+                          height: 1.4,
+                        ),
+                      ),
                     ),
                   ],
                 ),
@@ -177,16 +237,31 @@ class MessagePartsWidget extends StatelessWidget {
                 width: double.infinity,
                 padding: const EdgeInsets.all(10),
                 decoration: const BoxDecoration(
-                  border: Border(top: BorderSide(color: AppTheme.border, width: 0.5)),
+                  border: Border(
+                    top: BorderSide(color: AppTheme.border, width: 0.5),
+                  ),
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text('OUTPUT', style: TextStyle(color: AppTheme.textTertiary, fontSize: 9, letterSpacing: 1)),
+                    const Text(
+                      'OUTPUT',
+                      style: TextStyle(
+                        color: AppTheme.textTertiary,
+                        fontSize: 9,
+                        letterSpacing: 1,
+                      ),
+                    ),
                     const SizedBox(height: 4),
                     Text(
                       _truncate(part.output!, 500),
-                      style: const TextStyle(color: AppTheme.textSecondary, fontSize: 11),
+                      style: GoogleFonts.jetBrainsMono(
+                        textStyle: const TextStyle(
+                          color: AppTheme.textSecondary,
+                          fontSize: 11,
+                          height: 1.4,
+                        ),
+                      ),
                     ),
                   ],
                 ),
@@ -196,7 +271,9 @@ class MessagePartsWidget extends StatelessWidget {
                 width: double.infinity,
                 padding: const EdgeInsets.all(10),
                 decoration: const BoxDecoration(
-                  border: Border(top: BorderSide(color: AppTheme.border, width: 0.5)),
+                  border: Border(
+                    top: BorderSide(color: AppTheme.border, width: 0.5),
+                  ),
                   color: AppTheme.error,
                 ),
                 child: Text(
@@ -218,7 +295,10 @@ class MessagePartsWidget extends StatelessWidget {
       padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
         border: Border(
-          left: BorderSide(color: AppTheme.textTertiary.withValues(alpha: 0.3), width: 2),
+          left: BorderSide(
+            color: AppTheme.textTertiary.withValues(alpha: 0.3),
+            width: 2,
+          ),
         ),
       ),
       child: Text(
@@ -242,7 +322,11 @@ class MessagePartsWidget extends StatelessWidget {
       ),
       child: Row(
         children: [
-          const Icon(Icons.check_circle_outline, size: 12, color: AppTheme.success),
+          const Icon(
+            Icons.check_circle_outline,
+            size: 12,
+            color: AppTheme.success,
+          ),
           const SizedBox(width: 6),
           Text(
             'Step complete',
@@ -252,7 +336,10 @@ class MessagePartsWidget extends StatelessWidget {
             const SizedBox(width: 8),
             Text(
               part.reason,
-              style: const TextStyle(color: AppTheme.textTertiary, fontSize: 10),
+              style: const TextStyle(
+                color: AppTheme.textTertiary,
+                fontSize: 10,
+              ),
             ),
           ],
         ],
@@ -270,7 +357,11 @@ class MessagePartsWidget extends StatelessWidget {
       ),
       child: Row(
         children: [
-          const Icon(Icons.insert_drive_file_outlined, size: 16, color: AppTheme.info),
+          const Icon(
+            Icons.insert_drive_file_outlined,
+            size: 16,
+            color: AppTheme.info,
+          ),
           const SizedBox(width: 8),
           Expanded(
             child: Column(
@@ -278,11 +369,17 @@ class MessagePartsWidget extends StatelessWidget {
               children: [
                 Text(
                   part.filename ?? part.url.split('/').last,
-                  style: const TextStyle(color: AppTheme.textPrimary, fontSize: 12),
+                  style: const TextStyle(
+                    color: AppTheme.textPrimary,
+                    fontSize: 12,
+                  ),
                 ),
                 Text(
                   part.mime,
-                  style: const TextStyle(color: AppTheme.textTertiary, fontSize: 10),
+                  style: const TextStyle(
+                    color: AppTheme.textTertiary,
+                    fontSize: 10,
+                  ),
                 ),
               ],
             ),
@@ -302,7 +399,11 @@ class MessagePartsWidget extends StatelessWidget {
       ),
       child: Row(
         children: [
-          const Icon(Icons.difference_outlined, size: 14, color: AppTheme.warning),
+          const Icon(
+            Icons.difference_outlined,
+            size: 14,
+            color: AppTheme.warning,
+          ),
           const SizedBox(width: 8),
           Text(
             '${part.files.length} file(s) patched',
@@ -354,7 +455,10 @@ class MessagePartsWidget extends StatelessWidget {
             Expanded(
               child: Text(
                 part.errorMessage!,
-                style: const TextStyle(color: AppTheme.textTertiary, fontSize: 10),
+                style: const TextStyle(
+                  color: AppTheme.textTertiary,
+                  fontSize: 10,
+                ),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
               ),
@@ -382,7 +486,11 @@ class MessagePartsWidget extends StatelessWidget {
               const SizedBox(width: 6),
               Text(
                 'Subtask: ${part.agent}',
-                style: const TextStyle(color: AppTheme.info, fontSize: 11, fontWeight: FontWeight.w600),
+                style: const TextStyle(
+                  color: AppTheme.info,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
             ],
           ),
@@ -390,7 +498,10 @@ class MessagePartsWidget extends StatelessWidget {
             const SizedBox(height: 4),
             Text(
               part.description,
-              style: const TextStyle(color: AppTheme.textSecondary, fontSize: 11),
+              style: const TextStyle(
+                color: AppTheme.textSecondary,
+                fontSize: 11,
+              ),
             ),
           ],
         ],

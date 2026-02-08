@@ -23,17 +23,36 @@ class ChatScreen extends ConsumerStatefulWidget {
 class _ChatScreenState extends ConsumerState<ChatScreen> {
   final ScrollController _scrollController = ScrollController();
   StreamSubscription<Map<String, dynamic>>? _eventSub;
+  ProviderSubscription<Session?>? _sessionSub;
+  ProviderSubscription<AsyncValue<List<MessageWrapper>>>? _messagesSub;
+  ProviderSubscription<Map<String, String>?>? _activeModelSub;
+  ProviderSubscription<String>? _sessionModeSub;
   bool _isBusy = false;
+  List<MessageWrapper> _cachedMessages = const [];
+  String? _cachedSessionId;
+  bool _hasLoadedMessages = false;
+  String? _modelSyncSessionId;
+  bool _didSyncModelFromMessages = false;
+  String? _defaultSeedSessionId;
+  bool _didSeedDefaultModel = false;
 
   @override
   void initState() {
     super.initState();
     _subscribeToEvents();
+    _listenToSessionChanges();
+    _listenToMessageUpdates();
+    _listenToActiveModel();
+    _listenToSessionMode();
   }
 
   @override
   void dispose() {
     _eventSub?.cancel();
+    _sessionSub?.close();
+    _messagesSub?.close();
+    _activeModelSub?.close();
+    _sessionModeSub?.close();
     _scrollController.dispose();
     super.dispose();
   }
@@ -74,6 +93,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               _isBusy = statusStr != null && statusStr != 'idle';
             });
           }
+          if (_isBusy) {
+            ref.invalidate(messagesProvider);
+          }
         } else if (type == 'session.idle') {
           if (mounted) {
             setState(() => _isBusy = false);
@@ -87,24 +109,154 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   }
 
   void _listenToSessionChanges() {
-    ref.listen<Session?>(selectedSessionProvider, (prev, next) {
+    _sessionSub = ref.listenManual<Session?>(selectedSessionProvider, (
+      prev,
+      next,
+    ) {
       if (next != null && (prev == null || prev.id != next.id)) {
+        _resetSessionState(next.id);
         _loadSessionModel(next.id);
+        _loadSessionMode(next.id);
       }
     });
   }
 
-  void _listenToMessageUpdates() {
-    ref.listen<AsyncValue<List<MessageWrapper>>>(messagesProvider, (
+  void _listenToSessionMode() {
+    _sessionModeSub = ref.listenManual<String>(sessionModeProvider, (
       prev,
       next,
     ) {
-      final prevLength = prev?.value?.length ?? 0;
-      final nextLength = next.value?.length ?? 0;
-      if (nextLength > prevLength) {
-        _scrollToBottom();
-      }
+      final session = ref.read(selectedSessionProvider);
+      if (session == null) return;
+      if (prev == next) return;
+      ref.read(preferencesServiceProvider).saveSessionMode(session.id, next);
     });
+  }
+
+  void _listenToMessageUpdates() {
+    _messagesSub = ref.listenManual<AsyncValue<List<MessageWrapper>>>(
+      messagesProvider,
+      (prev, next) {
+        final session = ref.read(selectedSessionProvider);
+        final nextMessages = next.valueOrNull;
+        if (session != null && nextMessages != null) {
+          _updateCachedMessages(session.id, nextMessages);
+          _syncSelectedModelFromMessages(session, nextMessages);
+        }
+
+        final prevLength = prev?.valueOrNull?.length ?? 0;
+        final nextLength = next.valueOrNull?.length ?? 0;
+        if (nextLength > prevLength) {
+          _scrollToBottom();
+        }
+      },
+    );
+  }
+
+  void _listenToActiveModel() {
+    _activeModelSub = ref.listenManual<Map<String, String>?>(
+      activeModelProvider,
+      (prev, next) {
+        if (next == null) return;
+        final providerId = next['providerID'];
+        final modelId = next['modelID'];
+        if (providerId == null || providerId.isEmpty) return;
+        if (modelId == null || modelId.isEmpty) return;
+        final session = ref.read(selectedSessionProvider);
+        if (session == null) return;
+        if (_defaultSeedSessionId != session.id) {
+          _defaultSeedSessionId = session.id;
+          _didSeedDefaultModel = false;
+        }
+        if (_didSeedDefaultModel || _didSyncModelFromMessages) return;
+        if (_cachedMessages.isNotEmpty) return;
+        final selected = ref.read(selectedModelProvider);
+        if (selected != null) return;
+
+        ref.read(selectedModelProvider.notifier).state = {
+          'providerID': providerId,
+          'modelID': modelId,
+        };
+        ref
+            .read(preferencesServiceProvider)
+            .saveSessionModel(session.id, providerId, modelId);
+        _didSeedDefaultModel = true;
+      },
+    );
+  }
+
+  void _resetSessionState(String sessionId) {
+    if (!mounted) return;
+    setState(() {
+      _cachedSessionId = sessionId;
+      _cachedMessages = const [];
+      _hasLoadedMessages = false;
+    });
+    _modelSyncSessionId = sessionId;
+    _didSyncModelFromMessages = false;
+    _defaultSeedSessionId = sessionId;
+    _didSeedDefaultModel = false;
+  }
+
+  void _updateCachedMessages(String sessionId, List<MessageWrapper> messages) {
+    if (!mounted) return;
+    final shouldUpdate =
+        _cachedSessionId != sessionId || !identical(_cachedMessages, messages);
+    if (shouldUpdate || !_hasLoadedMessages) {
+      setState(() {
+        _cachedSessionId = sessionId;
+        _cachedMessages = messages;
+        _hasLoadedMessages = true;
+      });
+    }
+  }
+
+  void _syncSelectedModelFromMessages(
+    Session session,
+    List<MessageWrapper> messages,
+  ) {
+    if (_modelSyncSessionId != session.id) {
+      _modelSyncSessionId = session.id;
+      _didSyncModelFromMessages = false;
+    }
+    if (_didSyncModelFromMessages || messages.isEmpty) return;
+
+    String? providerId;
+    String? modelId;
+
+    for (var i = messages.length - 1; i >= 0; i--) {
+      final info = messages[i].info;
+      if (info is AssistantMessageInfo) {
+        if (info.providerID.isNotEmpty && info.modelID.isNotEmpty) {
+          providerId = info.providerID;
+          modelId = info.modelID;
+          break;
+        }
+      } else if (info is UserMessageInfo) {
+        final model = info.model;
+        if (model != null && model.providerID.isNotEmpty) {
+          providerId = model.providerID;
+          modelId = model.modelID;
+          break;
+        }
+      }
+    }
+
+    if (providerId == null || modelId == null) return;
+
+    final current = ref.read(selectedModelProvider);
+    if (current == null ||
+        current['providerID'] != providerId ||
+        current['modelID'] != modelId) {
+      ref.read(selectedModelProvider.notifier).state = {
+        'providerID': providerId,
+        'modelID': modelId,
+      };
+      ref
+          .read(preferencesServiceProvider)
+          .saveSessionModel(session.id, providerId, modelId);
+    }
+    _didSyncModelFromMessages = true;
   }
 
   void _scrollToBottom() {
@@ -127,6 +279,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     if (session == null) return;
 
     final model = ref.read(activeModelProvider);
+    final mode = ref.read(sessionModeProvider);
 
     final parts = <Map<String, dynamic>>[];
 
@@ -156,6 +309,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         parts: parts,
         providerID: model['providerID'],
         modelID: model['modelID'],
+        agent: mode,
         directory: session.directory,
       );
 
@@ -174,6 +328,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   Future<void> _sendCommand(String command, String arguments) async {
     final session = ref.read(selectedSessionProvider);
     if (session == null) return;
+    final mode = ref.read(sessionModeProvider);
 
     try {
       setState(() => _isBusy = true);
@@ -183,6 +338,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         session.id,
         command: command,
         arguments: arguments,
+        agent: mode,
         directory: session.directory,
       );
 
@@ -230,7 +386,28 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     // However, if the user explicitly cleared it in this session before (in memory), we might overwrite?
     // But since _loadSessionModel is intended to be called on session switch, it's fine.
 
-    ref.read(selectedModelProvider.notifier).state = savedModel;
+    final current = ref.read(selectedModelProvider);
+    if (savedModel == null) {
+      if (current != null) {
+        ref.read(selectedModelProvider.notifier).state = null;
+      }
+      return;
+    }
+    if (current == null ||
+        current['providerID'] != savedModel['providerID'] ||
+        current['modelID'] != savedModel['modelID']) {
+      ref.read(selectedModelProvider.notifier).state = savedModel;
+    }
+  }
+
+  Future<void> _loadSessionMode(String sessionId) async {
+    final prefs = ref.read(preferencesServiceProvider);
+    final savedMode = await prefs.getSessionMode(sessionId);
+    if (savedMode == null) return;
+    final current = ref.read(sessionModeProvider);
+    if (current != savedMode) {
+      ref.read(sessionModeProvider.notifier).state = savedMode;
+    }
   }
 
   @override
@@ -238,9 +415,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final session = ref.watch(selectedSessionProvider);
     final messagesAsync = ref.watch(messagesProvider);
     final mode = ref.watch(sessionModeProvider);
+    final activeModel = ref.watch(activeModelProvider);
 
-    _listenToSessionChanges();
-    _listenToMessageUpdates();
+    final messages = messagesAsync.valueOrNull ?? const <MessageWrapper>[];
+    final displayMessages = _cachedMessages.isNotEmpty
+        ? _cachedMessages
+        : messages;
+    final isInitialLoading = messagesAsync.isLoading && !_hasLoadedMessages;
 
     if (session == null) {
       return Scaffold(
@@ -285,7 +466,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 Text(
                   _isBusy
                       ? 'Processing...'
-                      : 'Ready${(ref.watch(activeModelProvider) != null) ? " • ${ref.watch(activeModelProvider)!['modelID']}" : ""}',
+                      : 'Ready${(activeModel != null) ? " • ${activeModel['modelID']}" : ""}',
                   style: TextStyle(
                     fontSize: 10,
                     color: _isBusy ? AppTheme.warning : AppTheme.textTertiary,
@@ -350,9 +531,45 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       body: Column(
         children: [
           Expanded(
-            child: messagesAsync.when(
-              data: (messages) {
-                if (messages.isEmpty) {
+            child: Builder(
+              builder: (context) {
+                if (messagesAsync.hasError && displayMessages.isEmpty) {
+                  return Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          'Error: ${messagesAsync.error}',
+                          style: const TextStyle(
+                            color: AppTheme.textTertiary,
+                            fontSize: 12,
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        OutlinedButton(
+                          onPressed: () => ref.invalidate(messagesProvider),
+                          child: const Text('RETRY'),
+                        ),
+                      ],
+                    ),
+                  );
+                }
+
+                if (displayMessages.isEmpty) {
+                  if (isInitialLoading && !_isBusy) {
+                    return const Center(
+                      child: SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                    );
+                  }
+
+                  if (_isBusy) {
+                    return const SizedBox.shrink();
+                  }
+
                   return Center(
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
@@ -393,43 +610,26 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
                 return ListView.builder(
                   controller: _scrollController,
+                  cacheExtent: 800,
+                  addAutomaticKeepAlives: false,
+                  addRepaintBoundaries: true,
+                  physics: const AlwaysScrollableScrollPhysics(),
                   padding: const EdgeInsets.symmetric(
                     horizontal: 12,
                     vertical: 8,
                   ),
-                  itemCount: messages.length,
+                  itemCount: displayMessages.length,
                   itemBuilder: (context, index) {
-                    final msg = messages[index];
-                    return _buildMessage(msg);
+                    final msg = displayMessages[index];
+                    return RepaintBoundary(
+                      child: KeyedSubtree(
+                        key: ValueKey(msg.info.id),
+                        child: _buildMessage(msg),
+                      ),
+                    );
                   },
                 );
               },
-              loading: () => const Center(
-                child: SizedBox(
-                  width: 20,
-                  height: 20,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                ),
-              ),
-              error: (e, _) => Center(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      'Error: $e',
-                      style: const TextStyle(
-                        color: AppTheme.textTertiary,
-                        fontSize: 12,
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    OutlinedButton(
-                      onPressed: () => ref.invalidate(messagesProvider),
-                      child: const Text('RETRY'),
-                    ),
-                  ],
-                ),
-              ),
             ),
           ),
           if (_isBusy)

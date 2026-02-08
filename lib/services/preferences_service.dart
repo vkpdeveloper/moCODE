@@ -4,6 +4,7 @@ class PreferencesService {
   static const String _kDefaultModelProvider = 'default_model_provider';
   static const String _kDefaultModelId = 'default_model_id';
   static const String _kSessionModelPrefix = 'session_model_';
+  static const String _kSessionModePrefix = 'session_mode_';
 
   Future<void> saveDefaultModel(String providerId, String modelId) async {
     final prefs = await SharedPreferences.getInstance();
@@ -54,5 +55,15 @@ class PreferencesService {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove('${_kSessionModelPrefix}${sessionId}_provider');
     await prefs.remove('${_kSessionModelPrefix}${sessionId}_model');
+  }
+
+  Future<void> saveSessionMode(String sessionId, String mode) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('${_kSessionModePrefix}${sessionId}', mode);
+  }
+
+  Future<String?> getSessionMode(String sessionId) async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString('${_kSessionModePrefix}${sessionId}');
   }
 }
