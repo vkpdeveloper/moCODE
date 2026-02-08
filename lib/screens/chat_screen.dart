@@ -40,6 +40,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   String? _modelSyncSessionId;
   bool _didSyncModelFromMessages = false;
   bool _isSidebarOpen = false;
+  bool _showScrollToBottom = false;
+  bool _isUndoRedoInFlight = false;
 
   @override
   void initState() {
@@ -48,6 +50,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     _listenToSessionChanges();
     _listenToMessageUpdates();
     _listenToSessionMode();
+    _scrollController.addListener(_onScroll);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _loadPendingPermissions();
     });
@@ -59,8 +62,18 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     _sessionSub?.close();
     _messagesSub?.close();
     _sessionModeSub?.close();
+    _scrollController.removeListener(_onScroll);
     _scrollController.dispose();
     super.dispose();
+  }
+
+  void _onScroll() {
+    if (!_scrollController.hasClients) return;
+    final position = _scrollController.position;
+    final isNearBottom = position.pixels >= position.maxScrollExtent - 100;
+    if (_showScrollToBottom == isNearBottom) {
+      setState(() => _showScrollToBottom = !isNearBottom);
+    }
   }
 
   void _subscribeToEvents() {
@@ -765,7 +778,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       );
     }
 
-    final list = ListView.builder(
+    final listWidget = ListView.builder(
       controller: _scrollController,
       cacheExtent: 800,
       addAutomaticKeepAlives: false,
@@ -784,16 +797,38 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       },
     );
 
-    if (!isSessionBusy || displayMessages.isEmpty) {
-      return list;
-    }
-
-    return Column(
+    Widget listWithButton = Stack(
       children: [
-        SessionBusyIndicator(label: busyLabel),
-        Expanded(child: list),
+        listWidget,
+        if (_showScrollToBottom)
+          Positioned(
+            right: 12,
+            bottom: 12,
+            child: Material(
+              color: AppTheme.surface,
+              shape: const CircleBorder(
+                side: BorderSide(color: AppTheme.border),
+              ),
+              child: InkWell(
+                onTap: _scrollToBottom,
+                customBorder: const CircleBorder(),
+                child: Container(
+                  width: 36,
+                  height: 36,
+                  alignment: Alignment.center,
+                  child: const Icon(
+                    Icons.keyboard_arrow_down,
+                    size: 20,
+                    color: AppTheme.textSecondary,
+                  ),
+                ),
+              ),
+            ),
+          ),
       ],
     );
+
+    return listWithButton;
   }
 
   Widget _buildSidebar({required SessionErrorState errorState}) {
@@ -871,7 +906,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   }
 
   Widget _buildSidebarToggle() {
-    final diffCount = ref.watch(sessionDiffProvider).diffs.length;
+    final todos = ref.watch(todosProvider).todos;
+    final pendingCount = todos.where((todo) {
+      final status = todo.status.toLowerCase();
+      return status == 'in_progress' ||
+          status == 'inprogress' ||
+          status == 'pending' ||
+          status == 'todo';
+    }).length;
 
     return Stack(
       clipBehavior: Clip.none,
@@ -886,21 +928,22 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           },
           tooltip: 'Sidebar',
         ),
-        if (diffCount > 0)
+        if (pendingCount > 0)
           Positioned(
             right: 4,
             top: 4,
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
               decoration: BoxDecoration(
-                color: AppTheme.accent,
+                color: AppTheme.warning,
                 border: Border.all(color: AppTheme.border),
               ),
               child: Text(
-                diffCount > 99 ? '99+' : diffCount.toString(),
+                pendingCount > 99 ? '99+' : pendingCount.toString(),
                 style: const TextStyle(
                   fontSize: 8,
-                  color: AppTheme.textPrimary,
+                  color: AppTheme.background,
+                  fontWeight: FontWeight.bold,
                 ),
               ),
             ),
@@ -1274,6 +1317,102 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     }
   }
 
+  Future<void> _revertMessage(MessageWrapper msg) async {
+    final session = ref.read(selectedSessionProvider);
+    if (session == null) return;
+    if (_isUndoRedoInFlight) return;
+    setState(() => _isUndoRedoInFlight = true);
+    try {
+      final sessionService = ref.read(sessionServiceProvider);
+      final updated = await sessionService.revertSession(
+        session.id,
+        messageID: msg.info.id,
+        directory: session.directory,
+      );
+      ref.read(selectedSessionProvider.notifier).state = updated;
+      ref.invalidate(messagesProvider);
+      ref.read(sessionDiffProvider.notifier).clear();
+      await _loadSessionDiff(updated);
+      await _loadTodos(updated);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Message effects reverted.')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Undo failed: $e')));
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isUndoRedoInFlight = false);
+      }
+    }
+  }
+
+  Future<void> _unrevertSession(Session session) async {
+    if (_isUndoRedoInFlight) return;
+    setState(() => _isUndoRedoInFlight = true);
+    try {
+      final sessionService = ref.read(sessionServiceProvider);
+      final updated = await sessionService.unrevertSession(
+        session.id,
+        directory: session.directory,
+      );
+      ref.read(selectedSessionProvider.notifier).state = updated;
+      ref.invalidate(messagesProvider);
+      ref.read(sessionDiffProvider.notifier).clear();
+      await _loadSessionDiff(updated);
+      await _loadTodos(updated);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Message effects restored.')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Redo failed: $e')));
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isUndoRedoInFlight = false);
+      }
+    }
+  }
+
+  Widget _buildMessageActions({
+    required bool canUndo,
+    required bool canRedo,
+    required VoidCallback onUndo,
+    required VoidCallback onRedo,
+  }) {
+    return Wrap(
+      spacing: 4,
+      children: [
+        IconButton(
+          icon: const Icon(Icons.undo, size: 14),
+          onPressed: canUndo ? onUndo : null,
+          tooltip: 'Undo message effects',
+          padding: EdgeInsets.zero,
+          constraints: const BoxConstraints(minWidth: 24, minHeight: 24),
+          visualDensity: VisualDensity.compact,
+        ),
+        IconButton(
+          icon: const Icon(Icons.redo, size: 14),
+          onPressed: canRedo ? onRedo : null,
+          tooltip: 'Redo message effects',
+          padding: EdgeInsets.zero,
+          constraints: const BoxConstraints(minWidth: 24, minHeight: 24),
+          visualDensity: VisualDensity.compact,
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final session = ref.watch(selectedSessionProvider);
@@ -1431,6 +1570,15 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
   Widget _buildMessage(MessageWrapper msg) {
     final isUser = msg.info.role == 'user';
+    final session = ref.watch(selectedSessionProvider);
+    final isAssistant = msg.info.role == 'assistant';
+    final canUndo =
+        isAssistant && !_isBusy && !_isUndoRedoInFlight && session != null;
+    final canRedo =
+        isAssistant &&
+        !_isBusy &&
+        !_isUndoRedoInFlight &&
+        session?.revert?.messageID == msg.info.id;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
@@ -1468,6 +1616,15 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                     ),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
+                  ),
+                if (isAssistant)
+                  _buildMessageActions(
+                    canUndo: canUndo,
+                    canRedo: canRedo,
+                    onUndo: () => _revertMessage(msg),
+                    onRedo: session == null
+                        ? () {}
+                        : () => _unrevertSession(session),
                   ),
               ],
             ),

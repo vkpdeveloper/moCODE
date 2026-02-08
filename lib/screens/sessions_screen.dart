@@ -5,6 +5,7 @@ import 'package:intl/intl.dart';
 
 import '../providers/providers.dart';
 import '../theme/app_theme.dart';
+import '../widgets/session_busy_indicator.dart';
 
 class SessionsScreen extends ConsumerWidget {
   const SessionsScreen({super.key});
@@ -63,30 +64,6 @@ class SessionsScreen extends ConsumerWidget {
           ],
         ),
         actions: [
-          statusAsync.when(
-            data: (status) {
-              final busy = status.values.any((v) => v != null && v != 'idle');
-              return Container(
-                margin: const EdgeInsets.only(right: 8),
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                decoration: BoxDecoration(
-                  border: Border.all(
-                    color: busy ? AppTheme.warning : AppTheme.success,
-                  ),
-                ),
-                child: Text(
-                  busy ? 'BUSY' : 'IDLE',
-                  style: TextStyle(
-                    color: busy ? AppTheme.warning : AppTheme.success,
-                    fontSize: 9,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              );
-            },
-            loading: () => const SizedBox.shrink(),
-            error: (_, _) => const SizedBox.shrink(),
-          ),
           IconButton(
             icon: const Icon(Icons.swap_horiz, size: 20),
             tooltip: 'Models',
@@ -153,6 +130,11 @@ class SessionsScreen extends ConsumerWidget {
               itemBuilder: (context, index) {
                 final session = sessions[index];
                 final isArchived = session.time.archived != null;
+                final sessionStatus = statusAsync.valueOrNull?[session.id];
+                final isSessionBusy =
+                    sessionStatus != null &&
+                    sessionStatus != 'idle' &&
+                    (sessionStatus is! Map || sessionStatus['type'] != 'idle');
 
                 return GestureDetector(
                   onTap: () {
@@ -166,7 +148,9 @@ class SessionsScreen extends ConsumerWidget {
                           ? AppTheme.background
                           : AppTheme.surface,
                       border: Border.all(
-                        color: isArchived
+                        color: isSessionBusy
+                            ? AppTheme.warning
+                            : isArchived
                             ? AppTheme.border.withValues(alpha: 0.5)
                             : AppTheme.border,
                       ),
@@ -193,7 +177,9 @@ class SessionsScreen extends ConsumerWidget {
                                 overflow: TextOverflow.ellipsis,
                               ),
                             ),
-                            if (session.parentID != null)
+                            if (isSessionBusy) SessionItemBusyIndicator(),
+                            if (session.parentID != null) ...[
+                              if (isSessionBusy) const SizedBox(width: 6),
                               Container(
                                 padding: const EdgeInsets.symmetric(
                                   horizontal: 4,
@@ -212,6 +198,7 @@ class SessionsScreen extends ConsumerWidget {
                                   ),
                                 ),
                               ),
+                            ],
                           ],
                         ),
                         const SizedBox(height: 6),
