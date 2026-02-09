@@ -3,7 +3,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../providers/providers.dart';
+import '../services/error_handler.dart';
 import '../theme/app_theme.dart';
+import '../widgets/connection_error_view.dart';
 
 class ProjectsScreen extends ConsumerWidget {
   const ProjectsScreen({super.key});
@@ -291,30 +293,14 @@ class ProjectsScreen extends ConsumerWidget {
         loading: () => const Center(
           child: CircularProgressIndicator(color: AppTheme.accent),
         ),
-        error: (error, _) => Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(Icons.error_outline, size: 48, color: AppTheme.error),
-              const SizedBox(height: 16),
-              Text(
-                'Failed to load projects',
-                style: TextStyle(color: AppTheme.textSecondary),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                error.toString(),
-                style: TextStyle(color: AppTheme.textTertiary, fontSize: 12),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 16),
-              OutlinedButton(
-                onPressed: () => ref.invalidate(projectsProvider),
-                child: const Text('RETRY'),
-              ),
-            ],
-          ),
-        ),
+        error: (error, _) {
+          final apiError = ErrorHandler.parseError(error);
+          return ConnectionErrorView(
+            error: apiError,
+            onRetry: () => ref.invalidate(projectsProvider),
+            showConfigureButton: apiError.shouldShowConfigure,
+          );
+        },
       ),
     );
   }

@@ -139,4 +139,84 @@ class PreferencesService {
       await prefs.remove(key);
     }
   }
+
+  // Favourite Models
+  static const String _kFavouriteModelsKey = 'favourite_models';
+
+  Future<void> addFavouriteModel(Map<String, dynamic> favouriteJson) async {
+    final prefs = await SharedPreferences.getInstance();
+    final existing = prefs.getStringList(_kFavouriteModelsKey) ?? [];
+    final key = '${favouriteJson['providerId']}:${favouriteJson['modelId']}';
+
+    // Check if already exists
+    final alreadyExists = existing.any((jsonStr) {
+      final parsed = _parseJson(jsonStr);
+      if (parsed == null) return false;
+      return '${parsed['providerId']}:${parsed['modelId']}' == key;
+    });
+
+    if (!alreadyExists) {
+      existing.add(_encodeJson(favouriteJson));
+      await prefs.setStringList(_kFavouriteModelsKey, existing);
+    }
+  }
+
+  Future<void> removeFavouriteModel(String providerId, String modelId) async {
+    final prefs = await SharedPreferences.getInstance();
+    final existing = prefs.getStringList(_kFavouriteModelsKey) ?? [];
+    final key = '$providerId:$modelId';
+
+    final updated = existing.where((jsonStr) {
+      final parsed = _parseJson(jsonStr);
+      if (parsed == null) return false;
+      return '${parsed['providerId']}:${parsed['modelId']}' != key;
+    }).toList();
+
+    await prefs.setStringList(_kFavouriteModelsKey, updated);
+  }
+
+  Future<List<Map<String, dynamic>>> getFavouriteModels() async {
+    final prefs = await SharedPreferences.getInstance();
+    final stored = prefs.getStringList(_kFavouriteModelsKey) ?? [];
+    return stored
+        .map(_parseJson)
+        .where((m) => m != null)
+        .cast<Map<String, dynamic>>()
+        .toList();
+  }
+
+  Future<bool> isFavourite(String providerId, String modelId) async {
+    final favourites = await getFavouriteModels();
+    return favourites.any(
+      (f) => f['providerId'] == providerId && f['modelId'] == modelId,
+    );
+  }
+
+  String _encodeJson(Map<String, dynamic> json) {
+    return json.entries.map((e) => '${e.key}=${e.value ?? ''}').join('|');
+  }
+
+  Map<String, dynamic>? _parseJson(String encoded) {
+    try {
+      final map = <String, dynamic>{};
+      for (final part in encoded.split('|')) {
+        final idx = part.indexOf('=');
+        if (idx == -1) continue;
+        final key = part.substring(0, idx);
+        final value = part.substring(idx + 1);
+        if (value == 'true') {
+          map[key] = true;
+        } else if (value == 'false') {
+          map[key] = false;
+        } else if (value.isEmpty) {
+          map[key] = null;
+        } else {
+          map[key] = value;
+        }
+      }
+      return map.isNotEmpty ? map : null;
+    } catch (_) {
+      return null;
+    }
+  }
 }

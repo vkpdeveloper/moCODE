@@ -6,6 +6,7 @@ import '../models/provider.dart';
 import '../models/project.dart';
 import '../providers/providers.dart';
 import '../theme/app_theme.dart';
+import '../utils/fuzzysort.dart';
 
 class ModelPickerScreen extends ConsumerStatefulWidget {
   final String? mode;
@@ -170,6 +171,7 @@ class _ModelPickerScreenState extends ConsumerState<ModelPickerScreen> {
             child: providersAsync.when(
               data: (providerList) {
                 final providers = providerList.providers;
+                final favourites = ref.watch(favouriteModelsProvider);
                 if (providers.isEmpty) {
                   return const Center(
                     child: Column(
@@ -190,9 +192,9 @@ class _ModelPickerScreenState extends ConsumerState<ModelPickerScreen> {
                   );
                 }
 
-                final filtered = _filterProviders(providers);
+                final filtered = _filterProviders(providers, favourites);
 
-                if (filtered.isEmpty) {
+                if (filtered.isEmpty && _query.isNotEmpty) {
                   return Center(
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
@@ -217,11 +219,57 @@ class _ModelPickerScreenState extends ConsumerState<ModelPickerScreen> {
                   );
                 }
 
+                // Build favourite models list for display
+                final favouriteModels = <_FavouriteDisplayModel>[];
+                for (final fav in favourites) {
+                  final providerId = fav['providerId'] as String?;
+                  final modelId = fav['modelId'] as String?;
+                  if (providerId == null || modelId == null) continue;
+
+                  // Check if matches search query
+                  if (_query.isNotEmpty) {
+                    final providerName =
+                        (fav['providerName'] as String?) ?? providerId;
+                    final modelName = (fav['modelName'] as String?) ?? modelId;
+                    final searchText = '$providerName $modelName $modelId'
+                        .toLowerCase();
+                    if (!searchText.contains(_query)) continue;
+                  }
+
+                  favouriteModels.add(
+                    _FavouriteDisplayModel(
+                      providerId: providerId,
+                      providerName: fav['providerName'] as String?,
+                      modelId: modelId,
+                      modelName: fav['modelName'] as String?,
+                      family: fav['family'] as String?,
+                      status: fav['status'] as String?,
+                      reasoning: fav['reasoning'] as bool?,
+                    ),
+                  );
+                }
+
                 return ListView.builder(
                   padding: const EdgeInsets.all(12),
-                  itemCount: filtered.length,
+                  itemCount:
+                      filtered.length + (favouriteModels.isNotEmpty ? 1 : 0),
                   itemBuilder: (context, index) {
-                    final entry = filtered[index];
+                    // Show favourites section first
+                    if (favouriteModels.isNotEmpty && index == 0) {
+                      return _buildFavouritesSection(
+                        favouriteModels: favouriteModels,
+                        currentSelection: currentSelection,
+                        activeSelection: activeSelection,
+                        scopeLabel: scopeLabel,
+                        project: project,
+                        favourites: favourites,
+                      );
+                    }
+
+                    final adjustedIndex = favouriteModels.isNotEmpty
+                        ? index - 1
+                        : index;
+                    final entry = filtered[adjustedIndex];
                     final provider = entry.provider;
                     final models = entry.models;
 
@@ -282,89 +330,23 @@ class _ModelPickerScreenState extends ConsumerState<ModelPickerScreen> {
                                 activeSelection != null &&
                                 activeSelection['providerID'] == provider.id &&
                                 activeSelection['modelID'] == model.id;
+                            final isFav = ref
+                                .read(favouriteModelsProvider.notifier)
+                                .isFavourite(provider.id, model.id);
 
-                            return GestureDetector(
-                              onTap: () {
-                                _selectModel(
-                                  providerId: provider.id,
-                                  modelId: model.id,
-                                  projectId: project?.id,
-                                );
-                              },
-                              child: Container(
-                                width: double.infinity,
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 12,
-                                  vertical: 10,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: isSelected
-                                      ? AppTheme.accentDim.withValues(
-                                          alpha: 0.3,
-                                        )
-                                      : Colors.transparent,
-                                  border: const Border(
-                                    bottom: BorderSide(
-                                      color: AppTheme.border,
-                                      width: 0.5,
-                                    ),
-                                  ),
-                                ),
-                                child: Row(
-                                  children: [
-                                    Expanded(
-                                      child: Column(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.start,
-                                        children: [
-                                          Text(
-                                            model.name ?? model.id,
-                                            style: TextStyle(
-                                              color: isSelected
-                                                  ? AppTheme.accent
-                                                  : AppTheme.textPrimary,
-                                              fontSize: 12,
-                                              fontWeight: isSelected
-                                                  ? FontWeight.w600
-                                                  : FontWeight.normal,
-                                            ),
-                                          ),
-                                          const SizedBox(height: 2),
-                                          Text(
-                                            model.id,
-                                            style: const TextStyle(
-                                              color: AppTheme.textTertiary,
-                                              fontSize: 10,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                    if (isSelected || isActive)
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(
-                                          horizontal: 6,
-                                          vertical: 2,
-                                        ),
-                                        color: isSelected
-                                            ? AppTheme.accent
-                                            : AppTheme.surfaceVariant,
-                                        child: Text(
-                                          isSelected
-                                              ? 'SET $scopeLabel'
-                                              : 'ACTIVE',
-                                          style: TextStyle(
-                                            color: isSelected
-                                                ? Colors.white
-                                                : AppTheme.textSecondary,
-                                            fontSize: 9,
-                                            fontWeight: FontWeight.bold,
-                                          ),
-                                        ),
-                                      ),
-                                  ],
-                                ),
-                              ),
+                            return _buildModelRow(
+                              providerId: provider.id,
+                              providerName: provider.name,
+                              modelId: model.id,
+                              modelName: model.name,
+                              family: model.family,
+                              status: model.status,
+                              reasoning: model.reasoning,
+                              isSelected: isSelected,
+                              isActive: isActive,
+                              isFavourite: isFav,
+                              scopeLabel: scopeLabel,
+                              project: project,
                             );
                           }),
                         ],
@@ -404,20 +386,236 @@ class _ModelPickerScreenState extends ConsumerState<ModelPickerScreen> {
     );
   }
 
-  List<_FilteredProvider> _filterProviders(List<ProviderModel> providers) {
+  Widget _buildFavouritesSection({
+    required List<_FavouriteDisplayModel> favouriteModels,
+    required Map<String, String>? currentSelection,
+    required Map<String, String>? activeSelection,
+    required String scopeLabel,
+    required Project? project,
+    required List<Map<String, dynamic>> favourites,
+  }) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      decoration: BoxDecoration(
+        color: AppTheme.surface,
+        border: Border.all(color: AppTheme.warning),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: const BoxDecoration(
+              color: AppTheme.surfaceVariant,
+              border: Border(bottom: BorderSide(color: AppTheme.warning)),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.star, size: 14, color: AppTheme.warning),
+                const SizedBox(width: 8),
+                const Text(
+                  'FAVOURITES',
+                  style: TextStyle(
+                    color: AppTheme.warning,
+                    fontSize: 11,
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: 1.5,
+                  ),
+                ),
+                const Spacer(),
+                Text(
+                  '${favouriteModels.length} models',
+                  style: const TextStyle(
+                    color: AppTheme.textTertiary,
+                    fontSize: 10,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          ...favouriteModels.map((fav) {
+            final isSelected =
+                currentSelection != null &&
+                currentSelection['providerID'] == fav.providerId &&
+                currentSelection['modelID'] == fav.modelId;
+            final isActive =
+                activeSelection != null &&
+                activeSelection['providerID'] == fav.providerId &&
+                activeSelection['modelID'] == fav.modelId;
+
+            return _buildModelRow(
+              providerId: fav.providerId,
+              providerName: fav.providerName,
+              modelId: fav.modelId,
+              modelName: fav.modelName,
+              family: fav.family,
+              status: fav.status,
+              reasoning: fav.reasoning,
+              isSelected: isSelected,
+              isActive: isActive,
+              isFavourite: true,
+              scopeLabel: scopeLabel,
+              project: project,
+              showProvider: true,
+            );
+          }),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildModelRow({
+    required String providerId,
+    required String? providerName,
+    required String modelId,
+    required String? modelName,
+    String? family,
+    String? status,
+    bool? reasoning,
+    required bool isSelected,
+    required bool isActive,
+    required bool isFavourite,
+    required String scopeLabel,
+    required Project? project,
+    bool showProvider = false,
+  }) {
+    return GestureDetector(
+      onTap: () {
+        _selectModel(
+          providerId: providerId,
+          modelId: modelId,
+          projectId: project?.id,
+        );
+      },
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          color: isSelected
+              ? AppTheme.accentDim.withValues(alpha: 0.3)
+              : Colors.transparent,
+          border: const Border(
+            bottom: BorderSide(color: AppTheme.border, width: 0.5),
+          ),
+        ),
+        child: Row(
+          children: [
+            GestureDetector(
+              onTap: () {
+                ref.read(favouriteModelsProvider.notifier).toggleFavourite({
+                  'providerId': providerId,
+                  'providerName': providerName,
+                  'modelId': modelId,
+                  'modelName': modelName,
+                  'family': family,
+                  'status': status,
+                  'reasoning': reasoning,
+                });
+              },
+              child: Padding(
+                padding: const EdgeInsets.only(right: 8),
+                child: Icon(
+                  isFavourite ? Icons.star : Icons.star_border,
+                  size: 18,
+                  color: isFavourite ? AppTheme.warning : AppTheme.textTertiary,
+                ),
+              ),
+            ),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    modelName ?? modelId,
+                    style: TextStyle(
+                      color: isSelected
+                          ? AppTheme.accent
+                          : AppTheme.textPrimary,
+                      fontSize: 12,
+                      fontWeight: isSelected
+                          ? FontWeight.w600
+                          : FontWeight.normal,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    showProvider
+                        ? '${providerName ?? providerId} • $modelId'
+                        : modelId,
+                    style: const TextStyle(
+                      color: AppTheme.textTertiary,
+                      fontSize: 10,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            if (isSelected || isActive)
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                color: isSelected ? AppTheme.accent : AppTheme.surfaceVariant,
+                child: Text(
+                  isSelected ? 'SET $scopeLabel' : 'ACTIVE',
+                  style: TextStyle(
+                    color: isSelected ? Colors.white : AppTheme.textSecondary,
+                    fontSize: 9,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  List<_FilteredProvider> _filterProviders(
+    List<ProviderModel> providers,
+    List<Map<String, dynamic>> favourites,
+  ) {
+    // Helper to check if a model is favourite
+    bool isFav(String providerId, String modelId) {
+      return favourites.any(
+        (f) => f['providerId'] == providerId && f['modelId'] == modelId,
+      );
+    }
+
+    // Helper to sort models with favourites first
+    List<ProviderModelInfo> sortModels(
+      ProviderModel provider,
+      List<ProviderModelInfo> models,
+    ) {
+      final sorted = List<ProviderModelInfo>.from(models);
+      sorted.sort((a, b) {
+        final aFav = isFav(provider.id, a.id);
+        final bFav = isFav(provider.id, b.id);
+        if (aFav && !bFav) return -1;
+        if (!aFav && bFav) return 1;
+        return 0;
+      });
+      return sorted;
+    }
+
     if (_query.isEmpty) {
-      return providers
-          .map((p) => _FilteredProvider(provider: p, models: p.models))
+      // Sort providers with favourites to top
+      final sorted = List<ProviderModel>.from(providers);
+      sorted.sort((a, b) {
+        final aHasFav = a.models.any((m) => isFav(a.id, m.id));
+        final bHasFav = b.models.any((m) => isFav(b.id, m.id));
+        if (aHasFav && !bHasFav) return -1;
+        if (!aHasFav && bHasFav) return 1;
+        return 0;
+      });
+      return sorted
+          .map(
+            (p) =>
+                _FilteredProvider(provider: p, models: sortModels(p, p.models)),
+          )
           .toList();
     }
 
-    final queryTokens = _tokenize(_query);
-    if (queryTokens.isEmpty) {
-      return providers
-          .map((p) => _FilteredProvider(provider: p, models: p.models))
-          .toList();
-    }
-
+    // Build flat list of model entries for fuzzysort
     final modelEntries = <_ModelEntry>[];
     for (final provider in providers) {
       for (final model in provider.models) {
@@ -425,130 +623,68 @@ class _ModelPickerScreenState extends ConsumerState<ModelPickerScreen> {
       }
     }
 
-    final docs = modelEntries
-        .map(
-          (entry) => _buildDocumentTokens(
-            provider: entry.provider,
-            model: entry.model,
-          ),
-        )
-        .toList();
+    // Use fuzzysort with keys for model name (title) and provider name (category)
+    // Prioritize model name matches (weight: 2) over provider name matches (weight: 1)
+    final results = Fuzzysort.go<_ModelEntry>(
+      _query,
+      modelEntries,
+      FuzzysortOptions(
+        keys: ['modelName', 'providerName'],
+        getValue: (entry, key) {
+          if (key == 'modelName') {
+            return entry.model.name ?? entry.model.id;
+          } else if (key == 'providerName') {
+            return entry.provider.name ?? entry.provider.id;
+          }
+          return null;
+        },
+        scoreFn: (r) {
+          // Weight model name matches 2x, provider name 1x
+          final modelScore = r[0]?.score ?? 0;
+          final providerScore = r[1]?.score ?? 0;
+          return modelScore * 2 + providerScore;
+        },
+      ),
+    );
 
-    final scores = _bm25Scores(queryTokens, docs);
-
+    // Group matched models by provider
     final grouped = <String, List<_ScoredModel>>{};
-    for (var i = 0; i < modelEntries.length; i++) {
-      final entry = modelEntries[i];
-      final score = scores[i];
-      if (score <= 0) continue;
+    for (final result in results) {
+      final entry = result.obj as _ModelEntry;
       grouped
           .putIfAbsent(entry.provider.id, () => [])
-          .add(_ScoredModel(model: entry.model, score: score));
+          .add(_ScoredModel(model: entry.model, score: result.score));
     }
 
-    final results = <_FilteredProvider>[];
+    // Build filtered provider list maintaining original provider order but sorted by score
+    final filteredResults = <_FilteredProvider>[];
     for (final provider in providers) {
       final scoredModels = grouped[provider.id];
       if (scoredModels == null || scoredModels.isEmpty) continue;
-      scoredModels.sort((a, b) => b.score.compareTo(a.score));
-      results.add(
-        _FilteredProvider(
-          provider: provider,
-          models: scoredModels.map((m) => m.model).toList(),
-        ),
+
+      // Models are already sorted by fuzzysort score (best first)
+      // But also sort favourites first within each provider
+      var modelsList = scoredModels.map((m) => m.model).toList();
+      modelsList.sort((a, b) {
+        final aFav = isFav(provider.id, a.id);
+        final bFav = isFav(provider.id, b.id);
+        if (aFav && !bFav) return -1;
+        if (!aFav && bFav) return 1;
+        return 0;
+      });
+      filteredResults.add(
+        _FilteredProvider(provider: provider, models: modelsList),
       );
     }
 
-    results.sort((a, b) {
-      final aScore = _providerBestScore(a.provider.id, grouped);
-      final bScore = _providerBestScore(b.provider.id, grouped);
+    // Sort providers by their best matching model score
+    filteredResults.sort((a, b) {
+      final aScore = grouped[a.provider.id]?.first.score ?? 0;
+      final bScore = grouped[b.provider.id]?.first.score ?? 0;
       return bScore.compareTo(aScore);
     });
 
-    return results;
-  }
-
-  List<String> _tokenize(String value) {
-    return value
-        .toLowerCase()
-        .split(RegExp(r'[^a-z0-9]+'))
-        .where((token) => token.isNotEmpty)
-        .toList();
-  }
-
-  List<String> _buildDocumentTokens({
-    required ProviderModel provider,
-    required ProviderModelInfo model,
-  }) {
-    final tokens = <String>[];
-    final modelNameTokens = _tokenize(model.name ?? model.id);
-    final modelIdTokens = _tokenize(model.id);
-    final providerNameTokens = _tokenize(provider.name ?? provider.id);
-    final providerIdTokens = _tokenize(provider.id);
-
-    tokens.addAll(modelNameTokens);
-    tokens.addAll(modelNameTokens);
-    tokens.addAll(modelIdTokens);
-    tokens.addAll(providerNameTokens);
-    tokens.addAll(providerIdTokens);
-
-    return tokens;
-  }
-
-  List<double> _bm25Scores(List<String> queryTokens, List<List<String>> docs) {
-    final docCount = docs.length;
-    if (docCount == 0) return [];
-
-    final df = <String, int>{};
-    var totalLength = 0;
-    for (final doc in docs) {
-      totalLength += doc.length;
-      final seen = <String>{};
-      for (final token in doc) {
-        if (seen.add(token)) {
-          df[token] = (df[token] ?? 0) + 1;
-        }
-      }
-    }
-
-    final avgdl = totalLength / docCount;
-    const k1 = 1.2;
-    const b = 0.75;
-
-    final scores = List<double>.filled(docCount, 0);
-    for (var i = 0; i < docs.length; i++) {
-      final doc = docs[i];
-      if (doc.isEmpty) continue;
-
-      final tf = <String, int>{};
-      for (final token in doc) {
-        tf[token] = (tf[token] ?? 0) + 1;
-      }
-
-      var score = 0.0;
-      for (final token in queryTokens) {
-        final termDf = df[token];
-        if (termDf == null) continue;
-        final termTf = tf[token] ?? 0;
-        if (termTf == 0) continue;
-        final idf = (docCount - termDf + 0.5) / (termDf + 0.5) + 1.0;
-        final denom = termTf + k1 * (1 - b + b * (doc.length / avgdl));
-        score += (termTf * (k1 + 1) / denom) * idf;
-      }
-
-      scores[i] = score;
-    }
-
-    return scores;
-  }
-
-  double _providerBestScore(
-    String providerId,
-    Map<String, List<_ScoredModel>> grouped,
-  ) {
-    final models = grouped[providerId];
-    if (models == null || models.isEmpty) return 0;
-    return models.map((m) => m.score).reduce((a, b) => a > b ? a : b);
+    return filteredResults;
   }
 
   void _selectModel({
@@ -800,4 +936,24 @@ class _ScoredModel {
   final double score;
 
   const _ScoredModel({required this.model, required this.score});
+}
+
+class _FavouriteDisplayModel {
+  final String providerId;
+  final String? providerName;
+  final String modelId;
+  final String? modelName;
+  final String? family;
+  final String? status;
+  final bool? reasoning;
+
+  const _FavouriteDisplayModel({
+    required this.providerId,
+    this.providerName,
+    required this.modelId,
+    this.modelName,
+    this.family,
+    this.status,
+    this.reasoning,
+  });
 }

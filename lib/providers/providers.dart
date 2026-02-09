@@ -766,6 +766,57 @@ final activeModelProvider = Provider<Map<String, String>?>((ref) {
 });
 
 // ---------------------------------------------------------------------------
+// Favourite Models
+// ---------------------------------------------------------------------------
+
+class FavouriteModelsNotifier
+    extends StateNotifier<List<Map<String, dynamic>>> {
+  final PreferencesService _preferencesService;
+
+  FavouriteModelsNotifier(this._preferencesService) : super([]) {
+    _load();
+  }
+
+  Future<void> _load() async {
+    final favourites = await _preferencesService.getFavouriteModels();
+    state = favourites;
+  }
+
+  Future<void> addFavourite(Map<String, dynamic> model) async {
+    await _preferencesService.addFavouriteModel(model);
+    await _load();
+  }
+
+  Future<void> removeFavourite(String providerId, String modelId) async {
+    await _preferencesService.removeFavouriteModel(providerId, modelId);
+    await _load();
+  }
+
+  Future<void> toggleFavourite(Map<String, dynamic> model) async {
+    final providerId = model['providerId'] as String;
+    final modelId = model['modelId'] as String;
+    if (isFavourite(providerId, modelId)) {
+      await removeFavourite(providerId, modelId);
+    } else {
+      await addFavourite(model);
+    }
+  }
+
+  bool isFavourite(String providerId, String modelId) {
+    return state.any(
+      (f) => f['providerId'] == providerId && f['modelId'] == modelId,
+    );
+  }
+}
+
+final favouriteModelsProvider =
+    StateNotifierProvider<FavouriteModelsNotifier, List<Map<String, dynamic>>>((
+      ref,
+    ) {
+      return FavouriteModelsNotifier(ref.watch(preferencesServiceProvider));
+    });
+
+// ---------------------------------------------------------------------------
 // Skills
 // ---------------------------------------------------------------------------
 
