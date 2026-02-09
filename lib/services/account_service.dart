@@ -1,9 +1,9 @@
 import 'package:dio/dio.dart';
 
-import 'api_client.dart';
+import 'account_api_client.dart';
 
 class AccountService {
-  final ApiClient _apiClient;
+  final AccountApiClient _apiClient;
 
   AccountService(this._apiClient);
 

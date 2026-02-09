@@ -1,6 +1,7 @@
 import 'package:go_router/go_router.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../providers/providers.dart';
 import '../screens/projects_screen.dart';
 import '../screens/open_project_screen.dart';
 import '../screens/sessions_screen.dart';
@@ -9,8 +10,24 @@ import '../screens/settings_screen.dart';
 import '../screens/model_picker_screen.dart';
 
 final routerProvider = Provider<GoRouter>((ref) {
+  final accessGateStatus = ref.watch(accessGateStatusProvider);
+
   return GoRouter(
     initialLocation: '/projects',
+    redirect: (context, state) {
+      final path = state.uri.path;
+      final isSettings = path == '/settings';
+
+      if (accessGateStatus == AccessGateStatus.loading) {
+        return isSettings ? null : '/settings';
+      }
+
+      if (accessGateStatus != AccessGateStatus.granted && !isSettings) {
+        return '/settings';
+      }
+
+      return null;
+    },
     routes: [
       GoRoute(
         path: '/projects',

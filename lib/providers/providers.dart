@@ -9,6 +9,7 @@ import '../models/app_models.dart' as app_models;
 import '../models/provider.dart';
 
 import '../services/api_client.dart';
+import '../services/account_api_client.dart';
 import '../services/auth_service.dart';
 import '../services/app_service.dart';
 import '../services/account_service.dart';
@@ -97,6 +98,10 @@ final apiClientProvider = Provider<ApiClient>((ref) {
   return client;
 });
 
+final accountApiClientProvider = Provider<AccountApiClient>((ref) {
+  return AccountApiClient();
+});
+
 final firebaseAuthProvider = Provider<FirebaseAuth>((ref) {
   return FirebaseAuth.instance;
 });
@@ -113,7 +118,7 @@ final authServiceProvider = Provider<AuthService>((ref) {
 });
 
 final accountServiceProvider = Provider<AccountService>((ref) {
-  return AccountService(ref.watch(apiClientProvider));
+  return AccountService(ref.watch(accountApiClientProvider));
 });
 
 final authStateProvider = StreamProvider<User?>((ref) {
@@ -150,6 +155,20 @@ final billingStatusProvider = FutureProvider<Map<String, dynamic>?>((
   }
   final accountService = ref.watch(accountServiceProvider);
   return accountService.fetchBillingStatus(idToken);
+});
+
+enum AccessGateStatus { loading, signedOut, unpaid, granted }
+
+final accessGateStatusProvider = Provider<AccessGateStatus>((ref) {
+  final auth = ref.watch(authStateProvider);
+  if (auth.isLoading) return AccessGateStatus.loading;
+  final user = auth.valueOrNull;
+  if (user == null) return AccessGateStatus.signedOut;
+
+  final billing = ref.watch(billingStatusProvider);
+  if (billing.isLoading) return AccessGateStatus.loading;
+  final unlocked = billing.valueOrNull?['oneTimeUnlocked'] == true;
+  return unlocked ? AccessGateStatus.granted : AccessGateStatus.unpaid;
 });
 
 // ---------------------------------------------------------------------------
