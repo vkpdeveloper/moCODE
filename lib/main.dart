@@ -17,11 +17,11 @@ void main() {
       systemNavigationBarIconBrightness: Brightness.light,
     ),
   );
-  runApp(const ProviderScope(child: ActiveSessionManager(child: MeCodeApp())));
+  runApp(const ProviderScope(child: ActiveSessionManager(child: MoCodeApp())));
 }
 
-class MeCodeApp extends ConsumerWidget {
-  const MeCodeApp({super.key});
+class MoCodeApp extends ConsumerWidget {
+  const MoCodeApp({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -29,7 +29,7 @@ class MeCodeApp extends ConsumerWidget {
 
     return PathBootstrap(
       child: MaterialApp.router(
-        title: 'MeCode',
+        title: 'moCode',
         debugShowCheckedModeBanner: false,
         theme: AppTheme.darkTheme,
         routerConfig: router,

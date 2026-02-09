@@ -39,8 +39,6 @@ class _OpenProjectScreenState extends ConsumerState<OpenProjectScreen> {
             fileListProvider((path: searchText, directory: currentPath)),
           );
 
-    final greeting = _buildGreeting(pathInfo?.home);
-
     if (pathAsync.hasError && pathInfo == null) {
       return Scaffold(
         appBar: AppBar(
@@ -95,15 +93,6 @@ class _OpenProjectScreenState extends ConsumerState<OpenProjectScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                if (greeting.isNotEmpty)
-                  Text(
-                    greeting,
-                    style: const TextStyle(
-                      color: AppTheme.textSecondary,
-                      fontSize: 12,
-                    ),
-                  ),
-                if (greeting.isNotEmpty) const SizedBox(height: 8),
                 _buildPathRow(currentPath),
                 const SizedBox(height: 10),
                 TextField(
@@ -333,15 +322,6 @@ class _OpenProjectScreenState extends ConsumerState<OpenProjectScreen> {
     return joined.endsWith('/') && joined.length > 1
         ? joined.substring(0, joined.length - 1)
         : joined;
-  }
-
-  String _buildGreeting(String? homePath) {
-    if (homePath == null || homePath.isEmpty) return '';
-    final parts = homePath.split('/')..removeWhere((part) => part.isEmpty);
-    if (parts.length < 2) return 'Welcome back';
-    final username = parts[1];
-    if (username.isEmpty) return 'Welcome back';
-    return 'Welcome back, $username';
   }
 
   Future<void> _selectFolder(String directory) async {

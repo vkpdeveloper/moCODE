@@ -21,6 +21,7 @@ class _ModelPickerScreenState extends ConsumerState<ModelPickerScreen> {
   final TextEditingController _searchController = TextEditingController();
   String _query = '';
   String _selectionScope = 'session';
+  String _selectedTab = 'configured'; // 'configured' or 'all'
 
   @override
   void dispose() {
@@ -128,6 +129,7 @@ class _ModelPickerScreenState extends ConsumerState<ModelPickerScreen> {
             activeSource: activeSource,
             activeSelection: activeSelection,
           ),
+          _buildTabBar(),
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
             decoration: const BoxDecoration(
@@ -192,7 +194,11 @@ class _ModelPickerScreenState extends ConsumerState<ModelPickerScreen> {
                   );
                 }
 
-                final filtered = _filterProviders(providers, favourites);
+                final filtered = _filterProviders(
+                  providers,
+                  favourites,
+                  providerList.connected,
+                );
 
                 if (filtered.isEmpty && _query.isNotEmpty) {
                   return Center(
@@ -573,7 +579,25 @@ class _ModelPickerScreenState extends ConsumerState<ModelPickerScreen> {
   List<_FilteredProvider> _filterProviders(
     List<ProviderModel> providers,
     List<Map<String, dynamic>> favourites,
+    List<String> connected,
   ) {
+    // Filter providers based on tab selection
+    List<ProviderModel> filteredProviders;
+    if (_selectedTab == 'configured') {
+      filteredProviders = providers
+          .where((p) => connected.contains(p.id))
+          .toList();
+    } else {
+      filteredProviders = providers;
+    }
+
+    // Helper to filter out deprecated models
+    List<ProviderModelInfo> filterNonDeprecated(
+      List<ProviderModelInfo> models,
+    ) {
+      return models.where((m) => m.status != 'deprecated').toList();
+    }
+
     // Helper to check if a model is favourite
     bool isFav(String providerId, String modelId) {
       return favourites.any(
@@ -586,7 +610,8 @@ class _ModelPickerScreenState extends ConsumerState<ModelPickerScreen> {
       ProviderModel provider,
       List<ProviderModelInfo> models,
     ) {
-      final sorted = List<ProviderModelInfo>.from(models);
+      final nonDeprecated = filterNonDeprecated(models);
+      final sorted = List<ProviderModelInfo>.from(nonDeprecated);
       sorted.sort((a, b) {
         final aFav = isFav(provider.id, a.id);
         final bFav = isFav(provider.id, b.id);
@@ -599,26 +624,32 @@ class _ModelPickerScreenState extends ConsumerState<ModelPickerScreen> {
 
     if (_query.isEmpty) {
       // Sort providers with favourites to top
-      final sorted = List<ProviderModel>.from(providers);
+      final sorted = List<ProviderModel>.from(filteredProviders);
       sorted.sort((a, b) {
-        final aHasFav = a.models.any((m) => isFav(a.id, m.id));
-        final bHasFav = b.models.any((m) => isFav(b.id, m.id));
+        final aHasFav = filterNonDeprecated(
+          a.models,
+        ).any((m) => isFav(a.id, m.id));
+        final bHasFav = filterNonDeprecated(
+          b.models,
+        ).any((m) => isFav(b.id, m.id));
         if (aHasFav && !bHasFav) return -1;
         if (!aHasFav && bHasFav) return 1;
         return 0;
       });
       return sorted
-          .map(
-            (p) =>
-                _FilteredProvider(provider: p, models: sortModels(p, p.models)),
-          )
+          .map((p) {
+            final models = sortModels(p, p.models);
+            if (models.isEmpty) return null;
+            return _FilteredProvider(provider: p, models: models);
+          })
+          .whereType<_FilteredProvider>()
           .toList();
     }
 
-    // Build flat list of model entries for fuzzysort
+    // Build flat list of model entries for fuzzysort (using filtered providers)
     final modelEntries = <_ModelEntry>[];
-    for (final provider in providers) {
-      for (final model in provider.models) {
+    for (final provider in filteredProviders) {
+      for (final model in filterNonDeprecated(provider.models)) {
         modelEntries.add(_ModelEntry(provider: provider, model: model));
       }
     }
@@ -658,7 +689,7 @@ class _ModelPickerScreenState extends ConsumerState<ModelPickerScreen> {
 
     // Build filtered provider list maintaining original provider order but sorted by score
     final filteredResults = <_FilteredProvider>[];
-    for (final provider in providers) {
+    for (final provider in filteredProviders) {
       final scoredModels = grouped[provider.id];
       if (scoredModels == null || scoredModels.isEmpty) continue;
 
@@ -754,6 +785,50 @@ class _ModelPickerScreenState extends ConsumerState<ModelPickerScreen> {
     ScaffoldMessenger.of(
       context,
     ).showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  Widget _buildTabBar() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: const BoxDecoration(
+        color: AppTheme.surface,
+        border: Border(bottom: BorderSide(color: AppTheme.border)),
+      ),
+      child: Row(
+        children: [
+          _buildTabButton('configured', 'CONFIGURED'),
+          const SizedBox(width: 8),
+          _buildTabButton('all', 'ALL MODELS'),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTabButton(String tabId, String label) {
+    final isSelected = _selectedTab == tabId;
+    return GestureDetector(
+      onTap: () => setState(() => _selectedTab = tabId),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        decoration: BoxDecoration(
+          color: isSelected
+              ? AppTheme.accent.withValues(alpha: 0.15)
+              : Colors.transparent,
+          border: Border.all(
+            color: isSelected ? AppTheme.accent : AppTheme.border,
+          ),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            color: isSelected ? AppTheme.accent : AppTheme.textSecondary,
+            fontSize: 10,
+            fontWeight: FontWeight.bold,
+            letterSpacing: 1,
+          ),
+        ),
+      ),
+    );
   }
 
   Widget _scopeBar({

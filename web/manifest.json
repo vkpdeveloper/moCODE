@@ -1,6 +1,6 @@
 {
-    "name": "mecode",
-    "short_name": "mecode",
+    "name": "moCode",
+    "short_name": "moCode",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",

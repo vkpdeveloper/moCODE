@@ -1,6 +1,6 @@
-# mecode
+# moCode
 
-meCode is a Flutter client for a local/remote AI coding server. It lets you
+moCode is a Flutter client for a local/remote AI coding server. It lets you
 pick a project directory, create chat sessions, and work with models through
 a focused, developer-first UI.
 

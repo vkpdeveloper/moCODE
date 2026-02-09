@@ -10,6 +10,23 @@ import '../widgets/connection_error_view.dart';
 class ProjectsScreen extends ConsumerWidget {
   const ProjectsScreen({super.key});
 
+  String _getGreeting() {
+    final hour = DateTime.now().hour;
+    if (hour < 12) return 'Good morning';
+    if (hour < 17) return 'Good afternoon';
+    if (hour < 21) return 'Good evening';
+    return 'Late night coding';
+  }
+
+  String _getDevMessage() {
+    final hour = DateTime.now().hour;
+    if (hour < 6) return '☕ Burning the midnight oil? Let\'s ship some code.';
+    if (hour < 12) return '🚀 Ready to build something awesome?';
+    if (hour < 17) return '⚡ Time to crush some bugs and ship features.';
+    if (hour < 21) return '💻 Evening productivity session activated.';
+    return '🌙 The best code is written when the world sleeps.';
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final projectsAsync = ref.watch(projectsProvider);
@@ -25,7 +42,7 @@ class ProjectsScreen extends ConsumerWidget {
                 border: Border.all(color: AppTheme.accent),
               ),
               child: Text(
-                'meCODE',
+                'moCode',
                 style: TextStyle(
                   color: AppTheme.accent,
                   fontSize: 14,
@@ -81,226 +98,271 @@ class ProjectsScreen extends ConsumerWidget {
           ),
         ],
       ),
-      body: projectsAsync.when(
-        data: (projects) {
-          if (projects.isEmpty) {
-            return Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    Icons.folder_off_outlined,
-                    size: 48,
-                    color: AppTheme.textTertiary,
+      body: Column(
+        children: [
+          // Developer Greeting Header
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
+            decoration: BoxDecoration(
+              color: AppTheme.surface,
+              border: Border(bottom: BorderSide(color: AppTheme.border)),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  _getGreeting(),
+                  style: const TextStyle(
+                    color: AppTheme.textPrimary,
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
                   ),
-                  const SizedBox(height: 16),
-                  Text(
-                    'No projects found',
-                    style: TextStyle(
-                      color: AppTheme.textSecondary,
-                      fontSize: 14,
-                    ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  _getDevMessage(),
+                  style: const TextStyle(
+                    color: AppTheme.textSecondary,
+                    fontSize: 13,
                   ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Start meCode in a project directory',
-                    style: TextStyle(
-                      color: AppTheme.textTertiary,
-                      fontSize: 12,
-                    ),
-                  ),
-                  const SizedBox(height: 20),
-                  ElevatedButton.icon(
-                    onPressed: () => context.push('/projects/open'),
-                    icon: const Icon(Icons.add, size: 16),
-                    label: const Text('OPEN PROJECT'),
-                  ),
-                ],
-              ),
-            );
-          }
-
-          final sortedProjects = List.of(projects)
-            ..sort((a, b) => b.time.updated!.compareTo(a.time.updated!));
-
-          return RefreshIndicator(
-            color: AppTheme.accent,
-            backgroundColor: AppTheme.surface,
-            onRefresh: () async {
-              ref.invalidate(projectsProvider);
-              ref.invalidate(healthProvider);
-            },
-            child: ListView.separated(
-              padding: const EdgeInsets.all(16),
-              itemCount: sortedProjects.length + 1,
-              separatorBuilder: (_, _) => const SizedBox(height: 8),
-              itemBuilder: (context, index) {
-                if (index == 0) {
-                  return GestureDetector(
-                    onTap: () => context.push('/projects/open'),
-                    child: Container(
-                      decoration: BoxDecoration(
-                        color: AppTheme.surfaceVariant,
-                        border: Border.all(color: AppTheme.border),
-                      ),
-                      padding: const EdgeInsets.all(16),
-                      child: Row(
-                        children: [
-                          Icon(
-                            Icons.add_circle_outline,
-                            color: AppTheme.accent,
-                            size: 20,
+                ),
+              ],
+            ),
+          ),
+          Expanded(
+            child: projectsAsync.when(
+              data: (projects) {
+                if (projects.isEmpty) {
+                  return Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.folder_off_outlined,
+                          size: 48,
+                          color: AppTheme.textTertiary,
+                        ),
+                        const SizedBox(height: 16),
+                        Text(
+                          'No projects found',
+                          style: TextStyle(
+                            color: AppTheme.textSecondary,
+                            fontSize: 14,
                           ),
-                          const SizedBox(width: 10),
-                          const Expanded(
-                            child: Text(
-                              'Open a new project',
-                              style: TextStyle(
-                                color: AppTheme.textPrimary,
-                                fontSize: 14,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ),
-                          const Icon(
-                            Icons.chevron_right,
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          'Start moCode in a project directory',
+                          style: TextStyle(
                             color: AppTheme.textTertiary,
-                            size: 20,
+                            fontSize: 12,
                           ),
-                        ],
-                      ),
+                        ),
+                        const SizedBox(height: 20),
+                        ElevatedButton.icon(
+                          onPressed: () => context.push('/projects/open'),
+                          icon: const Icon(Icons.add, size: 16),
+                          label: const Text('OPEN PROJECT'),
+                        ),
+                      ],
                     ),
                   );
                 }
 
-                final project = sortedProjects[index - 1];
-                final projectName =
-                    project.name ?? project.worktree.split('/').last;
+                final sortedProjects = List.of(projects)
+                  ..sort((a, b) => b.time.updated!.compareTo(a.time.updated!));
 
-                return GestureDetector(
-                  onTap: () {
-                    ref.read(selectedProjectProvider.notifier).state = project;
-                    ref.read(projectModelProvider.notifier).load(project.id);
-                    context.push('/sessions');
+                return RefreshIndicator(
+                  color: AppTheme.accent,
+                  backgroundColor: AppTheme.surface,
+                  onRefresh: () async {
+                    ref.invalidate(projectsProvider);
+                    ref.invalidate(healthProvider);
                   },
-                  child: Container(
-                    decoration: BoxDecoration(
-                      color: AppTheme.surface,
-                      border: Border.all(color: AppTheme.border),
-                    ),
+                  child: ListView.separated(
                     padding: const EdgeInsets.all(16),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Icon(
-                              Icons.folder_outlined,
-                              color: AppTheme.accent,
-                              size: 20,
+                    itemCount: sortedProjects.length + 1,
+                    separatorBuilder: (_, _) => const SizedBox(height: 8),
+                    itemBuilder: (context, index) {
+                      if (index == 0) {
+                        return GestureDetector(
+                          onTap: () => context.push('/projects/open'),
+                          child: Container(
+                            decoration: BoxDecoration(
+                              color: AppTheme.surfaceVariant,
+                              border: Border.all(color: AppTheme.border),
                             ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: Text(
-                                projectName,
-                                style: const TextStyle(
-                                  color: AppTheme.textPrimary,
-                                  fontSize: 15,
-                                  fontWeight: FontWeight.w600,
+                            padding: const EdgeInsets.all(16),
+                            child: Row(
+                              children: [
+                                Icon(
+                                  Icons.add_circle_outline,
+                                  color: AppTheme.accent,
+                                  size: 20,
                                 ),
-                              ),
-                            ),
-                            const Icon(
-                              Icons.chevron_right,
-                              color: AppTheme.textTertiary,
-                              size: 20,
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          project.worktree,
-                          style: const TextStyle(
-                            color: AppTheme.textTertiary,
-                            fontSize: 11,
-                          ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        const SizedBox(height: 10),
-                        Row(
-                          children: [
-                            if (project.vcs != null) ...[
-                              Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 6,
-                                  vertical: 2,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: AppTheme.info.withValues(alpha: 0.1),
-                                  border: Border.all(
-                                    color: AppTheme.info.withValues(alpha: 0.3),
+                                const SizedBox(width: 10),
+                                const Expanded(
+                                  child: Text(
+                                    'Open a new project',
+                                    style: TextStyle(
+                                      color: AppTheme.textPrimary,
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.w600,
+                                    ),
                                   ),
                                 ),
-                                child: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    Icon(
-                                      Icons.commit,
-                                      color: AppTheme.info,
-                                      size: 12,
+                                const Icon(
+                                  Icons.chevron_right,
+                                  color: AppTheme.textTertiary,
+                                  size: 20,
+                                ),
+                              ],
+                            ),
+                          ),
+                        );
+                      }
+
+                      final project = sortedProjects[index - 1];
+                      final projectName =
+                          project.name ?? project.worktree.split('/').last;
+
+                      return GestureDetector(
+                        onTap: () {
+                          ref.read(selectedProjectProvider.notifier).state =
+                              project;
+                          ref
+                              .read(projectModelProvider.notifier)
+                              .load(project.id);
+                          context.push('/sessions');
+                        },
+                        child: Container(
+                          decoration: BoxDecoration(
+                            color: AppTheme.surface,
+                            border: Border.all(color: AppTheme.border),
+                          ),
+                          padding: const EdgeInsets.all(16),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  Icon(
+                                    Icons.folder_outlined,
+                                    color: AppTheme.accent,
+                                    size: 20,
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: Text(
+                                      projectName,
+                                      style: const TextStyle(
+                                        color: AppTheme.textPrimary,
+                                        fontSize: 15,
+                                        fontWeight: FontWeight.w600,
+                                      ),
                                     ),
-                                    const SizedBox(width: 4),
-                                    Text(
-                                      'VCS',
-                                      style: TextStyle(
-                                        color: AppTheme.info,
+                                  ),
+                                  const Icon(
+                                    Icons.chevron_right,
+                                    color: AppTheme.textTertiary,
+                                    size: 20,
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                project.worktree,
+                                style: const TextStyle(
+                                  color: AppTheme.textTertiary,
+                                  fontSize: 11,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              const SizedBox(height: 10),
+                              Row(
+                                children: [
+                                  if (project.vcs != null) ...[
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 6,
+                                        vertical: 2,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: AppTheme.info.withValues(
+                                          alpha: 0.1,
+                                        ),
+                                        border: Border.all(
+                                          color: AppTheme.info.withValues(
+                                            alpha: 0.3,
+                                          ),
+                                        ),
+                                      ),
+                                      child: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          Icon(
+                                            Icons.commit,
+                                            color: AppTheme.info,
+                                            size: 12,
+                                          ),
+                                          const SizedBox(width: 4),
+                                          Text(
+                                            'VCS',
+                                            style: TextStyle(
+                                              color: AppTheme.info,
+                                              fontSize: 10,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                  ],
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 6,
+                                      vertical: 2,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: AppTheme.surfaceVariant,
+                                      border: Border.all(
+                                        color: AppTheme.border,
+                                      ),
+                                    ),
+                                    child: Text(
+                                      _timeAgo(project.time.updated!),
+                                      style: const TextStyle(
+                                        color: AppTheme.textTertiary,
                                         fontSize: 10,
                                       ),
                                     ),
-                                  ],
-                                ),
+                                  ),
+                                ],
                               ),
-                              const SizedBox(width: 8),
                             ],
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 6,
-                                vertical: 2,
-                              ),
-                              decoration: BoxDecoration(
-                                color: AppTheme.surfaceVariant,
-                                border: Border.all(color: AppTheme.border),
-                              ),
-                              child: Text(
-                                _timeAgo(project.time.updated!),
-                                style: const TextStyle(
-                                  color: AppTheme.textTertiary,
-                                  fontSize: 10,
-                                ),
-                              ),
-                            ),
-                          ],
+                          ),
                         ),
-                      ],
-                    ),
+                      );
+                    },
                   ),
                 );
               },
+              loading: () => const Center(
+                child: CircularProgressIndicator(color: AppTheme.accent),
+              ),
+              error: (error, _) {
+                final apiError = ErrorHandler.parseError(error);
+                return ConnectionErrorView(
+                  error: apiError,
+                  onRetry: () => ref.invalidate(projectsProvider),
+                  showConfigureButton: apiError.shouldShowConfigure,
+                );
+              },
             ),
-          );
-        },
-        loading: () => const Center(
-          child: CircularProgressIndicator(color: AppTheme.accent),
-        ),
-        error: (error, _) {
-          final apiError = ErrorHandler.parseError(error);
-          return ConnectionErrorView(
-            error: apiError,
-            onRetry: () => ref.invalidate(projectsProvider),
-            showConfigureButton: apiError.shouldShowConfigure,
-          );
-        },
+          ),
+        ],
       ),
     );
   }

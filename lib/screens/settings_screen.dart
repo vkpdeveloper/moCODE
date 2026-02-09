@@ -252,7 +252,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'MeCode',
+                  'moCode',
                   style: TextStyle(
                     color: AppTheme.accent,
                     fontSize: 14,
@@ -261,7 +261,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 ),
                 SizedBox(height: 4),
                 Text(
-                  'meCode Mobile Client',
+                  'Connect with your Opencode server',
                   style: TextStyle(color: AppTheme.textTertiary, fontSize: 11),
                 ),
                 SizedBox(height: 8),
