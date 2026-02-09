@@ -4,24 +4,36 @@ import 'package:google_sign_in/google_sign_in.dart';
 class AuthService {
   final FirebaseAuth _firebaseAuth;
   final GoogleSignIn _googleSignIn;
+  final String _serverClientId;
+  bool _googleInitialized = false;
 
-  AuthService(this._firebaseAuth, this._googleSignIn);
+  AuthService(this._firebaseAuth, this._googleSignIn, this._serverClientId);
 
   Stream<User?> authStateChanges() => _firebaseAuth.authStateChanges();
 
   User? get currentUser => _firebaseAuth.currentUser;
 
+  Future<void> _ensureGoogleInitialized() async {
+    if (_googleInitialized) return;
+    if (_serverClientId.isEmpty) {
+      throw StateError('Missing GOOGLE_SERVER_CLIENT_ID in .env.');
+    }
+    await _googleSignIn.initialize(serverClientId: _serverClientId);
+    _googleInitialized = true;
+  }
+
   Future<UserCredential?> signInWithGoogle() async {
-    final account = await _googleSignIn.signIn();
-    if (account == null) {
-      return null;
+    await _ensureGoogleInitialized();
+
+    if (!_googleSignIn.supportsAuthenticate()) {
+      throw UnsupportedError(
+        'Google Sign-In authenticate flow is not supported',
+      );
     }
 
-    final auth = await account.authentication;
-    final credential = GoogleAuthProvider.credential(
-      accessToken: auth.accessToken,
-      idToken: auth.idToken,
-    );
+    final account = await _googleSignIn.authenticate();
+    final auth = account.authentication;
+    final credential = GoogleAuthProvider.credential(idToken: auth.idToken);
 
     return _firebaseAuth.signInWithCredential(credential);
   }

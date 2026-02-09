@@ -7,6 +7,7 @@ import '../screens/open_project_screen.dart';
 import '../screens/sessions_screen.dart';
 import '../screens/chat_screen.dart';
 import '../screens/settings_screen.dart';
+import '../screens/payment_checkout_screen.dart';
 import '../screens/model_picker_screen.dart';
 
 final routerProvider = Provider<GoRouter>((ref) {
@@ -17,13 +18,19 @@ final routerProvider = Provider<GoRouter>((ref) {
     redirect: (context, state) {
       final path = state.uri.path;
       final isSettings = path == '/settings';
+      final isPaymentCheckout = path == '/payment/checkout';
+      final isGateRoute = isSettings || isPaymentCheckout;
 
       if (accessGateStatus == AccessGateStatus.loading) {
-        return isSettings ? null : '/settings';
+        return isGateRoute ? null : '/settings';
       }
 
-      if (accessGateStatus != AccessGateStatus.granted && !isSettings) {
+      if (accessGateStatus != AccessGateStatus.granted && !isGateRoute) {
         return '/settings';
+      }
+
+      if (accessGateStatus == AccessGateStatus.granted && isPaymentCheckout) {
+        return '/projects';
       }
 
       return null;
@@ -49,7 +56,16 @@ final routerProvider = Provider<GoRouter>((ref) {
       ),
       GoRoute(
         path: '/settings',
-        builder: (context, state) => const SettingsScreen(),
+        builder: (context, state) {
+          final extra = state.extra;
+          final refreshPaymentOnOpen =
+              extra is Map<String, dynamic> && extra['refreshPayment'] == true;
+          return SettingsScreen(refreshPaymentOnOpen: refreshPaymentOnOpen);
+        },
+      ),
+      GoRoute(
+        path: '/payment/checkout',
+        builder: (context, state) => const PaymentCheckoutScreen(),
       ),
       GoRoute(
         path: '/models',

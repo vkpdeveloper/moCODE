@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../models/models.dart' hide HealthInfo, ProviderListResponse;
 import '../models/app_models.dart' as app_models;
 import '../models/provider.dart';
+import '../config/app_env.dart';
 
 import '../services/api_client.dart';
 import '../services/account_api_client.dart';
@@ -99,7 +100,7 @@ final apiClientProvider = Provider<ApiClient>((ref) {
 });
 
 final accountApiClientProvider = Provider<AccountApiClient>((ref) {
-  return AccountApiClient();
+  return AccountApiClient(baseUrl: AppEnv.accountApiBaseUrl);
 });
 
 final firebaseAuthProvider = Provider<FirebaseAuth>((ref) {
@@ -107,13 +108,14 @@ final firebaseAuthProvider = Provider<FirebaseAuth>((ref) {
 });
 
 final googleSignInProvider = Provider<GoogleSignIn>((ref) {
-  return GoogleSignIn(scopes: ['email', 'profile']);
+  return GoogleSignIn.instance;
 });
 
 final authServiceProvider = Provider<AuthService>((ref) {
   return AuthService(
     ref.watch(firebaseAuthProvider),
     ref.watch(googleSignInProvider),
+    AppEnv.googleServerClientId,
   );
 });
 

@@ -30,20 +30,33 @@ class AccountService {
   Future<String> createCheckoutSession(
     String idToken, {
     String? productId,
+    String? returnUrl,
     int quantity = 1,
   }) async {
-    final response = await _apiClient.dio.post(
-      '/api/v1/billing/create-checkout-session',
-      data: {'productId': productId, 'quantity': quantity},
-      options: _authOptions(idToken),
-    );
-
-    final map = response.data as Map<String, dynamic>;
-    final checkoutUrl = map['checkoutUrl'] as String?;
-    if (checkoutUrl == null || checkoutUrl.isEmpty) {
-      throw Exception('Checkout URL missing from server response');
+    final payload = <String, dynamic>{'quantity': quantity};
+    if (productId != null && productId.isNotEmpty) {
+      payload['productId'] = productId;
+    }
+    if (returnUrl != null && returnUrl.isNotEmpty) {
+      payload['returnUrl'] = returnUrl;
     }
 
-    return checkoutUrl;
+    try {
+      final response = await _apiClient.dio.post(
+        '/api/v1/billing/create-checkout-session',
+        data: payload,
+        options: _authOptions(idToken),
+      );
+
+      final map = response.data as Map<String, dynamic>;
+      final checkoutUrl = map['checkoutUrl'] as String?;
+      if (checkoutUrl == null || checkoutUrl.isEmpty) {
+        throw Exception('Checkout URL missing from server response');
+      }
+
+      return checkoutUrl;
+    } on DioException {
+      rethrow;
+    }
   }
 }

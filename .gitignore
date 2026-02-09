@@ -54,6 +54,9 @@ google-services.json
 GoogleService-Info.plist
 .vercel
 
+# App env
+/.env
+
 # Android signing keys
 /keys/
 /android/key.properties

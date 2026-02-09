@@ -1,13 +1,17 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../config/app_env.dart';
 import '../providers/providers.dart';
 import '../theme/app_theme.dart';
 
 class SettingsScreen extends ConsumerStatefulWidget {
-  const SettingsScreen({super.key});
+  final bool refreshPaymentOnOpen;
+
+  const SettingsScreen({super.key, this.refreshPaymentOnOpen = false});
 
   @override
   ConsumerState<SettingsScreen> createState() => _SettingsScreenState();
@@ -18,6 +22,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   late TextEditingController _portController;
   bool _authLoading = false;
   bool _checkoutLoading = false;
+  bool _paymentRefreshLoading = false;
+  bool _checkedRefreshOnOpen = false;
 
   @override
   void initState() {
@@ -38,6 +44,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    if (!_checkedRefreshOnOpen && widget.refreshPaymentOnOpen) {
+      _checkedRefreshOnOpen = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _refreshPaymentStateWithLoader();
+      });
+    }
+
     final settings = ref.watch(settingsProvider);
     final healthAsync = ref.watch(healthProvider);
     final defaultModel = ref.watch(defaultModelProvider);
@@ -59,169 +72,224 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           style: TextStyle(fontSize: 14, letterSpacing: 2),
         ),
       ),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
+      body: Stack(
         children: [
-          _sectionHeader('SERVER CONNECTION'),
-          const SizedBox(height: 8),
-          Container(
-            decoration: BoxDecoration(
-              color: AppTheme.surface,
-              border: Border.all(color: AppTheme.border),
-            ),
+          ListView(
             padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Host',
-                  style: TextStyle(color: AppTheme.textSecondary, fontSize: 11),
+            children: [
+              _sectionHeader('SERVER CONNECTION'),
+              const SizedBox(height: 8),
+              Container(
+                decoration: BoxDecoration(
+                  color: AppTheme.surface,
+                  border: Border.all(color: AppTheme.border),
                 ),
-                const SizedBox(height: 6),
-                TextField(
-                  controller: _hostController,
-                  style: const TextStyle(
-                    color: AppTheme.textPrimary,
-                    fontSize: 13,
-                  ),
-                  decoration: const InputDecoration(
-                    hintText: 'localhost',
-                    isDense: true,
-                  ),
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Host',
+                      style: TextStyle(
+                        color: AppTheme.textSecondary,
+                        fontSize: 11,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    TextField(
+                      controller: _hostController,
+                      style: const TextStyle(
+                        color: AppTheme.textPrimary,
+                        fontSize: 13,
+                      ),
+                      decoration: const InputDecoration(
+                        hintText: 'localhost',
+                        isDense: true,
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    const Text(
+                      'Port',
+                      style: TextStyle(
+                        color: AppTheme.textSecondary,
+                        fontSize: 11,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    TextField(
+                      controller: _portController,
+                      keyboardType: TextInputType.number,
+                      style: const TextStyle(
+                        color: AppTheme.textPrimary,
+                        fontSize: 13,
+                      ),
+                      decoration: const InputDecoration(
+                        hintText: '3000',
+                        isDense: true,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton(
+                        onPressed: _saveSettings,
+                        child: const Text(
+                          'SAVE & CONNECT',
+                          style: TextStyle(fontSize: 12, letterSpacing: 1),
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 14),
-                const Text(
-                  'Port',
-                  style: TextStyle(color: AppTheme.textSecondary, fontSize: 11),
+              ),
+              const SizedBox(height: 8),
+              Container(
+                decoration: BoxDecoration(
+                  color: AppTheme.surface,
+                  border: Border.all(color: AppTheme.border),
                 ),
-                const SizedBox(height: 6),
-                TextField(
-                  controller: _portController,
-                  keyboardType: TextInputType.number,
-                  style: const TextStyle(
-                    color: AppTheme.textPrimary,
-                    fontSize: 13,
-                  ),
-                  decoration: const InputDecoration(
-                    hintText: '3000',
-                    isDense: true,
-                  ),
+                padding: const EdgeInsets.all(12),
+                child: Row(
+                  children: [
+                    const Text(
+                      'Current URL',
+                      style: TextStyle(
+                        color: AppTheme.textTertiary,
+                        fontSize: 11,
+                      ),
+                    ),
+                    const Spacer(),
+                    Text(
+                      settings.serverUrl,
+                      style: const TextStyle(
+                        color: AppTheme.textSecondary,
+                        fontSize: 11,
+                      ),
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 16),
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton(
-                    onPressed: _saveSettings,
-                    child: const Text(
-                      'SAVE & CONNECT',
-                      style: TextStyle(fontSize: 12, letterSpacing: 1),
+              ),
+
+              const SizedBox(height: 24),
+              _sectionHeader('STATUS'),
+              const SizedBox(height: 8),
+              Container(
+                decoration: BoxDecoration(
+                  color: AppTheme.surface,
+                  border: Border.all(color: AppTheme.border),
+                ),
+                padding: const EdgeInsets.all(16),
+                child: healthAsync.when(
+                  data: (health) => Column(
+                    children: [
+                      _statusRow(
+                        'Server',
+                        health.healthy ? 'Online' : 'Offline',
+                        health.healthy,
+                      ),
+                      const Divider(height: 20),
+                      _statusRow('Version', health.version ?? 'Unknown', null),
+                    ],
+                  ),
+                  loading: () => const Center(
+                    child: Padding(
+                      padding: EdgeInsets.all(16),
+                      child: CircularProgressIndicator(
+                        color: AppTheme.accent,
+                        strokeWidth: 2,
+                      ),
                     ),
                   ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 8),
-          Container(
-            decoration: BoxDecoration(
-              color: AppTheme.surface,
-              border: Border.all(color: AppTheme.border),
-            ),
-            padding: const EdgeInsets.all(12),
-            child: Row(
-              children: [
-                const Text(
-                  'Current URL',
-                  style: TextStyle(color: AppTheme.textTertiary, fontSize: 11),
-                ),
-                const Spacer(),
-                Text(
-                  settings.serverUrl,
-                  style: const TextStyle(
-                    color: AppTheme.textSecondary,
-                    fontSize: 11,
-                  ),
-                ),
-              ],
-            ),
-          ),
-
-          const SizedBox(height: 24),
-          _sectionHeader('STATUS'),
-          const SizedBox(height: 8),
-          Container(
-            decoration: BoxDecoration(
-              color: AppTheme.surface,
-              border: Border.all(color: AppTheme.border),
-            ),
-            padding: const EdgeInsets.all(16),
-            child: healthAsync.when(
-              data: (health) => Column(
-                children: [
-                  _statusRow(
-                    'Server',
-                    health.healthy ? 'Online' : 'Offline',
-                    health.healthy,
-                  ),
-                  const Divider(height: 20),
-                  _statusRow('Version', health.version ?? 'Unknown', null),
-                ],
-              ),
-              loading: () => const Center(
-                child: Padding(
-                  padding: EdgeInsets.all(16),
-                  child: CircularProgressIndicator(
-                    color: AppTheme.accent,
-                    strokeWidth: 2,
-                  ),
+                  error: (e, _) => _statusRow('Server', 'Offline', false),
                 ),
               ),
-              error: (e, _) => _statusRow('Server', 'Offline', false),
-            ),
-          ),
 
-          const SizedBox(height: 24),
-          _sectionHeader('ACCOUNT & BILLING'),
-          const SizedBox(height: 8),
-          Container(
-            decoration: BoxDecoration(
-              color: AppTheme.surface,
-              border: Border.all(color: AppTheme.border),
-            ),
-            child: Column(
-              children: [
-                ListTile(
-                  leading: Icon(
-                    firebaseUser == null
-                        ? Icons.login
-                        : (oneTimeUnlocked
-                              ? Icons.verified
-                              : Icons.account_circle),
-                    color: oneTimeUnlocked
-                        ? AppTheme.success
-                        : AppTheme.textSecondary,
-                    size: 20,
-                  ),
-                  title: Text(
-                    firebaseUser == null
-                        ? 'Sign in with Google'
-                        : (firebaseUser.displayName ??
-                              firebaseUser.email ??
-                              'Signed in'),
-                    style: const TextStyle(fontSize: 13),
-                  ),
-                  subtitle: firebaseUser == null
-                      ? const Text(
-                          'Required for one-time unlock',
-                          style: TextStyle(
-                            color: AppTheme.textTertiary,
-                            fontSize: 11,
-                          ),
-                        )
-                      : Text(
+              const SizedBox(height: 24),
+              _sectionHeader('ACCOUNT & BILLING'),
+              const SizedBox(height: 8),
+              Container(
+                decoration: BoxDecoration(
+                  color: AppTheme.surface,
+                  border: Border.all(color: AppTheme.border),
+                ),
+                child: Column(
+                  children: [
+                    ListTile(
+                      leading: Icon(
+                        firebaseUser == null
+                            ? Icons.login
+                            : (oneTimeUnlocked
+                                  ? Icons.verified
+                                  : Icons.account_circle),
+                        color: oneTimeUnlocked
+                            ? AppTheme.success
+                            : AppTheme.textSecondary,
+                        size: 20,
+                      ),
+                      title: Text(
+                        firebaseUser == null
+                            ? 'Sign in with Google'
+                            : (firebaseUser.displayName ??
+                                  firebaseUser.email ??
+                                  'Signed in'),
+                        style: const TextStyle(fontSize: 13),
+                      ),
+                      subtitle: firebaseUser == null
+                          ? const Text(
+                              'Sign in to continue setup',
+                              style: TextStyle(
+                                color: AppTheme.textTertiary,
+                                fontSize: 11,
+                              ),
+                            )
+                          : Text(
+                              oneTimeUnlocked
+                                  ? 'You are all set. Full access is active.'
+                                  : 'Complete setup to unlock full access',
+                              style: TextStyle(
+                                color: oneTimeUnlocked
+                                    ? AppTheme.success
+                                    : AppTheme.textTertiary,
+                                fontSize: 11,
+                              ),
+                            ),
+                      trailing: _authLoading
+                          ? const SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(
+                              Icons.chevron_right,
+                              color: AppTheme.textTertiary,
+                              size: 18,
+                            ),
+                      onTap: _authLoading
+                          ? null
+                          : () {
+                              if (firebaseUser == null) {
+                                _signInWithGoogle();
+                                return;
+                              }
+                              _signOut();
+                            },
+                    ),
+                    if (firebaseUser != null) const Divider(height: 1),
+                    if (firebaseUser != null)
+                      ListTile(
+                        leading: const Icon(
+                          Icons.payments,
+                          color: AppTheme.textSecondary,
+                          size: 20,
+                        ),
+                        title: const Text(
+                          'Complete Setup',
+                          style: TextStyle(fontSize: 13),
+                        ),
+                        subtitle: Text(
                           oneTimeUnlocked
-                              ? 'One-time access unlocked'
-                              : 'Payment required to unlock access',
+                              ? 'Everything is unlocked'
+                              : 'Secure payment, one time only',
                           style: TextStyle(
                             color: oneTimeUnlocked
                                 ? AppTheme.success
@@ -229,226 +297,211 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                             fontSize: 11,
                           ),
                         ),
-                  trailing: _authLoading
-                      ? const SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(
-                          Icons.chevron_right,
-                          color: AppTheme.textTertiary,
-                          size: 18,
+                        trailing: _checkoutLoading
+                            ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : const Icon(
+                                Icons.open_in_new,
+                                color: AppTheme.textTertiary,
+                                size: 18,
+                              ),
+                        onTap: _checkoutLoading || oneTimeUnlocked
+                            ? null
+                            : _startCheckout,
+                      ),
+                    if (firebaseUser != null) const Divider(height: 1),
+                    if (firebaseUser != null)
+                      ListTile(
+                        leading: const Icon(
+                          Icons.sync,
+                          color: AppTheme.textSecondary,
+                          size: 20,
                         ),
-                  onTap: _authLoading
-                      ? null
-                      : () {
-                          if (firebaseUser == null) {
-                            _signInWithGoogle();
-                            return;
-                          }
-                          _signOut();
-                        },
-                ),
-                if (firebaseUser != null) const Divider(height: 1),
-                if (firebaseUser != null)
-                  ListTile(
-                    leading: const Icon(
-                      Icons.payments,
-                      color: AppTheme.textSecondary,
-                      size: 20,
-                    ),
-                    title: const Text(
-                      'Unlock One-Time Access',
-                      style: TextStyle(fontSize: 13),
-                    ),
-                    subtitle: Text(
-                      oneTimeUnlocked
-                          ? 'Already unlocked'
-                          : 'Open Dodo Payments checkout',
-                      style: TextStyle(
-                        color: oneTimeUnlocked
-                            ? AppTheme.success
-                            : AppTheme.textTertiary,
-                        fontSize: 11,
-                      ),
-                    ),
-                    trailing: _checkoutLoading
-                        ? const SizedBox(
-                            width: 16,
-                            height: 16,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Icon(
-                            Icons.open_in_new,
-                            color: AppTheme.textTertiary,
-                            size: 18,
+                        title: const Text(
+                          'Refresh Account Status',
+                          style: TextStyle(fontSize: 13),
+                        ),
+                        subtitle: Text(
+                          _billingSubtitle(
+                            billingData,
+                            profileAsync.valueOrNull,
+                            authState.error,
+                            billingAsync.error,
                           ),
-                    onTap: _checkoutLoading || oneTimeUnlocked
-                        ? null
-                        : _startCheckout,
-                  ),
-                if (firebaseUser != null) const Divider(height: 1),
-                if (firebaseUser != null)
-                  ListTile(
-                    leading: const Icon(
-                      Icons.sync,
-                      color: AppTheme.textSecondary,
-                      size: 20,
-                    ),
-                    title: const Text(
-                      'Refresh Account Status',
-                      style: TextStyle(fontSize: 13),
-                    ),
-                    subtitle: Text(
-                      _billingSubtitle(
-                        billingData,
-                        profileAsync.valueOrNull,
-                        authState.error,
-                        billingAsync.error,
-                      ),
-                      style: const TextStyle(
-                        color: AppTheme.textTertiary,
-                        fontSize: 11,
-                      ),
-                    ),
-                    trailing: const Icon(
-                      Icons.chevron_right,
-                      color: AppTheme.textTertiary,
-                      size: 18,
-                    ),
-                    onTap: _refreshAccountState,
-                  ),
-              ],
-            ),
-          ),
-
-          const SizedBox(height: 24),
-          _sectionHeader('ACTIONS'),
-          const SizedBox(height: 8),
-          Container(
-            decoration: BoxDecoration(
-              color: AppTheme.surface,
-              border: Border.all(color: AppTheme.border),
-            ),
-            child: Column(
-              children: [
-                ListTile(
-                  leading: const Icon(
-                    Icons.refresh,
-                    color: AppTheme.textSecondary,
-                    size: 20,
-                  ),
-                  title: const Text(
-                    'Refresh All Data',
-                    style: TextStyle(fontSize: 13),
-                  ),
-                  trailing: const Icon(
-                    Icons.chevron_right,
-                    color: AppTheme.textTertiary,
-                    size: 18,
-                  ),
-                  onTap: () {
-                    ref.invalidate(healthProvider);
-                    ref.invalidate(projectsProvider);
-                    ref.invalidate(sessionsProvider);
-                    ref.invalidate(providersListProvider);
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Refreshing...')),
-                    );
-                  },
-                ),
-                const Divider(height: 1),
-                ListTile(
-                  leading: const Icon(
-                    Icons.model_training,
-                    color: AppTheme.textSecondary,
-                    size: 20,
-                  ),
-                  title: const Text(
-                    'Default Model',
-                    style: TextStyle(fontSize: 13),
-                  ),
-                  subtitle: defaultModel != null
-                      ? Text(
-                          '${defaultModel['providerID']}/${defaultModel['modelID']}',
                           style: const TextStyle(
                             color: AppTheme.textTertiary,
                             fontSize: 11,
                           ),
-                        )
-                      : null,
-                  trailing: const Icon(
-                    Icons.chevron_right,
-                    color: AppTheme.textTertiary,
-                    size: 18,
-                  ),
-                  onTap: () {
-                    context.push('/models', extra: {'mode': 'default'});
-                  },
+                        ),
+                        trailing: const Icon(
+                          Icons.chevron_right,
+                          color: AppTheme.textTertiary,
+                          size: 18,
+                        ),
+                        onTap: _refreshAccountState,
+                      ),
+                  ],
                 ),
-              ],
-            ),
-          ),
+              ),
 
-          const SizedBox(height: 24),
-          _sectionHeader('ABOUT'),
-          const SizedBox(height: 8),
-          Container(
-            decoration: BoxDecoration(
-              color: AppTheme.surface,
-              border: Border.all(color: AppTheme.border),
-            ),
-            padding: const EdgeInsets.all(16),
-            child: const Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'moCODE',
-                  style: TextStyle(
-                    color: AppTheme.accent,
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                  ),
+              const SizedBox(height: 24),
+              _sectionHeader('ACTIONS'),
+              const SizedBox(height: 8),
+              Container(
+                decoration: BoxDecoration(
+                  color: AppTheme.surface,
+                  border: Border.all(color: AppTheme.border),
                 ),
-                SizedBox(height: 4),
-                Text(
-                  'Connect with your Opencode server',
-                  style: TextStyle(color: AppTheme.textTertiary, fontSize: 11),
+                child: Column(
+                  children: [
+                    ListTile(
+                      leading: const Icon(
+                        Icons.refresh,
+                        color: AppTheme.textSecondary,
+                        size: 20,
+                      ),
+                      title: const Text(
+                        'Refresh All Data',
+                        style: TextStyle(fontSize: 13),
+                      ),
+                      trailing: const Icon(
+                        Icons.chevron_right,
+                        color: AppTheme.textTertiary,
+                        size: 18,
+                      ),
+                      onTap: () {
+                        ref.invalidate(healthProvider);
+                        ref.invalidate(projectsProvider);
+                        ref.invalidate(sessionsProvider);
+                        ref.invalidate(providersListProvider);
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('Refreshing...')),
+                        );
+                      },
+                    ),
+                    const Divider(height: 1),
+                    ListTile(
+                      leading: const Icon(
+                        Icons.model_training,
+                        color: AppTheme.textSecondary,
+                        size: 20,
+                      ),
+                      title: const Text(
+                        'Default Model',
+                        style: TextStyle(fontSize: 13),
+                      ),
+                      subtitle: defaultModel != null
+                          ? Text(
+                              '${defaultModel['providerID']}/${defaultModel['modelID']}',
+                              style: const TextStyle(
+                                color: AppTheme.textTertiary,
+                                fontSize: 11,
+                              ),
+                            )
+                          : null,
+                      trailing: const Icon(
+                        Icons.chevron_right,
+                        color: AppTheme.textTertiary,
+                        size: 18,
+                      ),
+                      onTap: () {
+                        context.push('/models', extra: {'mode': 'default'});
+                      },
+                    ),
+                  ],
                 ),
-                SizedBox(height: 12),
-                Text(
-                  'REPOSITORY',
-                  style: TextStyle(
-                    color: AppTheme.textSecondary,
-                    fontSize: 9,
-                    fontWeight: FontWeight.bold,
-                    letterSpacing: 1,
-                  ),
+              ),
+
+              const SizedBox(height: 24),
+              _sectionHeader('ABOUT'),
+              const SizedBox(height: 8),
+              Container(
+                decoration: BoxDecoration(
+                  color: AppTheme.surface,
+                  border: Border.all(color: AppTheme.border),
                 ),
-                SizedBox(height: 2),
-                SelectableText(
-                  'https://github.com/vkpdeveloper/moCODE',
-                  style: TextStyle(color: AppTheme.accent, fontSize: 11),
+                padding: const EdgeInsets.all(16),
+                child: const Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'moCODE',
+                      style: TextStyle(
+                        color: AppTheme.accent,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    SizedBox(height: 4),
+                    Text(
+                      'Connect with your OpenCode server',
+                      style: TextStyle(
+                        color: AppTheme.textTertiary,
+                        fontSize: 11,
+                      ),
+                    ),
+                    SizedBox(height: 12),
+                    Text(
+                      'BUILD',
+                      style: TextStyle(
+                        color: AppTheme.textSecondary,
+                        fontSize: 9,
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: 1,
+                      ),
+                    ),
+                    SizedBox(height: 2),
+                    Text(
+                      'Built with ❤️ by Ordinity',
+                      style: TextStyle(color: AppTheme.accent, fontSize: 11),
+                    ),
+                    SizedBox(height: 12),
+                    Text(
+                      'VERSION',
+                      style: TextStyle(
+                        color: AppTheme.textSecondary,
+                        fontSize: 9,
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: 1,
+                      ),
+                    ),
+                    SizedBox(height: 2),
+                    Text(
+                      'v1.0.0',
+                      style: TextStyle(
+                        color: AppTheme.textTertiary,
+                        fontSize: 11,
+                      ),
+                    ),
+                  ],
                 ),
-                SizedBox(height: 12),
-                Text(
-                  'VERSION',
-                  style: TextStyle(
-                    color: AppTheme.textSecondary,
-                    fontSize: 9,
-                    fontWeight: FontWeight.bold,
-                    letterSpacing: 1,
-                  ),
-                ),
-                SizedBox(height: 2),
-                Text(
-                  'v1.0.0',
-                  style: TextStyle(color: AppTheme.textTertiary, fontSize: 11),
-                ),
-              ],
-            ),
+              ),
+            ],
           ),
+          if (_paymentRefreshLoading)
+            Positioned.fill(
+              child: Container(
+                color: Colors.black54,
+                child: const Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      CircularProgressIndicator(color: AppTheme.accent),
+                      SizedBox(height: 12),
+                      Text(
+                        'Confirming your payment... ',
+                        style: TextStyle(color: AppTheme.textPrimary),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
         ],
       ),
     );
@@ -469,15 +522,15 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     if (billing['oneTimeUnlocked'] == true) {
       final paidAt = billing['paidAt']?.toString();
       if (paidAt == null || paidAt.isEmpty) {
-        return 'Unlocked via one-time payment';
+        return 'Full access is active';
       }
-      return 'Unlocked on $paidAt';
+      return 'Access active since $paidAt';
     }
     final email = profile?['user']?['email']?.toString();
     if (email != null && email.isNotEmpty) {
       return 'Logged in as $email';
     }
-    return 'Awaiting one-time payment';
+    return 'Setup incomplete';
   }
 
   Widget _sectionHeader(String title) {
@@ -598,27 +651,37 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     });
 
     try {
+      if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
+        if (!mounted) return;
+        context.push('/payment/checkout');
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Opening secure setup...')),
+        );
+        return;
+      }
+
       final idToken = await user.getIdToken();
       if (idToken == null || idToken.isEmpty) {
         throw Exception('Unable to fetch Firebase ID token');
       }
       final checkoutUrl = await ref
           .read(accountServiceProvider)
-          .createCheckoutSession(idToken);
+          .createCheckoutSession(
+            idToken,
+            productId: AppEnv.dodoProductId,
+            returnUrl: null,
+          );
 
+      if (!mounted) return;
       await launchUrl(
         Uri.parse(checkoutUrl),
         mode: LaunchMode.externalApplication,
       );
 
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Checkout opened. Complete payment and refresh status.',
-          ),
-        ),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Opening secure setup...')));
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(
@@ -637,5 +700,40 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     ref.invalidate(idTokenProvider);
     ref.invalidate(accountProfileProvider);
     ref.invalidate(billingStatusProvider);
+  }
+
+  Future<void> _refreshPaymentStateWithLoader() async {
+    if (_paymentRefreshLoading) return;
+    setState(() {
+      _paymentRefreshLoading = true;
+    });
+
+    var unlocked = false;
+    try {
+      for (var attempt = 0; attempt < 5; attempt++) {
+        _refreshAccountState();
+        final billing = await ref.read(billingStatusProvider.future);
+        unlocked = billing?['oneTimeUnlocked'] == true;
+        if (unlocked) break;
+        await Future<void>.delayed(const Duration(seconds: 2));
+      }
+    } catch (_) {
+      // keep silent and show generic status after loader
+    } finally {
+      if (mounted) {
+        setState(() {
+          _paymentRefreshLoading = false;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              unlocked
+                  ? 'Payment confirmed. Full access unlocked.'
+                  : 'We are still verifying payment. Tap refresh in a moment.',
+            ),
+          ),
+        );
+      }
+    }
   }
 }
