@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
@@ -350,23 +351,7 @@ class SessionsScreen extends ConsumerWidget {
               ),
               onTap: () async {
                 Navigator.pop(ctx);
-                try {
-                  final sessionService = ref.read(sessionServiceProvider);
-                  await sessionService.deleteSession(
-                    session.id,
-                    directory: session.directory,
-                  );
-                  await ref
-                      .read(activeSessionsProvider.notifier)
-                      .clearActive(session.id);
-                  ref.invalidate(sessionsProvider);
-                } catch (e) {
-                  if (context.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('Failed to delete: $e')),
-                    );
-                  }
-                }
+                _confirmDeleteSession(context, ref, session);
               },
             ),
             ListTile(
@@ -401,6 +386,30 @@ class SessionsScreen extends ConsumerWidget {
                 }
               },
             ),
+            if (session.share != null)
+              ListTile(
+                leading: const Icon(Icons.copy, color: AppTheme.info, size: 20),
+                title: const Text(
+                  'Copy Link',
+                  style: TextStyle(color: AppTheme.textPrimary, fontSize: 13),
+                ),
+                subtitle: Text(
+                  session.share!.url,
+                  style: const TextStyle(
+                    color: AppTheme.textTertiary,
+                    fontSize: 10,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  Clipboard.setData(ClipboardData(text: session.share!.url));
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Link copied to clipboard')),
+                  );
+                },
+              ),
             ListTile(
               leading: Icon(
                 session.share != null ? Icons.link_off : Icons.share,
@@ -424,10 +433,22 @@ class SessionsScreen extends ConsumerWidget {
                       directory: session.directory,
                     );
                   } else {
-                    await sessionService.shareSession(
+                    final updated = await sessionService.shareSession(
                       session.id,
                       directory: session.directory,
                     );
+                    if (context.mounted && updated.share != null) {
+                      Clipboard.setData(
+                        ClipboardData(text: updated.share!.url),
+                      );
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text(
+                            'Session shared! Link copied to clipboard',
+                          ),
+                        ),
+                      );
+                    }
                   }
                   ref.invalidate(sessionsProvider);
                 } catch (e) {
@@ -443,6 +464,119 @@ class SessionsScreen extends ConsumerWidget {
         ),
       ),
     );
+  }
+
+  Future<void> _confirmDeleteSession(
+    BuildContext context,
+    WidgetRef ref,
+    dynamic session,
+  ) async {
+    final sessionTitle = session.title.isEmpty
+        ? 'Untitled Session'
+        : session.title;
+    final selectedSession = ref.read(selectedSessionProvider);
+    final isCurrentSession = selectedSession?.id == session.id;
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppTheme.surface,
+        title: const Text(
+          'Delete Session?',
+          style: TextStyle(color: AppTheme.textPrimary, fontSize: 16),
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              '"$sessionTitle"',
+              style: const TextStyle(
+                color: AppTheme.textSecondary,
+                fontSize: 13,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+            const SizedBox(height: 12),
+            const Text(
+              'This will permanently delete this session and all its messages.',
+              style: TextStyle(color: AppTheme.textTertiary, fontSize: 12),
+            ),
+            if (isCurrentSession) ...[
+              const SizedBox(height: 8),
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: AppTheme.warning.withValues(alpha: 0.1),
+                  border: Border.all(
+                    color: AppTheme.warning.withValues(alpha: 0.3),
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.warning_amber,
+                      size: 16,
+                      color: AppTheme.warning,
+                    ),
+                    const SizedBox(width: 8),
+                    const Expanded(
+                      child: Text(
+                        'This is your current session. You will be redirected to the sessions list.',
+                        style: TextStyle(color: AppTheme.warning, fontSize: 11),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text(
+              'Cancel',
+              style: TextStyle(color: AppTheme.textSecondary),
+            ),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text(
+              'Delete',
+              style: TextStyle(color: AppTheme.error),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    try {
+      final sessionService = ref.read(sessionServiceProvider);
+      await sessionService.deleteSession(
+        session.id,
+        directory: session.directory,
+      );
+      await ref.read(activeSessionsProvider.notifier).clearActive(session.id);
+
+      if (isCurrentSession) {
+        ref.read(selectedSessionProvider.notifier).state = null;
+      }
+
+      ref.invalidate(sessionsProvider);
+
+      if (isCurrentSession && context.mounted) {
+        context.go('/sessions');
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Failed to delete: $e')));
+      }
+    }
   }
 
   String _formatTime(int timestamp) {

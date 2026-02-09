@@ -59,6 +59,7 @@ class _ChatInputState extends ConsumerState<ChatInput> {
   String _overlayMode = ''; // 'file' or 'command'
   String _searchQuery = '';
   int _triggerPosition = -1;
+  bool _suppressOverlay = false;
   final List<Map<String, dynamic>> _attachedFiles = [];
   final ImagePicker _imagePicker = ImagePicker();
   final List<_ImageAttachment> _attachedImages = [];
@@ -88,8 +89,21 @@ class _ChatInputState extends ConsumerState<ChatInput> {
     final cursorPos = _controller.selection.baseOffset;
 
     if (cursorPos <= 0 || text.isEmpty) {
+      _suppressOverlay = false;
       _removeOverlay();
       return;
+    }
+
+    if (_suppressOverlay) {
+      final shouldRelease =
+          cursorPos >= 2 &&
+          text[cursorPos - 2] == ' ' &&
+          (text[cursorPos - 1] == '@' || text[cursorPos - 1] == '/');
+      if (!shouldRelease) {
+        _removeOverlay();
+        return;
+      }
+      _suppressOverlay = false;
     }
 
     // Check for "@" trigger
@@ -126,7 +140,12 @@ class _ChatInputState extends ConsumerState<ChatInput> {
 
     if (_overlayEntry != null && _overlayMode == 'file') {
       if (lastAt >= 0 && lastAt == _triggerPosition) {
-        _searchQuery = beforeCursor.substring(lastAt + 1);
+        final query = beforeCursor.substring(lastAt + 1);
+        if (query.contains(' ')) {
+          _removeOverlay();
+          return;
+        }
+        _searchQuery = query;
         _debounce?.cancel();
         _debounce = Timer(const Duration(milliseconds: 300), () {
           _showOverlay();
@@ -170,6 +189,7 @@ class _ChatInputState extends ConsumerState<ChatInput> {
 
   void _onFileSelected(String filePath) {
     _removeOverlay();
+    _suppressOverlay = true;
 
     final project = ref.read(selectedProjectProvider);
     var path = filePath;
@@ -200,8 +220,16 @@ class _ChatInputState extends ConsumerState<ChatInput> {
     }
 
     final text = _controller.text;
-    final before = text.substring(0, _triggerPosition);
     final cursorPos = _controller.selection.baseOffset;
+    var triggerPos = _triggerPosition;
+    if (triggerPos < 0 || triggerPos > text.length) {
+      final lookupIndex = cursorPos > 0 ? cursorPos - 1 : text.length - 1;
+      triggerPos = text.lastIndexOf('@', lookupIndex);
+    }
+    if (triggerPos < 0) {
+      triggerPos = cursorPos.clamp(0, text.length);
+    }
+    final before = text.substring(0, triggerPos);
     final after = text.substring(cursorPos);
     final insertion = '@$displayPath';
     final needsSpace = after.isEmpty || !after.startsWith(' ');
@@ -209,8 +237,9 @@ class _ChatInputState extends ConsumerState<ChatInput> {
 
     _controller.text = next;
     _controller.selection = TextSelection.collapsed(
-      offset: before.length + insertion.length + (needsSpace ? 1 : 0),
+      offset: _controller.text.length,
     );
+    _triggerPosition = -1;
 
     setState(() {
       _attachedFiles.add({
@@ -224,6 +253,8 @@ class _ChatInputState extends ConsumerState<ChatInput> {
 
   void _onCommandSelected(String commandName) {
     _removeOverlay();
+    _suppressOverlay = true;
+    _triggerPosition = -1;
 
     final text = _controller.text;
     final cursorPos = _controller.selection.baseOffset;
@@ -232,6 +263,9 @@ class _ChatInputState extends ConsumerState<ChatInput> {
 
     widget.onSendCommand(commandName, remaining);
     _controller.clear();
+    _controller.selection = TextSelection.collapsed(
+      offset: _controller.text.length,
+    );
   }
 
   Future<void> _send() async {

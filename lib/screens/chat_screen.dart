@@ -1554,6 +1554,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
       );
 
       ref.invalidate(messagesProvider);
+      if (currentCount == 0) {
+        ref.invalidate(projectsProvider);
+      }
       _scrollToBottom();
       return true;
     } catch (e) {
