@@ -1,9 +1,9 @@
-import 'dotenv/config';
+import "dotenv/config";
 
-import { serve } from '@hono/node-server';
+import { serve } from "@hono/node-server";
 
-import server from './app';
-import { env } from './lib/env';
+import server from "./";
+import { env } from "./lib/env";
 
 const port = env.PORT;
 
