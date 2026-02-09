@@ -42,7 +42,7 @@ class ProjectsScreen extends ConsumerWidget {
                 border: Border.all(color: AppTheme.accent),
               ),
               child: Text(
-                'moCode',
+                'moCODE',
                 style: TextStyle(
                   color: AppTheme.accent,
                   fontSize: 14,
@@ -153,7 +153,7 @@ class ProjectsScreen extends ConsumerWidget {
                         ),
                         const SizedBox(height: 8),
                         Text(
-                          'Start moCode in a project directory',
+                          'Start moCODE in a project directory',
                           style: TextStyle(
                             color: AppTheme.textTertiary,
                             fontSize: 12,

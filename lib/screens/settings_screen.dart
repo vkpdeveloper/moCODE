@@ -252,7 +252,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'moCode',
+                  'moCODE',
                   style: TextStyle(
                     color: AppTheme.accent,
                     fontSize: 14,
@@ -264,7 +264,32 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   'Connect with your Opencode server',
                   style: TextStyle(color: AppTheme.textTertiary, fontSize: 11),
                 ),
-                SizedBox(height: 8),
+                SizedBox(height: 12),
+                Text(
+                  'REPOSITORY',
+                  style: TextStyle(
+                    color: AppTheme.textSecondary,
+                    fontSize: 9,
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: 1,
+                  ),
+                ),
+                SizedBox(height: 2),
+                SelectableText(
+                  'https://github.com/vkpdeveloper/moCODE',
+                  style: TextStyle(color: AppTheme.accent, fontSize: 11),
+                ),
+                SizedBox(height: 12),
+                Text(
+                  'VERSION',
+                  style: TextStyle(
+                    color: AppTheme.textSecondary,
+                    fontSize: 9,
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: 1,
+                  ),
+                ),
+                SizedBox(height: 2),
                 Text(
                   'v1.0.0',
                   style: TextStyle(color: AppTheme.textTertiary, fontSize: 11),
