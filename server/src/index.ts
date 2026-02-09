@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, desc, eq, gte } from "drizzle-orm";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { Webhook } from "standardwebhooks";
@@ -219,8 +219,39 @@ app.post("/api/v1/billing/create-checkout-session", async (c) => {
     return c.json({ error: "One-time access already unlocked" }, 409);
   }
 
+  const resolvedProductId = input.data.productId ?? env.DODO_DEFAULT_PRODUCT_ID;
+  const sessionTtlMs = env.CHECKOUT_SESSION_TTL_MINUTES * 60 * 1000;
+  const activeSessionCutoff = new Date(Date.now() - sessionTtlMs);
+
+  const activeSession = await db
+    .select({
+      dodoSessionId: checkoutSessions.dodoSessionId,
+      checkoutUrl: checkoutSessions.checkoutUrl,
+    })
+    .from(checkoutSessions)
+    .where(
+      and(
+        eq(checkoutSessions.userId, user.id),
+        eq(checkoutSessions.productId, resolvedProductId),
+        eq(checkoutSessions.quantity, input.data.quantity),
+        eq(checkoutSessions.status, "created"),
+        gte(checkoutSessions.createdAt, activeSessionCutoff),
+      ),
+    )
+    .orderBy(desc(checkoutSessions.createdAt))
+    .limit(1);
+
+  const reusableSession = activeSession[0];
+  if (reusableSession) {
+    return c.json({
+      sessionId: reusableSession.dodoSessionId,
+      checkoutUrl: reusableSession.checkoutUrl,
+      reused: true,
+    });
+  }
+
   const session = await createDodoCheckoutSession({
-    productId: input.data.productId ?? env.DODO_DEFAULT_PRODUCT_ID,
+    productId: resolvedProductId,
     quantity: input.data.quantity,
     customerEmail: user.email,
     customerName: user.displayName,
@@ -235,7 +266,7 @@ app.post("/api/v1/billing/create-checkout-session", async (c) => {
     userId: user.id,
     dodoSessionId: session.session_id,
     checkoutUrl: session.checkout_url,
-    productId: input.data.productId ?? env.DODO_DEFAULT_PRODUCT_ID,
+    productId: resolvedProductId,
     quantity: input.data.quantity,
     status: "created",
   });
@@ -243,6 +274,7 @@ app.post("/api/v1/billing/create-checkout-session", async (c) => {
   return c.json({
     sessionId: session.session_id,
     checkoutUrl: session.checkout_url,
+    reused: false,
   });
 });
 
