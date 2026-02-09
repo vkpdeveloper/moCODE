@@ -52,3 +52,4 @@ server/.env.local
 
 google-services.json
 GoogleService-Info.plist
+.vercel
