@@ -52,6 +52,8 @@ app.use(
   }),
 );
 
+app.get("/", (c) => c.json({ ok: true, service: "mecode-server" }));
+
 app.get("/api/health", (c) => c.json({ ok: true, service: "mecode-server" }));
 
 app.post("/api/v1/billing/webhook", async (c) => {
