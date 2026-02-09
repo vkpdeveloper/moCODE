@@ -1,5 +1,7 @@
 import 'dart:async';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:google_sign_in/google_sign_in.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/models.dart' hide HealthInfo, ProviderListResponse;
@@ -7,7 +9,9 @@ import '../models/app_models.dart' as app_models;
 import '../models/provider.dart';
 
 import '../services/api_client.dart';
+import '../services/auth_service.dart';
 import '../services/app_service.dart';
+import '../services/account_service.dart';
 import '../services/session_service.dart';
 import '../services/message_service.dart';
 import '../services/project_service.dart';
@@ -91,6 +95,61 @@ final apiClientProvider = Provider<ApiClient>((ref) {
   final settings = ref.watch(settingsProvider);
   final client = ApiClient(baseUrl: settings.serverUrl);
   return client;
+});
+
+final firebaseAuthProvider = Provider<FirebaseAuth>((ref) {
+  return FirebaseAuth.instance;
+});
+
+final googleSignInProvider = Provider<GoogleSignIn>((ref) {
+  return GoogleSignIn(scopes: ['email', 'profile']);
+});
+
+final authServiceProvider = Provider<AuthService>((ref) {
+  return AuthService(
+    ref.watch(firebaseAuthProvider),
+    ref.watch(googleSignInProvider),
+  );
+});
+
+final accountServiceProvider = Provider<AccountService>((ref) {
+  return AccountService(ref.watch(apiClientProvider));
+});
+
+final authStateProvider = StreamProvider<User?>((ref) {
+  final authService = ref.watch(authServiceProvider);
+  return authService.authStateChanges();
+});
+
+final firebaseUserProvider = Provider<User?>((ref) {
+  return ref.watch(authStateProvider).valueOrNull;
+});
+
+final idTokenProvider = FutureProvider<String?>((ref) async {
+  final user = ref.watch(firebaseUserProvider);
+  return user?.getIdToken();
+});
+
+final accountProfileProvider = FutureProvider<Map<String, dynamic>?>((
+  ref,
+) async {
+  final idToken = await ref.watch(idTokenProvider.future);
+  if (idToken == null) {
+    return null;
+  }
+  final accountService = ref.watch(accountServiceProvider);
+  return accountService.fetchMe(idToken);
+});
+
+final billingStatusProvider = FutureProvider<Map<String, dynamic>?>((
+  ref,
+) async {
+  final idToken = await ref.watch(idTokenProvider.future);
+  if (idToken == null) {
+    return null;
+  }
+  final accountService = ref.watch(accountServiceProvider);
+  return accountService.fetchBillingStatus(idToken);
 });
 
 // ---------------------------------------------------------------------------

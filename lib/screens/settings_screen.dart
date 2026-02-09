@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../providers/providers.dart';
 import '../theme/app_theme.dart';
@@ -15,6 +16,8 @@ class SettingsScreen extends ConsumerStatefulWidget {
 class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   late TextEditingController _hostController;
   late TextEditingController _portController;
+  bool _authLoading = false;
+  bool _checkoutLoading = false;
 
   @override
   void initState() {
@@ -38,6 +41,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final settings = ref.watch(settingsProvider);
     final healthAsync = ref.watch(healthProvider);
     final defaultModel = ref.watch(defaultModelProvider);
+    final authState = ref.watch(authStateProvider);
+    final firebaseUser = authState.valueOrNull;
+    final profileAsync = ref.watch(accountProfileProvider);
+    final billingAsync = ref.watch(billingStatusProvider);
+    final billingData = billingAsync.valueOrNull;
+    final oneTimeUnlocked = billingData?['oneTimeUnlocked'] == true;
 
     return Scaffold(
       appBar: AppBar(
@@ -172,6 +181,149 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           ),
 
           const SizedBox(height: 24),
+          _sectionHeader('ACCOUNT & BILLING'),
+          const SizedBox(height: 8),
+          Container(
+            decoration: BoxDecoration(
+              color: AppTheme.surface,
+              border: Border.all(color: AppTheme.border),
+            ),
+            child: Column(
+              children: [
+                ListTile(
+                  leading: Icon(
+                    firebaseUser == null
+                        ? Icons.login
+                        : (oneTimeUnlocked
+                              ? Icons.verified
+                              : Icons.account_circle),
+                    color: oneTimeUnlocked
+                        ? AppTheme.success
+                        : AppTheme.textSecondary,
+                    size: 20,
+                  ),
+                  title: Text(
+                    firebaseUser == null
+                        ? 'Sign in with Google'
+                        : (firebaseUser.displayName ??
+                              firebaseUser.email ??
+                              'Signed in'),
+                    style: const TextStyle(fontSize: 13),
+                  ),
+                  subtitle: firebaseUser == null
+                      ? const Text(
+                          'Required for one-time unlock',
+                          style: TextStyle(
+                            color: AppTheme.textTertiary,
+                            fontSize: 11,
+                          ),
+                        )
+                      : Text(
+                          oneTimeUnlocked
+                              ? 'One-time access unlocked'
+                              : 'Payment required to unlock access',
+                          style: TextStyle(
+                            color: oneTimeUnlocked
+                                ? AppTheme.success
+                                : AppTheme.textTertiary,
+                            fontSize: 11,
+                          ),
+                        ),
+                  trailing: _authLoading
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(
+                          Icons.chevron_right,
+                          color: AppTheme.textTertiary,
+                          size: 18,
+                        ),
+                  onTap: _authLoading
+                      ? null
+                      : () {
+                          if (firebaseUser == null) {
+                            _signInWithGoogle();
+                            return;
+                          }
+                          _signOut();
+                        },
+                ),
+                if (firebaseUser != null) const Divider(height: 1),
+                if (firebaseUser != null)
+                  ListTile(
+                    leading: const Icon(
+                      Icons.payments,
+                      color: AppTheme.textSecondary,
+                      size: 20,
+                    ),
+                    title: const Text(
+                      'Unlock One-Time Access',
+                      style: TextStyle(fontSize: 13),
+                    ),
+                    subtitle: Text(
+                      oneTimeUnlocked
+                          ? 'Already unlocked'
+                          : 'Open Dodo Payments checkout',
+                      style: TextStyle(
+                        color: oneTimeUnlocked
+                            ? AppTheme.success
+                            : AppTheme.textTertiary,
+                        fontSize: 11,
+                      ),
+                    ),
+                    trailing: _checkoutLoading
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(
+                            Icons.open_in_new,
+                            color: AppTheme.textTertiary,
+                            size: 18,
+                          ),
+                    onTap: _checkoutLoading || oneTimeUnlocked
+                        ? null
+                        : _startCheckout,
+                  ),
+                if (firebaseUser != null) const Divider(height: 1),
+                if (firebaseUser != null)
+                  ListTile(
+                    leading: const Icon(
+                      Icons.sync,
+                      color: AppTheme.textSecondary,
+                      size: 20,
+                    ),
+                    title: const Text(
+                      'Refresh Account Status',
+                      style: TextStyle(fontSize: 13),
+                    ),
+                    subtitle: Text(
+                      _billingSubtitle(
+                        billingData,
+                        profileAsync.valueOrNull,
+                        authState.error,
+                        billingAsync.error,
+                      ),
+                      style: const TextStyle(
+                        color: AppTheme.textTertiary,
+                        fontSize: 11,
+                      ),
+                    ),
+                    trailing: const Icon(
+                      Icons.chevron_right,
+                      color: AppTheme.textTertiary,
+                      size: 18,
+                    ),
+                    onTap: _refreshAccountState,
+                  ),
+              ],
+            ),
+          ),
+
+          const SizedBox(height: 24),
           _sectionHeader('ACTIONS'),
           const SizedBox(height: 8),
           Container(
@@ -302,6 +454,32 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     );
   }
 
+  String _billingSubtitle(
+    Map<String, dynamic>? billing,
+    Map<String, dynamic>? profile,
+    Object? authError,
+    Object? billingError,
+  ) {
+    if (authError != null || billingError != null) {
+      return 'Unable to fetch account status';
+    }
+    if (billing == null) {
+      return 'Sign in to load account details';
+    }
+    if (billing['oneTimeUnlocked'] == true) {
+      final paidAt = billing['paidAt']?.toString();
+      if (paidAt == null || paidAt.isEmpty) {
+        return 'Unlocked via one-time payment';
+      }
+      return 'Unlocked on $paidAt';
+    }
+    final email = profile?['user']?['email']?.toString();
+    if (email != null && email.isNotEmpty) {
+      return 'Logged in as $email';
+    }
+    return 'Awaiting one-time payment';
+  }
+
   Widget _sectionHeader(String title) {
     return Padding(
       padding: const EdgeInsets.only(left: 2),
@@ -354,5 +532,110 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     ScaffoldMessenger.of(
       context,
     ).showSnackBar(const SnackBar(content: Text('Settings saved')));
+  }
+
+  Future<void> _signInWithGoogle() async {
+    setState(() {
+      _authLoading = true;
+    });
+    try {
+      await ref.read(authServiceProvider).signInWithGoogle();
+      _refreshAccountState();
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Signed in successfully')));
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Sign in failed: $e')));
+    } finally {
+      if (mounted) {
+        setState(() {
+          _authLoading = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _signOut() async {
+    setState(() {
+      _authLoading = true;
+    });
+    try {
+      await ref.read(authServiceProvider).signOut();
+      _refreshAccountState();
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Signed out')));
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Sign out failed: $e')));
+    } finally {
+      if (mounted) {
+        setState(() {
+          _authLoading = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _startCheckout() async {
+    final user = ref.read(firebaseUserProvider);
+    if (user == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Sign in with Google first')),
+      );
+      return;
+    }
+
+    setState(() {
+      _checkoutLoading = true;
+    });
+
+    try {
+      final idToken = await user.getIdToken();
+      if (idToken == null || idToken.isEmpty) {
+        throw Exception('Unable to fetch Firebase ID token');
+      }
+      final checkoutUrl = await ref
+          .read(accountServiceProvider)
+          .createCheckoutSession(idToken);
+
+      await launchUrl(
+        Uri.parse(checkoutUrl),
+        mode: LaunchMode.externalApplication,
+      );
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Checkout opened. Complete payment and refresh status.',
+          ),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Checkout failed: $e')));
+    } finally {
+      if (mounted) {
+        setState(() {
+          _checkoutLoading = false;
+        });
+      }
+    }
+  }
+
+  void _refreshAccountState() {
+    ref.invalidate(idTokenProvider);
+    ref.invalidate(accountProfileProvider);
+    ref.invalidate(billingStatusProvider);
   }
 }

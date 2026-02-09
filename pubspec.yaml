@@ -2,7 +2,7 @@ name: mecode
 description: "A new Flutter project."
 repository: https://github.com/vkpdeveloper/moCODE
 homepage: https://github.com/vkpdeveloper/moCODE
-publish_to: 'none'
+publish_to: "none"
 version: 1.0.0+1
 
 environment:
@@ -25,6 +25,10 @@ dependencies:
   shimmer: ^3.0.0
   simple_icons: ^14.6.1
   image_picker: ^1.1.2
+  firebase_core: ^3.15.2
+  firebase_auth: ^5.6.3
+  google_sign_in: ^6.3.0
+  url_launcher: ^6.3.2
 
 dev_dependencies:
   flutter_test:
@@ -36,9 +40,9 @@ dev_dependencies:
   json_annotation: ^4.9.0
   json_serializable: ^6.9.3
   flutter_launcher_icons: ^0.14.4
+  change_app_package_name: ^1.5.0
 
 flutter:
-
   uses-material-design: true
 
 flutter_launcher_icons:
