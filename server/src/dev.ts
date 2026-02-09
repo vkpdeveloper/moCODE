@@ -2,13 +2,14 @@ import 'dotenv/config';
 
 import { serve } from '@hono/node-server';
 
-import { app } from './app';
+import server from './app';
+import { env } from './lib/env';
 
-const port = Number(process.env.PORT ?? 3000);
+const port = env.PORT;
 
 serve(
   {
-    fetch: app.fetch,
+    fetch: server.fetch,
     port,
   },
   (info) => {

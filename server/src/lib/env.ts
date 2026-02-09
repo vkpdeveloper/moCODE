@@ -11,9 +11,21 @@ const envSchema = z.object({
   FIREBASE_CLIENT_EMAIL: z.string().min(1),
   FIREBASE_PRIVATE_KEY: z.string().min(1),
   CORS_ORIGINS: z.string().optional(),
+  PORT: z.coerce.number().int().positive().default(3000),
 });
 
-export const env = envSchema.parse(process.env);
+const parsedEnv = envSchema.safeParse(process.env);
+
+if (!parsedEnv.success) {
+  const missingOrInvalid = Object.entries(parsedEnv.error.flatten().fieldErrors)
+    .filter(([, messages]) => messages && messages.length > 0)
+    .map(([key, messages]) => `${key}: ${messages?.join(', ')}`)
+    .join('\n');
+
+  throw new Error(`Invalid environment variables:\n${missingOrInvalid}`);
+}
+
+export const env = parsedEnv.data;
 
 export const dodoApiBaseUrl =
   env.DODO_ENVIRONMENT === 'live_mode'

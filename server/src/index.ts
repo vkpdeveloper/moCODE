@@ -1,14 +1,14 @@
-import { and, eq } from 'drizzle-orm';
-import { Hono } from 'hono';
-import { cors } from 'hono/cors';
-import { Webhook } from 'standardwebhooks';
-import { z } from 'zod';
+import { and, eq } from "drizzle-orm";
+import { Hono } from "hono";
+import { cors } from "hono/cors";
+import { Webhook } from "standardwebhooks";
+import { z } from "zod";
 
-import { db } from './db/client';
-import { checkoutSessions, entitlements } from './db/schema';
-import { corsOrigins, env } from './lib/env';
-import { createDodoCheckoutSession } from './lib/dodo';
-import { firebaseAuthMiddleware } from './middleware/firebase-auth';
+import { db } from "./db/client";
+import { checkoutSessions, entitlements } from "./db/schema";
+import { corsOrigins, env } from "./lib/env";
+import { createDodoCheckoutSession } from "./lib/dodo";
+import { firebaseAuthMiddleware } from "./middleware/firebase-auth";
 
 type Variables = {
   authUser: {
@@ -27,46 +27,52 @@ const createCheckoutSchema = z.object({
   returnUrl: z.string().url().optional(),
 });
 
-export const app = new Hono<{ Variables: Variables }>();
+const app = new Hono<{ Variables: Variables }>();
 
 app.use(
-  '*',
+  "*",
   cors({
     origin: (origin) => {
-      if (!origin || corsOrigins.includes('*')) {
-        return origin ?? '*';
+      if (!origin || corsOrigins.includes("*")) {
+        return origin ?? "*";
       }
-      return corsOrigins.includes(origin) ? origin : corsOrigins[0] ?? '';
+      return corsOrigins.includes(origin) ? origin : (corsOrigins[0] ?? "");
     },
-    allowMethods: ['GET', 'POST', 'OPTIONS'],
-    allowHeaders: ['Content-Type', 'Authorization', 'webhook-id', 'webhook-signature', 'webhook-timestamp'],
-    exposeHeaders: ['Content-Length'],
+    allowMethods: ["GET", "POST", "OPTIONS"],
+    allowHeaders: [
+      "Content-Type",
+      "Authorization",
+      "webhook-id",
+      "webhook-signature",
+      "webhook-timestamp",
+    ],
+    exposeHeaders: ["Content-Length"],
     maxAge: 86400,
     credentials: true,
   }),
 );
 
-app.get('/api/health', (c) => c.json({ ok: true, service: 'mecode-server' }));
+app.get("/api/health", (c) => c.json({ ok: true, service: "mecode-server" }));
 
-app.post('/api/v1/billing/webhook', async (c) => {
+app.post("/api/v1/billing/webhook", async (c) => {
   const rawBody = await c.req.text();
   const webhookHeaders = {
-    'webhook-id': c.req.header('webhook-id') ?? '',
-    'webhook-signature': c.req.header('webhook-signature') ?? '',
-    'webhook-timestamp': c.req.header('webhook-timestamp') ?? '',
+    "webhook-id": c.req.header("webhook-id") ?? "",
+    "webhook-signature": c.req.header("webhook-signature") ?? "",
+    "webhook-timestamp": c.req.header("webhook-timestamp") ?? "",
   };
 
   try {
     await webhookVerifier.verify(rawBody, webhookHeaders);
   } catch {
-    return c.json({ error: 'Invalid webhook signature' }, 401);
+    return c.json({ error: "Invalid webhook signature" }, 401);
   }
 
   let payload: Record<string, unknown>;
   try {
     payload = JSON.parse(rawBody) as Record<string, unknown>;
   } catch {
-    return c.json({ error: 'Invalid webhook payload' }, 400);
+    return c.json({ error: "Invalid webhook payload" }, 400);
   }
 
   const eventType =
@@ -74,8 +80,8 @@ app.post('/api/v1/billing/webhook', async (c) => {
     (payload.event_type as string | undefined) ??
     (payload.event as string | undefined);
 
-  if (eventType !== 'payment.succeeded') {
-    return c.json({ received: true, ignored: eventType ?? 'unknown' });
+  if (eventType !== "payment.succeeded") {
+    return c.json({ received: true, ignored: eventType ?? "unknown" });
   }
 
   const data = (payload.data as Record<string, unknown> | undefined) ?? payload;
@@ -83,8 +89,12 @@ app.post('/api/v1/billing/webhook', async (c) => {
 
   const userId = metadata.user_id;
   const checkoutSessionId =
-    (data.checkout_session_id as string | undefined) ?? (data.session_id as string | undefined);
-  const paymentId = (data.payment_id as string | undefined) ?? (data.id as string | undefined) ?? null;
+    (data.checkout_session_id as string | undefined) ??
+    (data.session_id as string | undefined);
+  const paymentId =
+    (data.payment_id as string | undefined) ??
+    (data.id as string | undefined) ??
+    null;
 
   let resolvedUserId = userId ?? null;
 
@@ -98,7 +108,7 @@ app.post('/api/v1/billing/webhook', async (c) => {
   }
 
   if (!resolvedUserId) {
-    return c.json({ received: true, ignored: 'missing-user-id' });
+    return c.json({ received: true, ignored: "missing-user-id" });
   }
 
   await db
@@ -107,7 +117,7 @@ app.post('/api/v1/billing/webhook', async (c) => {
       userId: resolvedUserId,
       oneTimeUnlocked: true,
       paymentId,
-      provider: 'dodopayments',
+      provider: "dodopayments",
       paidAt: new Date(),
     })
     .onConflictDoUpdate({
@@ -115,7 +125,7 @@ app.post('/api/v1/billing/webhook', async (c) => {
       set: {
         oneTimeUnlocked: true,
         paymentId,
-        provider: 'dodopayments',
+        provider: "dodopayments",
         paidAt: new Date(),
         updatedAt: new Date(),
       },
@@ -125,7 +135,7 @@ app.post('/api/v1/billing/webhook', async (c) => {
     await db
       .update(checkoutSessions)
       .set({
-        status: 'paid',
+        status: "paid",
         paymentId,
         updatedAt: new Date(),
       })
@@ -140,13 +150,16 @@ app.post('/api/v1/billing/webhook', async (c) => {
   return c.json({ received: true });
 });
 
-app.use('/api/v1/*', firebaseAuthMiddleware);
+app.use("/api/v1/*", firebaseAuthMiddleware);
 
-app.get('/api/v1/auth/me', async (c) => {
-  const user = c.get('authUser');
+app.get("/api/v1/auth/me", async (c) => {
+  const user = c.get("authUser");
 
   const entitlement = await db
-    .select({ oneTimeUnlocked: entitlements.oneTimeUnlocked, paidAt: entitlements.paidAt })
+    .select({
+      oneTimeUnlocked: entitlements.oneTimeUnlocked,
+      paidAt: entitlements.paidAt,
+    })
     .from(entitlements)
     .where(eq(entitlements.userId, user.id))
     .limit(1);
@@ -160,8 +173,8 @@ app.get('/api/v1/auth/me', async (c) => {
   });
 });
 
-app.get('/api/v1/billing/status', async (c) => {
-  const user = c.get('authUser');
+app.get("/api/v1/billing/status", async (c) => {
+  const user = c.get("authUser");
 
   const entitlement = await db
     .select({
@@ -182,13 +195,16 @@ app.get('/api/v1/billing/status', async (c) => {
   });
 });
 
-app.post('/api/v1/billing/create-checkout-session', async (c) => {
-  const user = c.get('authUser');
+app.post("/api/v1/billing/create-checkout-session", async (c) => {
+  const user = c.get("authUser");
   const body = await c.req.json().catch(() => ({}));
   const input = createCheckoutSchema.safeParse(body);
 
   if (!input.success) {
-    return c.json({ error: 'Invalid payload', details: input.error.flatten() }, 400);
+    return c.json(
+      { error: "Invalid payload", details: input.error.flatten() },
+      400,
+    );
   }
 
   const existingEntitlement = await db
@@ -198,7 +214,7 @@ app.post('/api/v1/billing/create-checkout-session', async (c) => {
     .limit(1);
 
   if (existingEntitlement[0]?.oneTimeUnlocked) {
-    return c.json({ error: 'One-time access already unlocked' }, 409);
+    return c.json({ error: "One-time access already unlocked" }, 409);
   }
 
   const session = await createDodoCheckoutSession({
@@ -219,7 +235,7 @@ app.post('/api/v1/billing/create-checkout-session', async (c) => {
     checkoutUrl: session.checkout_url,
     productId: input.data.productId ?? env.DODO_DEFAULT_PRODUCT_ID,
     quantity: input.data.quantity,
-    status: 'created',
+    status: "created",
   });
 
   return c.json({
@@ -227,3 +243,5 @@ app.post('/api/v1/billing/create-checkout-session', async (c) => {
     checkoutUrl: session.checkout_url,
   });
 });
+
+export default app;

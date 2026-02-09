@@ -28,6 +28,14 @@ bun run db:push
 bun run dev
 ```
 
+`bun run dev` validates env vars first and then starts the server.
+
+To validate env vars during build/typecheck:
+
+```bash
+bun run build
+```
+
 Server listens on `http://localhost:3000` locally and exposes:
 
 - `GET /api/health`

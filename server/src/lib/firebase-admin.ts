@@ -5,7 +5,7 @@ import { env } from './env';
 
 const privateKey = env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n');
 
-const app = getApps()[0]
+const firebaseAdminApp = getApps()[0]
   ? getApps()[0]
   : initializeApp({
       credential: cert({
@@ -15,4 +15,4 @@ const app = getApps()[0]
       }),
     });
 
-export const firebaseAuth = getAuth(app);
+export const firebaseAuth = getAuth(firebaseAdminApp);

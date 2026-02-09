@@ -4,7 +4,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "bun run src/dev.ts",
+    "env:check": "bun run src/scripts/check-env.ts",
+    "dev": "bun run env:check && bun run src/dev.ts",
+    "build": "bun run env:check && bun run typecheck",
     "typecheck": "tsc --noEmit",
     "db:generate": "drizzle-kit generate",
     "db:push": "drizzle-kit push"
