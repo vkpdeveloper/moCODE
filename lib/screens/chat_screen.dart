@@ -44,6 +44,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
   bool _hasLoadedMessages = false;
   String? _modelSyncSessionId;
   bool _didSyncModelFromMessages = false;
+  String? _modeSyncSessionId;
+  bool _didSyncModeFromMessages = false;
   bool _isSidebarOpen = false;
   bool _showScrollToBottom = false;
   bool _isUndoRedoInFlight = false;
@@ -265,6 +267,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
   void _handleSessionSelected(Session session) {
     _resetSessionState(session.id);
     _startSync();
+    ref.read(sessionModeProvider.notifier).state = 'plan';
     ref.read(todosProvider.notifier).clear();
     ref.read(sessionErrorProvider.notifier).clear();
     ref.read(ptyProvider.notifier).clear();
@@ -272,7 +275,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     ref.read(vcsBranchProvider.notifier).state = null;
     _loadProjectModel(session.projectID, session.id);
     _loadSessionModel(session.id);
-    _loadSessionMode(session.id);
     _loadPendingPermissions();
     _loadPendingQuestions();
     _loadTodos(session);
@@ -348,6 +350,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
         if (session != null && nextMessages != null) {
           _updateCachedMessages(session.id, nextMessages);
           _syncSelectedModelFromMessages(session, nextMessages);
+          _syncSessionModeFromMessages(session, nextMessages);
         }
 
         if (_isSyncing && nextMessages != null) {
@@ -590,6 +593,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     });
     _modelSyncSessionId = sessionId;
     _didSyncModelFromMessages = false;
+    _modeSyncSessionId = sessionId;
+    _didSyncModeFromMessages = false;
     _didInitialScroll = false;
   }
 
@@ -950,6 +955,38 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
           .saveSessionModel(session.id, providerId, modelId);
     }
     _didSyncModelFromMessages = true;
+  }
+
+  void _syncSessionModeFromMessages(
+    Session session,
+    List<MessageWrapper> messages,
+  ) {
+    if (_modeSyncSessionId != session.id) {
+      _modeSyncSessionId = session.id;
+      _didSyncModeFromMessages = false;
+    }
+    if (_didSyncModeFromMessages || messages.isEmpty) return;
+
+    String? mode;
+
+    for (var i = messages.length - 1; i >= 0; i--) {
+      final info = messages[i].info;
+      if (info is UserMessageInfo) {
+        final agent = info.agent?.trim();
+        if (agent != null && agent.isNotEmpty) {
+          mode = agent;
+          break;
+        }
+      }
+    }
+
+    if (mode == null) return;
+
+    final current = ref.read(sessionModeProvider);
+    if (current != mode) {
+      ref.read(sessionModeProvider.notifier).state = mode;
+    }
+    _didSyncModeFromMessages = true;
   }
 
   bool _isNearBottom() {
@@ -1680,16 +1717,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     final current = ref.read(selectedModelProvider);
     if (current == null) {
       ref.read(selectedModelProvider.notifier).state = projectModel;
-    }
-  }
-
-  Future<void> _loadSessionMode(String sessionId) async {
-    final prefs = ref.read(preferencesServiceProvider);
-    final savedMode = await prefs.getSessionMode(sessionId);
-    if (savedMode == null) return;
-    final current = ref.read(sessionModeProvider);
-    if (current != savedMode) {
-      ref.read(sessionModeProvider.notifier).state = savedMode;
     }
   }
 
