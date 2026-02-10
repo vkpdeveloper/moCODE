@@ -1,15 +1,8 @@
 import 'package:dio/dio.dart';
 
-import 'package:flutter/foundation.dart';
-
 import '../models/message.dart';
+import '../utils/json_parser.dart';
 import 'api_client.dart';
-
-List<MessageWrapper> _parseMessages(List<dynamic> data) {
-  return data
-      .map((item) => MessageWrapper.fromJson(item as Map<String, dynamic>))
-      .toList();
-}
 
 class MessageService {
   final ApiClient _apiClient;
@@ -26,8 +19,10 @@ class MessageService {
         '/session/$sessionID/message',
         queryParameters: {'limit': limit, 'directory': directory},
       );
-      final data = response.data as List;
-      return compute(_parseMessages, data);
+      final data = parseJsonListBytes(response.data as List<int>);
+      return data
+          .map((item) => MessageWrapper.fromJson(item as Map<String, dynamic>))
+          .toList();
     } on DioException {
       rethrow;
     }
@@ -43,7 +38,8 @@ class MessageService {
         '/session/$sessionID/message/$messageID',
         queryParameters: {'directory': ?directory},
       );
-      return MessageWrapper.fromJson(response.data as Map<String, dynamic>);
+      final data = parseJsonObjectBytes(response.data as List<int>);
+      return MessageWrapper.fromJson(data);
     } on DioException {
       rethrow;
     }
@@ -87,7 +83,7 @@ class MessageService {
         queryParameters: {'directory': ?directory},
         options: Options(receiveTimeout: Duration.zero),
       );
-      return response.data as Map<String, dynamic>;
+      return parseJsonObjectBytes(response.data as List<int>);
     } on DioException {
       rethrow;
     }
@@ -142,7 +138,7 @@ class MessageService {
         queryParameters: {'directory': ?directory},
         options: Options(receiveTimeout: Duration.zero),
       );
-      return response.data as Map<String, dynamic>;
+      return parseJsonObjectBytes(response.data as List<int>);
     } on DioException {
       rethrow;
     }

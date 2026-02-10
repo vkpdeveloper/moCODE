@@ -2,6 +2,7 @@ import 'package:dio/dio.dart';
 
 import '../models/app_models.dart';
 import 'api_client.dart';
+import '../utils/json_parser.dart';
 
 class AppService {
   final ApiClient _apiClient;
@@ -11,7 +12,8 @@ class AppService {
   Future<HealthInfo> getHealth() async {
     try {
       final response = await _apiClient.dio.get('/global/health');
-      return HealthInfo.fromJson(response.data as Map<String, dynamic>);
+      final data = parseJsonObjectBytes(response.data as List<int>);
+      return HealthInfo.fromJson(data);
     } on DioException {
       rethrow;
     }
@@ -21,11 +23,10 @@ class AppService {
     try {
       final response = await _apiClient.dio.get(
         '/vcs',
-        queryParameters: {
-          'directory': ?directory,
-        },
+        queryParameters: {'directory': ?directory},
       );
-      return VcsInfo.fromJson(response.data as Map<String, dynamic>);
+      final data = parseJsonObjectBytes(response.data as List<int>);
+      return VcsInfo.fromJson(data);
     } on DioException {
       rethrow;
     }
@@ -35,11 +36,9 @@ class AppService {
     try {
       final response = await _apiClient.dio.get(
         '/command',
-        queryParameters: {
-          'directory': ?directory,
-        },
+        queryParameters: {'directory': ?directory},
       );
-      final data = response.data as List;
+      final data = parseJsonListBytes(response.data as List<int>);
       return data
           .map((item) => Command.fromJson(item as Map<String, dynamic>))
           .toList();
@@ -52,11 +51,9 @@ class AppService {
     try {
       final response = await _apiClient.dio.get(
         '/agent',
-        queryParameters: {
-          'directory': ?directory,
-        },
+        queryParameters: {'directory': ?directory},
       );
-      final data = response.data as List;
+      final data = parseJsonListBytes(response.data as List<int>);
       return data
           .map((item) => Agent.fromJson(item as Map<String, dynamic>))
           .toList();
@@ -69,11 +66,9 @@ class AppService {
     try {
       final response = await _apiClient.dio.get(
         '/skill',
-        queryParameters: {
-          'directory': ?directory,
-        },
+        queryParameters: {'directory': ?directory},
       );
-      final data = response.data as List;
+      final data = parseJsonListBytes(response.data as List<int>);
       return data.cast<Map<String, dynamic>>();
     } on DioException {
       rethrow;
@@ -94,7 +89,7 @@ class AppService {
           'limit': ?limit,
         },
       );
-      final data = response.data as List;
+      final data = parseJsonListBytes(response.data as List<int>);
       return data.cast<String>();
     } on DioException {
       rethrow;
@@ -105,11 +100,10 @@ class AppService {
     try {
       final response = await _apiClient.dio.get(
         '/config',
-        queryParameters: {
-          'directory': ?directory,
-        },
+        queryParameters: {'directory': ?directory},
       );
-      return AppConfig.fromJson(response.data as Map<String, dynamic>);
+      final data = parseJsonObjectBytes(response.data as List<int>);
+      return AppConfig.fromJson(data);
     } on DioException {
       rethrow;
     }

@@ -1,7 +1,5 @@
 import 'package:dio/dio.dart';
 
-import 'background_transformer.dart' as custom;
-
 class ApiClient {
   late Dio _dio;
   String _baseUrl;
@@ -14,9 +12,9 @@ class ApiClient {
         receiveTimeout: const Duration(minutes: 5),
         sendTimeout: const Duration(minutes: 2),
         headers: {'Content-Type': 'application/json'},
+        responseType: ResponseType.bytes,
       ),
     );
-    _dio.transformer = custom.BackgroundTransformer();
   }
 
   void updateBaseUrl(String url) {

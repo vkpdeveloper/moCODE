@@ -2,6 +2,7 @@ import 'package:dio/dio.dart';
 
 import '../models/permission_request.dart';
 import 'api_client.dart';
+import '../utils/json_parser.dart';
 
 class PermissionService {
   final ApiClient _apiClient;
@@ -14,7 +15,7 @@ class PermissionService {
         '/permission',
         queryParameters: {'directory': ?directory},
       );
-      final data = response.data as List;
+      final data = parseJsonListBytes(response.data as List<int>);
       return data
           .map(
             (item) => PermissionRequest.fromJson(item as Map<String, dynamic>),

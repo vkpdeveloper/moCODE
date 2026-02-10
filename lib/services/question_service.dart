@@ -2,6 +2,7 @@ import 'package:dio/dio.dart';
 
 import '../models/question_request.dart';
 import 'api_client.dart';
+import '../utils/json_parser.dart';
 
 class QuestionService {
   final ApiClient _apiClient;
@@ -14,7 +15,7 @@ class QuestionService {
         '/question',
         queryParameters: {'directory': ?directory},
       );
-      final data = response.data as List;
+      final data = parseJsonListBytes(response.data as List<int>);
       return data
           .map((item) => QuestionRequest.fromJson(item as Map<String, dynamic>))
           .toList();

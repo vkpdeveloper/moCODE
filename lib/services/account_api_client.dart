@@ -1,7 +1,5 @@
 import 'package:dio/dio.dart';
 
-import 'background_transformer.dart' as custom;
-
 class AccountApiClient {
   static const String defaultBaseUrl = 'https://mo-code.vercel.app';
 
@@ -16,9 +14,9 @@ class AccountApiClient {
         receiveTimeout: const Duration(minutes: 3),
         sendTimeout: const Duration(minutes: 2),
         headers: {'Content-Type': 'application/json'},
+        responseType: ResponseType.bytes,
       ),
     );
-    _dio.transformer = custom.BackgroundTransformer();
   }
 
   void updateBaseUrl(String url) {

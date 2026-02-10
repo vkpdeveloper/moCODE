@@ -2,6 +2,7 @@ import 'package:dio/dio.dart';
 
 import '../models/file_node.dart';
 import 'api_client.dart';
+import '../utils/json_parser.dart';
 
 class FileService {
   final ApiClient _apiClient;
@@ -24,11 +25,14 @@ class FileService {
           'query': path,
         },
       );
-      print(response.data.toString());
-      final data = response.data as List;
+      final data = parseJsonListBytes(response.data as List<int>);
       return data.map((item) => item as String).toList();
     } on DioException catch (e) {
-      print(e.response?.data.toString());
+      if (e.response?.data is List<int>) {
+        print(String.fromCharCodes(e.response!.data as List<int>));
+      } else {
+        print(e.response?.data.toString());
+      }
       rethrow;
     }
   }

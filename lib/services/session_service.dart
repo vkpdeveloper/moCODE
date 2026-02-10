@@ -2,6 +2,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 
 import '../models/session.dart';
+import '../utils/json_parser.dart';
 import 'api_client.dart';
 
 class SessionService {
@@ -27,10 +28,7 @@ class SessionService {
           'limit': limit,
         },
       );
-      debugPrint(
-        '[SessionService] listSessions raw response type: ${response.data.runtimeType}',
-      );
-      final data = response.data as List;
+      final data = parseJsonListBytes(response.data as List<int>);
       debugPrint('[SessionService] Received ${data.length} sessions');
       return data
           .map((item) {
@@ -56,16 +54,17 @@ class SessionService {
     String? directory,
   }) async {
     try {
-      final data = <String, dynamic>{};
-      if (parentID != null) data['parentID'] = parentID;
-      if (title != null) data['title'] = title;
+      final payload = <String, dynamic>{};
+      if (parentID != null) payload['parentID'] = parentID;
+      if (title != null) payload['title'] = title;
 
       final response = await _apiClient.dio.post(
         '/session',
-        data: data,
+        data: payload,
         queryParameters: {'directory': directory},
       );
-      return Session.fromJson(response.data as Map<String, dynamic>);
+      final parsed = parseJsonObjectBytes(response.data as List<int>);
+      return Session.fromJson(parsed);
     } on DioException {
       rethrow;
     }
@@ -77,7 +76,7 @@ class SessionService {
         '/session/status',
         queryParameters: {'directory': directory},
       );
-      return response.data as Map<String, dynamic>;
+      return parseJsonObjectBytes(response.data as List<int>);
     } on DioException {
       rethrow;
     }
@@ -89,7 +88,8 @@ class SessionService {
         '/session/$sessionID',
         queryParameters: {'directory': directory},
       );
-      return Session.fromJson(response.data as Map<String, dynamic>);
+      final data = parseJsonObjectBytes(response.data as List<int>);
+      return Session.fromJson(data);
     } on DioException {
       rethrow;
     }
@@ -119,7 +119,8 @@ class SessionService {
         data: {'title': title, 'archived': archived},
         queryParameters: {'directory': directory},
       );
-      return Session.fromJson(response.data as Map<String, dynamic>);
+      final data = parseJsonObjectBytes(response.data as List<int>);
+      return Session.fromJson(data);
     } on DioException {
       rethrow;
     }
@@ -134,7 +135,7 @@ class SessionService {
         '/session/$sessionID/children',
         queryParameters: {'directory': directory},
       );
-      final data = response.data as List;
+      final data = parseJsonListBytes(response.data as List<int>);
       return data
           .map((item) {
             try {
@@ -164,7 +165,8 @@ class SessionService {
         data: {'messageID': ?messageID},
         queryParameters: {'directory': ?directory},
       );
-      return Session.fromJson(response.data as Map<String, dynamic>);
+      final data = parseJsonObjectBytes(response.data as List<int>);
+      return Session.fromJson(data);
     } on DioException {
       rethrow;
     }
@@ -188,7 +190,8 @@ class SessionService {
         '/session/$sessionID/share',
         queryParameters: {'directory': ?directory},
       );
-      return Session.fromJson(response.data as Map<String, dynamic>);
+      final data = parseJsonObjectBytes(response.data as List<int>);
+      return Session.fromJson(data);
     } on DioException {
       rethrow;
     }
@@ -200,7 +203,8 @@ class SessionService {
         '/session/$sessionID/share',
         queryParameters: {'directory': ?directory},
       );
-      return Session.fromJson(response.data as Map<String, dynamic>);
+      final data = parseJsonObjectBytes(response.data as List<int>);
+      return Session.fromJson(data);
     } on DioException {
       rethrow;
     }
@@ -237,7 +241,8 @@ class SessionService {
         data: {'messageID': messageID, 'partID': ?partID},
         queryParameters: {'directory': ?directory},
       );
-      return Session.fromJson(response.data as Map<String, dynamic>);
+      final data = parseJsonObjectBytes(response.data as List<int>);
+      return Session.fromJson(data);
     } on DioException {
       rethrow;
     }
@@ -249,7 +254,8 @@ class SessionService {
         '/session/$sessionID/unrevert',
         queryParameters: {'directory': ?directory},
       );
-      return Session.fromJson(response.data as Map<String, dynamic>);
+      final data = parseJsonObjectBytes(response.data as List<int>);
+      return Session.fromJson(data);
     } on DioException {
       rethrow;
     }

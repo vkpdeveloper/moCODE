@@ -2,6 +2,7 @@ import 'package:dio/dio.dart';
 
 import '../models/file_diff.dart';
 import 'api_client.dart';
+import '../utils/json_parser.dart';
 
 class SessionDiffService {
   final ApiClient _apiClient;
@@ -18,7 +19,7 @@ class SessionDiffService {
         '/session/$sessionID/diff',
         queryParameters: {'directory': ?directory, 'messageID': ?messageID},
       );
-      final data = response.data as List;
+      final data = parseJsonListBytes(response.data as List<int>);
       return data
           .map((item) => FileDiff.fromJson(item as Map<String, dynamic>))
           .toList();

@@ -1,6 +1,7 @@
 import 'package:dio/dio.dart';
 
 import 'account_api_client.dart';
+import '../utils/json_parser.dart';
 
 class AccountService {
   final AccountApiClient _apiClient;
@@ -16,7 +17,7 @@ class AccountService {
       '/api/v1/auth/me',
       options: _authOptions(idToken),
     );
-    return response.data as Map<String, dynamic>;
+    return parseJsonObjectBytes(response.data as List<int>);
   }
 
   Future<Map<String, dynamic>> fetchBillingStatus(String idToken) async {
@@ -24,7 +25,7 @@ class AccountService {
       '/api/v1/billing/status',
       options: _authOptions(idToken),
     );
-    return response.data as Map<String, dynamic>;
+    return parseJsonObjectBytes(response.data as List<int>);
   }
 
   Future<String> createCheckoutSession(
@@ -44,7 +45,7 @@ class AccountService {
         options: _authOptions(idToken),
       );
 
-      final map = response.data as Map<String, dynamic>;
+      final map = parseJsonObjectBytes(response.data as List<int>);
       final checkoutUrl = map['checkoutUrl'] as String?;
       if (checkoutUrl == null || checkoutUrl.isEmpty) {
         throw Exception('Checkout URL missing from server response');

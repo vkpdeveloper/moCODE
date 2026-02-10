@@ -3,6 +3,7 @@ import 'package:dio/dio.dart';
 
 import '../models/project.dart';
 import 'api_client.dart';
+import '../utils/json_parser.dart';
 
 class ProjectService {
   final ApiClient _apiClient;
@@ -13,16 +14,16 @@ class ProjectService {
     try {
       final response = await _apiClient.dio.get(
         '/project',
-        queryParameters: {
-          'directory': ?directory,
-        },
+        queryParameters: {'directory': ?directory},
       );
-      final data = response.data as List;
+      final data = parseJsonListBytes(response.data as List<int>);
       return data.map((item) {
         try {
           return Project.fromJson(item as Map<String, dynamic>);
         } catch (e) {
-          debugPrint('[ProjectService] Failed to parse project: $e\nRaw: $item');
+          debugPrint(
+            '[ProjectService] Failed to parse project: $e\nRaw: $item',
+          );
           rethrow;
         }
       }).toList();
@@ -35,11 +36,10 @@ class ProjectService {
     try {
       final response = await _apiClient.dio.get(
         '/project/current',
-        queryParameters: {
-          'directory': ?directory,
-        },
+        queryParameters: {'directory': ?directory},
       );
-      return Project.fromJson(response.data as Map<String, dynamic>);
+      final data = parseJsonObjectBytes(response.data as List<int>);
+      return Project.fromJson(data);
     } on DioException {
       rethrow;
     }
@@ -54,15 +54,11 @@ class ProjectService {
     try {
       final response = await _apiClient.dio.patch(
         '/project/$projectID',
-        data: {
-          'name': ?name,
-          'icon': ?icon,
-        },
-        queryParameters: {
-          'directory': ?directory,
-        },
+        data: {'name': ?name, 'icon': ?icon},
+        queryParameters: {'directory': ?directory},
       );
-      return Project.fromJson(response.data as Map<String, dynamic>);
+      final data = parseJsonObjectBytes(response.data as List<int>);
+      return Project.fromJson(data);
     } on DioException {
       rethrow;
     }

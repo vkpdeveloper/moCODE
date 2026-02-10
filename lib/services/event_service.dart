@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:dio/dio.dart';
 
 import 'api_client.dart';
+import '../utils/json_parser.dart';
 
 class EventService {
   final ApiClient _apiClient;
@@ -116,7 +117,7 @@ class _EventConnection {
 
       await for (final chunk in stream) {
         if (_isDisposed) return;
-        buffer += utf8.decode(chunk);
+        buffer += utf8.decode(chunk as List<int>);
         final parts = buffer.split('\n\n');
         buffer = parts.removeLast();
 
@@ -130,7 +131,7 @@ class _EventConnection {
           }
           if (data != null && data.isNotEmpty) {
             try {
-              final parsed = json.decode(data) as Map<String, dynamic>;
+              final parsed = parseJsonObjectBytes(utf8.encode(data));
               if (!_controller.isClosed) {
                 _controller.add(parsed);
               }
