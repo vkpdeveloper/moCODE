@@ -707,18 +707,20 @@ class _ChatInputFieldRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
       child: Row(
-        crossAxisAlignment: CrossAxisAlignment.end,
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           IconButton(
             onPressed: enabled ? onPickImage : null,
             icon: const Icon(Icons.image_outlined, size: 18),
+            padding: const EdgeInsets.all(10),
+            constraints: const BoxConstraints(minWidth: 40, minHeight: 40),
             tooltip: 'Attach images',
           ),
           Expanded(
             child: ConstrainedBox(
-              constraints: const BoxConstraints(maxHeight: 120),
+              constraints: const BoxConstraints(minHeight: 44, maxHeight: 140),
               child: TextField(
                 controller: controller,
                 focusNode: focusNode,
@@ -737,8 +739,7 @@ class _ChatInputFieldRow extends StatelessWidget {
                   fillColor: Colors.transparent,
                   filled: true,
                   contentPadding:
-                      const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-                  isDense: true,
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
                 ),
                 onSubmitted: (_) => onSend(),
               ),
@@ -748,7 +749,7 @@ class _ChatInputFieldRow extends StatelessWidget {
           GestureDetector(
             onTap: isBusy ? onStop : (enabled ? onSend : null),
             child: Container(
-              padding: const EdgeInsets.all(10),
+              padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
                 color: isBusy
                     ? AppTheme.error
