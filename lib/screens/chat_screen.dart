@@ -2150,7 +2150,11 @@ class _QuestionDialogState extends State<_QuestionDialog> {
   void initState() {
     super.initState();
     _answers = widget.request.questions.map((_) => <String>[]).toList();
-    _customAnswers = widget.request.questions.map((_) => null).toList();
+    _customAnswers = List<String?>.filled(
+      widget.request.questions.length,
+      null,
+      growable: true,
+    );
   }
 
   bool _isMultiple(QuestionInfo question) => question.multiple ?? false;
