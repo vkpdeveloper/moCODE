@@ -263,6 +263,15 @@ final projectsProvider = FutureProvider<List<Project>>((ref) {
   return projectService.listProjects();
 });
 
+final sortedProjectsProvider = Provider<AsyncValue<List<Project>>>((ref) {
+  final projectsAsync = ref.watch(projectsProvider);
+  return projectsAsync.whenData((projects) {
+    final sorted = List<Project>.from(projects)
+      ..sort((a, b) => b.time.updated!.compareTo(a.time.updated!));
+    return sorted;
+  });
+});
+
 class PathInfoNotifier extends StateNotifier<AsyncValue<PathInfo>> {
   final PathService _pathService;
 

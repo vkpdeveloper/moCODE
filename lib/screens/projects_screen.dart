@@ -29,7 +29,7 @@ class ProjectsScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final projectsAsync = ref.watch(projectsProvider);
+    final projectsAsync = ref.watch(sortedProjectsProvider);
     final healthAsync = ref.watch(healthProvider);
 
     return Scaffold(
@@ -170,9 +170,6 @@ class ProjectsScreen extends ConsumerWidget {
                   );
                 }
 
-                final sortedProjects = List.of(projects)
-                  ..sort((a, b) => b.time.updated!.compareTo(a.time.updated!));
-
                 return RefreshIndicator(
                   color: AppTheme.accent,
                   backgroundColor: AppTheme.surface,
@@ -182,7 +179,7 @@ class ProjectsScreen extends ConsumerWidget {
                   },
                   child: ListView.separated(
                     padding: const EdgeInsets.all(16),
-                    itemCount: sortedProjects.length + 1,
+                    itemCount: projects.length + 1,
                     separatorBuilder: (_, _) => const SizedBox(height: 8),
                     itemBuilder: (context, index) {
                       if (index == 0) {
@@ -223,7 +220,7 @@ class ProjectsScreen extends ConsumerWidget {
                         );
                       }
 
-                      final project = sortedProjects[index - 1];
+                      final project = projects[index - 1];
                       final projectName =
                           project.name ?? project.worktree.split('/').last;
 

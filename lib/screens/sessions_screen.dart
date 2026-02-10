@@ -17,20 +17,18 @@ class SessionsScreen extends ConsumerWidget {
     final sessionsAsync = ref.watch(sessionsProvider);
     final vcsAsync = ref.watch(vcsInfoProvider);
     final statusAsync = ref.watch(sessionStatusProvider);
-    final projectModelState = ref.watch(projectModelProvider);
+
+    ref.listen<Project?>(selectedProjectProvider, (prev, next) {
+      if (next == null) return;
+      if (prev?.id == next.id) return;
+      ref.read(projectModelProvider.notifier).preload(next.id);
+    });
 
     if (project == null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         context.go('/projects');
       });
       return const SizedBox.shrink();
-    }
-
-    if (projectModelState.isLoading ||
-        projectModelState.projectId != project.id) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        ref.read(projectModelProvider.notifier).load(project.id);
-      });
     }
 
     final projectName = project.name ?? project.worktree.split('/').last;

@@ -60,6 +60,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
   bool _syncStatusReady = false;
   Timer? _syncTimeout;
   int _syncToken = 0;
+  int _bootstrapToken = 0;
+  final Set<String> _bootstrappedSessions = {};
+  String? _todosSessionId;
+  String? _diffSessionId;
+  String? _vcsSessionId;
 
   @override
   void initState() {
@@ -81,7 +86,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
         }
       }
       if (current != null) {
-        _startSync();
         _handleSessionSelected(current);
       }
     });
@@ -244,6 +248,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     ) {
       if (next != null && (prev == null || prev.id != next.id)) {
         _handleSessionSelected(next);
+      } else if (next == null) {
+        _bootstrappedSessions.clear();
       }
     });
   }
@@ -266,6 +272,32 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
 
   void _handleSessionSelected(Session session) {
     _resetSessionState(session.id);
+    _bootstrappedSessions.remove(session.id);
+    _scheduleSessionBootstrap(session);
+  }
+
+  Future<void> _refreshAfterReconnect(Session session) async {
+    await Future<void>.delayed(const Duration(milliseconds: 120));
+    if (!mounted) return;
+    ref.invalidate(messagesProvider);
+    await _loadTodos(session, force: true);
+    await _loadSessionDiff(session, force: true);
+    await _loadVcsBranch(session, force: true);
+  }
+
+  void _scheduleSessionBootstrap(Session session) {
+    if (_bootstrappedSessions.contains(session.id)) return;
+    _bootstrappedSessions.add(session.id);
+    final token = ++_bootstrapToken;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      Future<void>.delayed(const Duration(milliseconds: 120), () async {
+        if (!mounted || token != _bootstrapToken) return;
+        await _bootstrapSession(session);
+      });
+    });
+  }
+
+  Future<void> _bootstrapSession(Session session) async {
     _startSync();
     ref.read(sessionModeProvider.notifier).state = 'plan';
     ref.read(todosProvider.notifier).clear();
@@ -273,20 +305,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     ref.read(ptyProvider.notifier).clear();
     ref.read(sessionDiffProvider.notifier).clear();
     ref.read(vcsBranchProvider.notifier).state = null;
-    _loadProjectModel(session.projectID, session.id);
-    _loadSessionModel(session.id);
-    _loadPendingPermissions();
-    _loadPendingQuestions();
-    _loadTodos(session);
-    _loadSessionDiff(session);
-    _loadVcsBranch(session);
-  }
-
-  Future<void> _refreshAfterReconnect(Session session) async {
-    ref.invalidate(messagesProvider);
-    await _loadTodos(session);
-    await _loadSessionDiff(session);
-    await _loadVcsBranch(session);
+    await _loadProjectModel(session.projectID, session.id);
+    await _loadSessionModel(session.id);
+    unawaited(_loadPendingPermissions());
+    unawaited(_loadPendingQuestions());
+    unawaited(_loadTodos(session));
+    unawaited(_loadSessionDiff(session));
+    unawaited(_loadVcsBranch(session));
   }
 
   void _markSessionActive() {
@@ -591,6 +616,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
       _permissionDialogVisible = false;
       _questionDialogVisible = false;
     });
+    _todosSessionId = null;
+    _diffSessionId = null;
+    _vcsSessionId = null;
     _modelSyncSessionId = sessionId;
     _didSyncModelFromMessages = false;
     _modeSyncSessionId = sessionId;
@@ -1708,7 +1736,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
   }
 
   Future<void> _loadProjectModel(String projectId, String sessionId) async {
-    await ref.read(projectModelProvider.notifier).load(projectId);
+    await ref.read(projectModelProvider.notifier).preload(projectId);
     final projectModel = ref.read(projectModelProvider).model;
     if (projectModel == null) return;
     final prefs = ref.read(preferencesServiceProvider);
@@ -1720,19 +1748,25 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     }
   }
 
-  Future<void> _loadTodos(Session session) async {
+  Future<void> _loadTodos(Session session, {bool force = false}) async {
+    if (!force && _todosSessionId == session.id) return;
+    _todosSessionId = session.id;
     await ref
         .read(todosProvider.notifier)
         .loadTodos(session.id, directory: session.directory);
   }
 
-  Future<void> _loadSessionDiff(Session session) async {
+  Future<void> _loadSessionDiff(Session session, {bool force = false}) async {
+    if (!force && _diffSessionId == session.id) return;
+    _diffSessionId = session.id;
     await ref
         .read(sessionDiffProvider.notifier)
         .loadDiff(session.id, directory: session.directory);
   }
 
-  Future<void> _loadVcsBranch(Session session) async {
+  Future<void> _loadVcsBranch(Session session, {bool force = false}) async {
+    if (!force && _vcsSessionId == session.id) return;
+    _vcsSessionId = session.id;
     final project = ref.read(selectedProjectProvider);
     if (project == null) return;
     try {
