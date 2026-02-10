@@ -58,8 +58,6 @@ class _ChatInputState extends ConsumerState<ChatInput> {
       ValueNotifier<_OverlayPayload?>(null);
 
   OverlayEntry? _overlayEntry;
-  String _overlayMode = ''; // 'file' or 'command'
-  String _searchQuery = '';
   int _triggerPosition = -1;
   bool _overlayLocked = false;
   int _overlayLockPosition = -1;
@@ -121,8 +119,6 @@ class _ChatInputState extends ConsumerState<ChatInput> {
     }
 
     _triggerPosition = match.position;
-    _searchQuery = match.query;
-    _overlayMode = match.mode;
 
     _debounce?.cancel();
     _debounce = Timer(const Duration(milliseconds: _overlayDebounceMs), () {

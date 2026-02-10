@@ -19,7 +19,6 @@ class _ActiveSessionManagerState extends ConsumerState<ActiveSessionManager> {
   static const Duration _releaseGrace = Duration(seconds: 6);
   final Set<String> _retainedDirectories = {};
   ProviderSubscription<Map<String, String>>? _subscription;
-  Timer? _validateTimer;
   Timer? _pollTimer;
   bool _isValidating = false;
 
@@ -36,7 +35,6 @@ class _ActiveSessionManagerState extends ConsumerState<ActiveSessionManager> {
   @override
   void dispose() {
     _subscription?.close();
-    _validateTimer?.cancel();
     _pollTimer?.cancel();
     final eventService = ref.read(eventServiceProvider);
     for (final directory in _retainedDirectories) {
@@ -79,13 +77,6 @@ class _ActiveSessionManagerState extends ConsumerState<ActiveSessionManager> {
       _validateActiveSessions(ref.read(activeSessionsProvider));
     });
     _validateActiveSessions(activeSessions);
-  }
-
-  void _scheduleValidation(Map<String, String> activeSessions) {
-    _validateTimer?.cancel();
-    _validateTimer = Timer(const Duration(milliseconds: 250), () {
-      _validateActiveSessions(activeSessions);
-    });
   }
 
   Future<void> _validateActiveSessions(

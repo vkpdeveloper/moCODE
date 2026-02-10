@@ -18,7 +18,7 @@ class FuzzysortResult {
   double _score;
 
   /// Internal indexes array with length tracking
-  List<int> _indexes;
+  final List<int> _indexes;
   int _indexesLen;
 
   /// The original object (for key-based searches)
@@ -981,11 +981,14 @@ class Fuzzysort {
         }
       }
 
+      final resolved = result;
+      if (resolved == null) continue;
+
       // Mutate _nextBeginningIndexes for next search
       final isTheLastSearch = i == searchesLen - 1;
-      if (!isTheLastSearch && result != null) {
-        final indexes = result._indexes;
-        final indexesLen = result._indexesLen;
+      if (!isTheLastSearch) {
+        final indexes = resolved._indexes;
+        final indexesLen = resolved._indexesLen;
 
         var indexesIsConsecutiveSubstring = true;
         for (var j = 0; j < indexesLen - 1; j++) {
@@ -995,16 +998,16 @@ class Fuzzysort {
           }
         }
 
-        if (indexesIsConsecutiveSubstring &&
-            target._nextBeginningIndexes != null) {
+        if (indexesIsConsecutiveSubstring) {
           final newBeginningIndex = indexes[indexesLen - 1] + 1;
+          final nextBeginningIndexes = target._nextBeginningIndexes;
           if (newBeginningIndex > 0 &&
-              newBeginningIndex - 1 < target._nextBeginningIndexes!.length) {
-            final toReplace =
-                target._nextBeginningIndexes![newBeginningIndex - 1];
+              nextBeginningIndexes != null &&
+              newBeginningIndex - 1 < nextBeginningIndexes.length) {
+            final toReplace = nextBeginningIndexes[newBeginningIndex - 1];
             for (var j = newBeginningIndex - 1; j >= 0; j--) {
-              if (toReplace != target._nextBeginningIndexes![j]) break;
-              target._nextBeginningIndexes![j] = newBeginningIndex;
+              if (toReplace != nextBeginningIndexes[j]) break;
+              nextBeginningIndexes[j] = newBeginningIndex;
               _nextBeginningIndexesChanges[changesLen * 2 + 0] = j;
               _nextBeginningIndexesChanges[changesLen * 2 + 1] = toReplace;
               changesLen++;
@@ -1013,22 +1016,20 @@ class Fuzzysort {
         }
       }
 
-      if (result != null) {
-        score += result._score / searchesLen;
-        _allowPartialMatchScores[i] = result._score / searchesLen;
+      score += resolved._score / searchesLen;
+      _allowPartialMatchScores[i] = resolved._score / searchesLen;
 
-        // Dock points based on order
-        if (result._indexes.isNotEmpty &&
-            result._indexes[0] < firstSeenIndexLastSearch) {
-          score -= (firstSeenIndexLastSearch - result._indexes[0]) * 2;
-        }
-        if (result._indexes.isNotEmpty) {
-          firstSeenIndexLastSearch = result._indexes[0];
-        }
+      // Dock points based on order
+      if (resolved._indexes.isNotEmpty &&
+          resolved._indexes[0] < firstSeenIndexLastSearch) {
+        score -= (firstSeenIndexLastSearch - resolved._indexes[0]) * 2;
+      }
+      if (resolved._indexes.isNotEmpty) {
+        firstSeenIndexLastSearch = resolved._indexes[0];
+      }
 
-        for (var j = 0; j < result._indexesLen; ++j) {
-          seenIndexes.add(result._indexes[j]);
-        }
+      for (var j = 0; j < resolved._indexesLen; ++j) {
+        seenIndexes.add(resolved._indexes[j]);
       }
     }
 
@@ -1053,8 +1054,9 @@ class Fuzzysort {
 
     if (allowPartialMatch) {
       result = target._copy();
+    } else if (result == null) {
+      return null;
     }
-    if (result == null) return null;
 
     result._score = score;
 

@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
+import '../models/project.dart';
 import '../providers/providers.dart';
 import '../theme/app_theme.dart';
 import '../widgets/session_busy_indicator.dart';

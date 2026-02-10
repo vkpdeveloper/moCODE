@@ -1,6 +1,5 @@
 import 'package:dio/dio.dart';
 
-import '../models/file_node.dart';
 import 'api_client.dart';
 import '../utils/json_parser.dart';
 
@@ -13,8 +12,6 @@ class FileService {
     required String path,
     String? directory,
   }) async {
-    print('directory: $directory');
-    print('path: $path');
     try {
       final response = await _apiClient.dio.get(
         '/find/file',
@@ -27,12 +24,7 @@ class FileService {
       );
       final data = parseJsonListBytes(response.data as List<int>);
       return data.map((item) => item as String).toList();
-    } on DioException catch (e) {
-      if (e.response?.data is List<int>) {
-        print(String.fromCharCodes(e.response!.data as List<int>));
-      } else {
-        print(e.response?.data.toString());
-      }
+    } on DioException {
       rethrow;
     }
   }

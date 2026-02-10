@@ -1431,7 +1431,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     return ListView.separated(
       padding: const EdgeInsets.all(12),
       itemCount: todosState.todos.length,
-      separatorBuilder: (_, __) => const Divider(height: 16),
+      separatorBuilder: (context, index) => const Divider(height: 16),
       itemBuilder: (context, index) {
         final todo = todosState.todos[index];
         final status = todo.status.toUpperCase();
@@ -1500,7 +1500,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     return ListView.separated(
       padding: const EdgeInsets.all(12),
       itemCount: ptys.length,
-      separatorBuilder: (_, __) => const Divider(height: 16),
+      separatorBuilder: (context, index) => const Divider(height: 16),
       itemBuilder: (context, index) {
         final pty = ptys[index];
         final title = pty.title.isNotEmpty ? pty.title : pty.command;

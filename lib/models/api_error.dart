@@ -64,11 +64,10 @@ class BadRequestApiError extends ApiError {
   final List<Map<String, dynamic>> errors;
   final dynamic data;
 
-  BadRequestApiError({required this.errors, this.data, String? details})
+  BadRequestApiError({required this.errors, this.data, super.details})
     : super(
         type: ApiErrorType.badRequest,
         message: _extractMessage(errors) ?? 'Invalid request',
-        details: details,
         rawData: {'data': data, 'errors': errors, 'success': false},
         statusCode: 400,
       );
@@ -107,13 +106,8 @@ class BadRequestApiError extends ApiError {
 /// Parsed NotFoundError from API
 /// Schema: { name: "NotFoundError", data: { message: string } }
 class NotFoundApiError extends ApiError {
-  NotFoundApiError({required String message, dynamic rawData})
-    : super(
-        type: ApiErrorType.notFound,
-        message: message,
-        rawData: rawData,
-        statusCode: 404,
-      );
+  NotFoundApiError({required super.message, super.rawData})
+    : super(type: ApiErrorType.notFound, statusCode: 404);
 
   factory NotFoundApiError.fromJson(Map<String, dynamic> json) {
     final data = json['data'];
