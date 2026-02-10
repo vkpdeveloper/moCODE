@@ -1971,13 +1971,15 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
                 valueColor: AlwaysStoppedAnimation<Color>(AppTheme.accent),
               ),
             ),
-          ChatInput(
-            key: _chatInputKey,
-            onSendMessage: _sendMessage,
-            onSendCommand: _sendCommand,
-            onStop: _abortSession,
-            isBusy: effectiveBusy,
-            enabled: !effectiveBusy,
+          RepaintBoundary(
+            child: ChatInput(
+              key: _chatInputKey,
+              onSendMessage: _sendMessage,
+              onSendCommand: _sendCommand,
+              onStop: _abortSession,
+              isBusy: effectiveBusy,
+              enabled: !effectiveBusy,
+            ),
           ),
         ],
       ),

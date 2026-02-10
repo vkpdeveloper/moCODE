@@ -54,12 +54,16 @@ class _ChatInputState extends ConsumerState<ChatInput> {
   final TextEditingController _controller = TextEditingController();
   final FocusNode _focusNode = FocusNode();
   final LayerLink _layerLink = LayerLink();
+  final ValueNotifier<_OverlayPayload?> _overlayPayload =
+      ValueNotifier<_OverlayPayload?>(null);
 
   OverlayEntry? _overlayEntry;
   String _overlayMode = ''; // 'file' or 'command'
   String _searchQuery = '';
   int _triggerPosition = -1;
-  bool _suppressOverlay = false;
+  bool _overlayLocked = false;
+  int _overlayLockPosition = -1;
+  String _overlayLockChar = '';
   final List<Map<String, dynamic>> _attachedFiles = [];
   final ImagePicker _imagePicker = ImagePicker();
   final List<_ImageAttachment> _attachedImages = [];
@@ -67,6 +71,8 @@ class _ChatInputState extends ConsumerState<ChatInput> {
   bool _isPickingImages = false;
 
   static const int _maxAttachmentBase64Length = 10 * 1024 * 1024;
+  static const int _overlayScanLimit = 80;
+  static const int _overlayDebounceMs = 160;
 
   @override
   void initState() {
@@ -78,6 +84,7 @@ class _ChatInputState extends ConsumerState<ChatInput> {
   void dispose() {
     _debounce?.cancel();
     _removeOverlay();
+    _overlayPayload.dispose();
     _controller.removeListener(_onTextChanged);
     _controller.dispose();
     _focusNode.dispose();
@@ -88,98 +95,133 @@ class _ChatInputState extends ConsumerState<ChatInput> {
     final text = _controller.text;
     final cursorPos = _controller.selection.baseOffset;
 
-    if (cursorPos <= 0 || text.isEmpty) {
-      _suppressOverlay = false;
-      _removeOverlay();
+    if (cursorPos < 0 || text.isEmpty) {
+      _hideOverlay();
       return;
     }
 
-    if (_suppressOverlay) {
-      final shouldRelease =
-          cursorPos >= 2 &&
-          text[cursorPos - 2] == ' ' &&
-          (text[cursorPos - 1] == '@' || text[cursorPos - 1] == '/');
-      if (!shouldRelease) {
-        _removeOverlay();
-        return;
-      }
-      _suppressOverlay = false;
-    }
-
-    // Check for "@" trigger
-    final beforeCursor = text.substring(0, cursorPos);
-    final lastAt = beforeCursor.lastIndexOf('@');
-    final lastSlash = beforeCursor.lastIndexOf('/');
-
-    if (lastAt >= 0 && (lastAt == 0 || text[lastAt - 1] == ' ')) {
-      final query = beforeCursor.substring(lastAt + 1);
-      if (!query.contains(' ') || query.length < 50) {
-        _triggerPosition = lastAt;
-        _searchQuery = query;
-        _overlayMode = 'file';
-        _debounce?.cancel();
-        _debounce = Timer(const Duration(milliseconds: 300), () {
-          _showOverlay();
-        });
+    if (_overlayLocked) {
+      if (_shouldReleaseOverlayLock(text, cursorPos)) {
+        _overlayLocked = false;
+      } else {
+        _hideOverlay();
         return;
       }
     }
 
-    if (lastSlash >= 0 &&
-        (lastSlash == 0 || text[lastSlash - 1] == ' ') &&
-        beforeCursor.startsWith('/')) {
-      final query = beforeCursor.substring(lastSlash + 1);
-      if (!query.contains(' ')) {
-        _triggerPosition = lastSlash;
-        _searchQuery = query;
-        _overlayMode = 'command';
-        _showOverlay();
-        return;
-      }
+    if (cursorPos == 0) {
+      _hideOverlay();
+      return;
     }
 
-    if (_overlayEntry != null && _overlayMode == 'file') {
-      if (lastAt >= 0 && lastAt == _triggerPosition) {
-        final query = beforeCursor.substring(lastAt + 1);
-        if (query.contains(' ')) {
-          _removeOverlay();
-          return;
-        }
-        _searchQuery = query;
-        _debounce?.cancel();
-        _debounce = Timer(const Duration(milliseconds: 300), () {
-          _showOverlay();
-        });
-        return;
-      }
+    final match = _findTrigger(text, cursorPos);
+    if (match == null) {
+      _hideOverlay();
+      return;
     }
 
-    if (_overlayEntry != null && _overlayMode == 'command') {
-      if (lastSlash >= 0 && lastSlash == _triggerPosition) {
-        _searchQuery = beforeCursor.substring(lastSlash + 1);
-        _showOverlay();
-        return;
-      }
-    }
+    _triggerPosition = match.position;
+    _searchQuery = match.query;
+    _overlayMode = match.mode;
 
-    _removeOverlay();
+    _debounce?.cancel();
+    _debounce = Timer(const Duration(milliseconds: _overlayDebounceMs), () {
+      _showOverlay(match.mode, match.query);
+    });
   }
 
-  void _showOverlay() {
-    _removeOverlay();
+  bool _shouldReleaseOverlayLock(String text, int cursorPos) {
+    if (_overlayLockPosition < 0 || _overlayLockPosition >= text.length) {
+      return true;
+    }
 
+    if (cursorPos <= _overlayLockPosition) return true;
+
+    if (text[_overlayLockPosition] != _overlayLockChar) return true;
+
+    if (cursorPos >= 1) {
+      final prev = text[cursorPos - 1];
+      if (prev == '@' || prev == '/') {
+        if (cursorPos == 1 || text[cursorPos - 2] == ' ') {
+          return true;
+        }
+      }
+    }
+
+    return false;
+  }
+
+  _TriggerMatch? _findTrigger(String text, int cursorPos) {
+    final start = (cursorPos - _overlayScanLimit).clamp(0, cursorPos);
+    for (var i = cursorPos - 1; i >= start; i--) {
+      final ch = text[i];
+      if (ch == ' ' || ch == '\n' || ch == '\t') {
+        break;
+      }
+      if (ch == '@') {
+        if (i == 0 || text[i - 1] == ' ') {
+          final query = text.substring(i + 1, cursorPos);
+          if (query.isEmpty || query.contains(' ') || query.length >= 50) {
+            return null;
+          }
+          return _TriggerMatch(
+            position: i,
+            query: query,
+            mode: 'file',
+            triggerChar: '@',
+          );
+        }
+      }
+      if (ch == '/') {
+        if (i == 0) {
+          final query = text.substring(i + 1, cursorPos);
+          if (query.contains(' ')) return null;
+          return _TriggerMatch(
+            position: i,
+            query: query,
+            mode: 'command',
+            triggerChar: '/',
+          );
+        }
+      }
+    }
+    return null;
+  }
+
+  void _ensureOverlayEntry() {
+    if (_overlayEntry != null) return;
     _overlayEntry = OverlayEntry(
-      builder: (context) => _OverlayContent(
-        mode: _overlayMode,
-        query: _searchQuery,
-        layerLink: _layerLink,
-        onSelectFile: _onFileSelected,
-        onSelectCommand: _onCommandSelected,
-        onDismiss: _removeOverlay,
+      builder: (context) => ValueListenableBuilder<_OverlayPayload?>(
+        valueListenable: _overlayPayload,
+        builder: (context, payload, _) {
+          if (payload == null) return const SizedBox.shrink();
+          return _OverlayContent(
+            mode: payload.mode,
+            query: payload.query,
+            layerLink: _layerLink,
+            onSelectFile: _onFileSelected,
+            onSelectCommand: _onCommandSelected,
+            onDismiss: _hideOverlay,
+          );
+        },
       ),
     );
-
     Overlay.of(context).insert(_overlayEntry!);
+  }
+
+  void _showOverlay(String mode, String query) {
+    _ensureOverlayEntry();
+    final current = _overlayPayload.value;
+    if (current != null && current.mode == mode && current.query == query) {
+      return;
+    }
+    _overlayPayload.value = _OverlayPayload(mode: mode, query: query);
+  }
+
+  void _hideOverlay() {
+    if (_overlayPayload.value != null) {
+      _overlayPayload.value = null;
+    }
   }
 
   void _removeOverlay() {
@@ -188,8 +230,10 @@ class _ChatInputState extends ConsumerState<ChatInput> {
   }
 
   void _onFileSelected(String filePath) {
-    _removeOverlay();
-    _suppressOverlay = true;
+    _hideOverlay();
+    _overlayLocked = true;
+    _overlayLockChar = '@';
+    _overlayLockPosition = _triggerPosition;
 
     final project = ref.read(selectedProjectProvider);
     var path = filePath;
@@ -240,6 +284,7 @@ class _ChatInputState extends ConsumerState<ChatInput> {
       offset: _controller.text.length,
     );
     _triggerPosition = -1;
+    _overlayLockPosition = triggerPos;
 
     setState(() {
       _attachedFiles.add({
@@ -252,8 +297,10 @@ class _ChatInputState extends ConsumerState<ChatInput> {
   }
 
   void _onCommandSelected(String commandName) {
-    _removeOverlay();
-    _suppressOverlay = true;
+    _hideOverlay();
+    _overlayLocked = true;
+    _overlayLockChar = '/';
+    _overlayLockPosition = 0;
     _triggerPosition = -1;
 
     final text = _controller.text;
@@ -502,182 +549,222 @@ class _ChatInputState extends ConsumerState<ChatInput> {
             mainAxisSize: MainAxisSize.min,
             children: [
               if (_attachedFiles.isNotEmpty || _attachedImages.isNotEmpty)
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 6,
-                  ),
-                  decoration: const BoxDecoration(
-                    border: Border(
-                      bottom: BorderSide(color: AppTheme.border, width: 0.5),
-                    ),
-                  ),
-                  child: Wrap(
-                    spacing: 6,
-                    runSpacing: 4,
-                    children: [
-                      ..._attachedFiles.asMap().entries.map((entry) {
-                        return Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 4,
-                          ),
-                          decoration: BoxDecoration(
-                            color: AppTheme.surfaceVariant,
-                            border: Border.all(color: AppTheme.border),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(
-                                getIconForExtension(
-                                  (entry.value['filename'] as String? ?? 'file')
-                                      .split('.')
-                                      .last,
-                                ),
-                                size: 12,
-                                color: AppTheme.info,
-                              ),
-                              const SizedBox(width: 4),
-                              Text(
-                                entry.value['filename'] as String? ?? 'file',
-                                style: const TextStyle(
-                                  color: AppTheme.textSecondary,
-                                  fontSize: 11,
-                                ),
-                              ),
-                              const SizedBox(width: 4),
-                              GestureDetector(
-                                onTap: () => _removeFile(entry.key),
-                                child: const Icon(
-                                  Icons.close,
-                                  size: 12,
-                                  color: AppTheme.textTertiary,
-                                ),
-                              ),
-                            ],
-                          ),
-                        );
-                      }),
-                      ..._attachedImages.asMap().entries.map((entry) {
-                        return Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 6,
-                            vertical: 4,
-                          ),
-                          decoration: BoxDecoration(
-                            color: AppTheme.surfaceVariant,
-                            border: Border.all(color: AppTheme.border),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              ClipRRect(
-                                borderRadius: BorderRadius.circular(2),
-                                child: Image.memory(
-                                  entry.value.bytes,
-                                  width: 14,
-                                  height: 14,
-                                  fit: BoxFit.cover,
-                                ),
-                              ),
-                              const SizedBox(width: 4),
-                              Text(
-                                entry.value.name,
-                                style: const TextStyle(
-                                  color: AppTheme.textSecondary,
-                                  fontSize: 11,
-                                ),
-                              ),
-                              const SizedBox(width: 4),
-                              GestureDetector(
-                                onTap: () => _removeImage(entry.key),
-                                child: const Icon(
-                                  Icons.close,
-                                  size: 12,
-                                  color: AppTheme.textTertiary,
-                                ),
-                              ),
-                            ],
-                          ),
-                        );
-                      }),
-                    ],
-                  ),
+                _ChatInputAttachments(
+                  attachedFiles: _attachedFiles,
+                  attachedImages: _attachedImages,
+                  onRemoveFile: _removeFile,
+                  onRemoveImage: _removeImage,
                 ),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    IconButton(
-                      onPressed: widget.enabled ? _openImagePicker : null,
-                      icon: const Icon(Icons.image_outlined, size: 18),
-                      tooltip: 'Attach images',
-                    ),
-                    Expanded(
-                      child: ConstrainedBox(
-                        constraints: const BoxConstraints(maxHeight: 120),
-                        child: TextField(
-                          controller: _controller,
-                          focusNode: _focusNode,
-                          enabled: widget.enabled,
-                          maxLines: null,
-                          style: const TextStyle(
-                            color: AppTheme.textPrimary,
-                            fontSize: 13,
-                          ),
-                          decoration: InputDecoration(
-                            hintText: widget.isBusy
-                                ? 'Processing...'
-                                : 'Message... (@ files, / commands)',
-                            border: InputBorder.none,
-                            enabledBorder: InputBorder.none,
-                            focusedBorder: InputBorder.none,
-                            fillColor: Colors.transparent,
-                            filled: true,
-                            contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 8,
-                              vertical: 8,
-                            ),
-                            isDense: true,
-                          ),
-                          onSubmitted: (_) => _send(),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 4),
-                    GestureDetector(
-                      onTap: widget.isBusy
-                          ? widget.onStop
-                          : (widget.enabled ? _send : null),
-                      child: Container(
-                        padding: const EdgeInsets.all(10),
-                        decoration: BoxDecoration(
-                          color: widget.isBusy
-                              ? AppTheme.error
-                              : (widget.enabled
-                                    ? AppTheme.accent
-                                    : AppTheme.border),
-                          shape: BoxShape.rectangle,
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                        child: Icon(
-                          widget.isBusy ? Icons.stop : Icons.arrow_upward,
-                          size: 18,
-                          color: widget.isBusy || widget.enabled
-                              ? Colors.white
-                              : AppTheme.textTertiary,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
+              _ChatInputFieldRow(
+                controller: _controller,
+                focusNode: _focusNode,
+                isBusy: widget.isBusy,
+                enabled: widget.enabled,
+                onPickImage: _openImagePicker,
+                onSend: _send,
+                onStop: widget.onStop,
               ),
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _ChatInputAttachments extends StatelessWidget {
+  final List<Map<String, dynamic>> attachedFiles;
+  final List<_ImageAttachment> attachedImages;
+  final void Function(int index) onRemoveFile;
+  final void Function(int index) onRemoveImage;
+
+  const _ChatInputAttachments({
+    required this.attachedFiles,
+    required this.attachedImages,
+    required this.onRemoveFile,
+    required this.onRemoveImage,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: const BoxDecoration(
+        border: Border(
+          bottom: BorderSide(color: AppTheme.border, width: 0.5),
+        ),
+      ),
+      child: Wrap(
+        spacing: 6,
+        runSpacing: 4,
+        children: [
+          ...attachedFiles.asMap().entries.map((entry) {
+            return Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: AppTheme.surfaceVariant,
+                border: Border.all(color: AppTheme.border),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    getIconForExtension(
+                      (entry.value['filename'] as String? ?? 'file')
+                          .split('.')
+                          .last,
+                    ),
+                    size: 12,
+                    color: AppTheme.info,
+                  ),
+                  const SizedBox(width: 4),
+                  Text(
+                    entry.value['filename'] as String? ?? 'file',
+                    style: const TextStyle(
+                      color: AppTheme.textSecondary,
+                      fontSize: 11,
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  GestureDetector(
+                    onTap: () => onRemoveFile(entry.key),
+                    child: const Icon(
+                      Icons.close,
+                      size: 12,
+                      color: AppTheme.textTertiary,
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }),
+          ...attachedImages.asMap().entries.map((entry) {
+            return Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+              decoration: BoxDecoration(
+                color: AppTheme.surfaceVariant,
+                border: Border.all(color: AppTheme.border),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(2),
+                    child: Image.memory(
+                      entry.value.bytes,
+                      width: 14,
+                      height: 14,
+                      fit: BoxFit.cover,
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  Text(
+                    entry.value.name,
+                    style: const TextStyle(
+                      color: AppTheme.textSecondary,
+                      fontSize: 11,
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  GestureDetector(
+                    onTap: () => onRemoveImage(entry.key),
+                    child: const Icon(
+                      Icons.close,
+                      size: 12,
+                      color: AppTheme.textTertiary,
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }),
+        ],
+      ),
+    );
+  }
+}
+
+class _ChatInputFieldRow extends StatelessWidget {
+  final TextEditingController controller;
+  final FocusNode focusNode;
+  final bool isBusy;
+  final bool enabled;
+  final VoidCallback onPickImage;
+  final VoidCallback onSend;
+  final VoidCallback? onStop;
+
+  const _ChatInputFieldRow({
+    required this.controller,
+    required this.focusNode,
+    required this.isBusy,
+    required this.enabled,
+    required this.onPickImage,
+    required this.onSend,
+    required this.onStop,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          IconButton(
+            onPressed: enabled ? onPickImage : null,
+            icon: const Icon(Icons.image_outlined, size: 18),
+            tooltip: 'Attach images',
+          ),
+          Expanded(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxHeight: 120),
+              child: TextField(
+                controller: controller,
+                focusNode: focusNode,
+                enabled: enabled,
+                maxLines: null,
+                style: const TextStyle(
+                  color: AppTheme.textPrimary,
+                  fontSize: 13,
+                ),
+                decoration: InputDecoration(
+                  hintText:
+                      isBusy ? 'Processing...' : 'Message... (@ files, / commands)',
+                  border: InputBorder.none,
+                  enabledBorder: InputBorder.none,
+                  focusedBorder: InputBorder.none,
+                  fillColor: Colors.transparent,
+                  filled: true,
+                  contentPadding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                  isDense: true,
+                ),
+                onSubmitted: (_) => onSend(),
+              ),
+            ),
+          ),
+          const SizedBox(width: 4),
+          GestureDetector(
+            onTap: isBusy ? onStop : (enabled ? onSend : null),
+            child: Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: isBusy
+                    ? AppTheme.error
+                    : (enabled ? AppTheme.accent : AppTheme.border),
+                shape: BoxShape.rectangle,
+                borderRadius: BorderRadius.circular(4),
+              ),
+              child: Icon(
+                isBusy ? Icons.stop : Icons.arrow_upward,
+                size: 18,
+                color:
+                    isBusy || enabled ? Colors.white : AppTheme.textTertiary,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -732,6 +819,27 @@ class _OverlayContent extends ConsumerWidget {
       ),
     );
   }
+}
+
+class _OverlayPayload {
+  final String mode;
+  final String query;
+
+  const _OverlayPayload({required this.mode, required this.query});
+}
+
+class _TriggerMatch {
+  final int position;
+  final String query;
+  final String mode;
+  final String triggerChar;
+
+  const _TriggerMatch({
+    required this.position,
+    required this.query,
+    required this.mode,
+    required this.triggerChar,
+  });
 }
 
 class _ImageAttachment {
@@ -945,6 +1053,7 @@ class _FileSearchList extends ConsumerWidget {
         return ListView.builder(
           shrinkWrap: true,
           padding: EdgeInsets.zero,
+          itemExtent: 44,
           itemCount: files.length,
           itemBuilder: (context, index) {
             final file = files[index];
@@ -1090,6 +1199,7 @@ class _CommandList extends ConsumerWidget {
         return ListView.builder(
           shrinkWrap: true,
           padding: EdgeInsets.zero,
+          itemExtent: 52,
           itemCount: filtered.length,
           itemBuilder: (context, index) {
             final item = filtered[index];
