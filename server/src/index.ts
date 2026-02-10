@@ -1,6 +1,8 @@
 import { and, desc, eq, gte } from "drizzle-orm";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { Webhook } from "standardwebhooks";
 import { z } from "zod";
 
@@ -20,11 +22,13 @@ type Variables = {
 };
 
 const webhookVerifier = new Webhook(env.DODO_WEBHOOK_SECRET);
+const billingCompleteHtml = readFileSync(
+  fileURLToPath(new URL("./views/billing-complete.html", import.meta.url)),
+  "utf8",
+);
 
 const createCheckoutSchema = z.object({
-  productId: z.string().optional(),
   quantity: z.number().int().min(1).max(10).default(1),
-  returnUrl: z.string().url().optional(),
 });
 
 const app = new Hono<{ Variables: Variables }>();
@@ -55,6 +59,8 @@ app.use(
 app.get("/", (c) => c.json({ ok: true, service: "mecode-server" }));
 
 app.get("/api/health", (c) => c.json({ ok: true, service: "mecode-server" }));
+
+app.get("/billing/complete", (c) => c.html(billingCompleteHtml));
 
 app.post("/api/v1/billing/webhook", async (c) => {
   const rawBody = await c.req.text();
@@ -219,7 +225,7 @@ app.post("/api/v1/billing/create-checkout-session", async (c) => {
     return c.json({ error: "One-time access already unlocked" }, 409);
   }
 
-  const resolvedProductId = input.data.productId ?? env.DODO_DEFAULT_PRODUCT_ID;
+  const resolvedProductId = env.DODO_DEFAULT_PRODUCT_ID;
   const sessionTtlMs = env.CHECKOUT_SESSION_TTL_MINUTES * 60 * 1000;
   const activeSessionCutoff = new Date(Date.now() - sessionTtlMs);
 
@@ -255,7 +261,7 @@ app.post("/api/v1/billing/create-checkout-session", async (c) => {
     quantity: input.data.quantity,
     customerEmail: user.email,
     customerName: user.displayName,
-    returnUrl: input.data.returnUrl ?? `${env.APP_BASE_URL}/billing/complete`,
+    returnUrl: `${env.APP_BASE_URL}/billing/complete`,
     metadata: {
       user_id: user.id,
       firebase_uid: user.firebaseUid,

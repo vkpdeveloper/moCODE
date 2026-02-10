@@ -6,11 +6,6 @@ class AppEnv {
 
   static String get googleServerClientId => _read('GOOGLE_SERVER_CLIENT_ID');
 
-  static String? get dodoProductId {
-    final value = _read('DODO_PRODUCT_ID');
-    return value.isEmpty ? null : value;
-  }
-
   static String _read(String key, {String fallback = ''}) {
     final value = dotenv.env[key]?.trim();
     if (value == null || value.isEmpty) {

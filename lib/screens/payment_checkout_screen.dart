@@ -3,7 +3,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
-import '../config/app_env.dart';
 import '../providers/providers.dart';
 
 class PaymentCheckoutScreen extends ConsumerStatefulWidget {
@@ -45,7 +44,7 @@ class _PaymentCheckoutScreenState extends ConsumerState<PaymentCheckoutScreen> {
 
       final checkoutUrl = await ref
           .read(accountServiceProvider)
-          .createCheckoutSession(idToken, productId: AppEnv.dodoProductId);
+          .createCheckoutSession(idToken);
 
       final controller = WebViewController()
         ..setJavaScriptMode(JavaScriptMode.unrestricted)

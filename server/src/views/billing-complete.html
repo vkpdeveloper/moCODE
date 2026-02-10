@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Payment Status | moCODE</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+      :root {
+        color-scheme: dark;
+      }
+
+      body {
+        background:
+          radial-gradient(
+            circle at 20% 20%,
+            rgba(16, 185, 129, 0.18),
+            transparent 35%
+          ),
+          radial-gradient(
+            circle at 85% 15%,
+            rgba(59, 130, 246, 0.2),
+            transparent 40%
+          ),
+          radial-gradient(
+            circle at 50% 90%,
+            rgba(244, 63, 94, 0.14),
+            transparent 35%
+          ),
+          #080a0f;
+      }
+
+      .pulse-ring {
+        animation: pulse-ring 2s ease-out infinite;
+      }
+
+      @keyframes pulse-ring {
+        0% {
+          transform: scale(0.95);
+          opacity: 0.85;
+        }
+        70% {
+          transform: scale(1.08);
+          opacity: 0.25;
+        }
+        100% {
+          transform: scale(1.12);
+          opacity: 0;
+        }
+      }
+    </style>
+  </head>
+  <body class="min-h-screen text-slate-100 antialiased">
+    <main
+      class="mx-auto flex min-h-screen max-w-3xl items-center justify-center px-6 py-10"
+    >
+      <section
+        class="relative w-full overflow-hidden rounded-3xl border border-white/10 bg-white/5 p-8 shadow-2xl shadow-black/40 backdrop-blur-xl sm:p-10"
+      >
+        <div
+          class="pointer-events-none absolute inset-0 bg-gradient-to-br from-emerald-500/10 via-transparent to-blue-500/10"
+        ></div>
+
+        <div class="relative">
+          <div class="mb-8 flex items-center gap-3">
+            <div class="h-2.5 w-2.5 rounded-full bg-emerald-400"></div>
+            <p
+              class="text-xs font-semibold uppercase tracking-[0.24em] text-slate-300"
+            >
+              moCODE Billing
+            </p>
+          </div>
+
+          <div class="mb-8 flex items-center justify-center">
+            <div class="relative flex h-24 w-24 items-center justify-center">
+              <div
+                id="ring"
+                class="pulse-ring absolute h-full w-full rounded-full bg-emerald-400/30"
+              ></div>
+              <div
+                id="iconWrap"
+                class="relative flex h-16 w-16 items-center justify-center rounded-2xl bg-emerald-500/20 ring-1 ring-emerald-300/30"
+              >
+                <svg
+                  id="successIcon"
+                  viewBox="0 0 24 24"
+                  class="h-9 w-9 text-emerald-300"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2.4"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <path d="M20 6 9 17l-5-5"></path>
+                </svg>
+                <svg
+                  id="errorIcon"
+                  viewBox="0 0 24 24"
+                  class="hidden h-9 w-9 text-rose-300"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2.4"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <path d="m15 9-6 6"></path>
+                  <path d="m9 9 6 6"></path>
+                </svg>
+              </div>
+            </div>
+          </div>
+
+          <h1
+            id="title"
+            class="text-center text-3xl font-semibold tracking-tight text-slate-50 sm:text-4xl"
+          >
+            Payment confirmed
+          </h1>
+          <p
+            id="description"
+            class="mx-auto mt-4 max-w-xl text-center text-sm leading-relaxed text-slate-300 sm:text-base"
+          >
+            You are all set. Your access has been unlocked and you can go back
+            to the app to continue where you left off.
+          </p>
+
+          <div id="meta" class="mt-7 flex justify-center"></div>
+
+          <div class="mt-9 grid gap-3 sm:grid-cols-2">
+            <a
+              href="/"
+              class="inline-flex items-center justify-center rounded-xl border border-white/15 bg-white/5 px-4 py-3 text-sm font-medium text-slate-100 transition hover:bg-white/10"
+            >
+              Back to home
+            </a>
+            <a
+              href="https://mo-code.vercel.app"
+              class="inline-flex items-center justify-center rounded-xl bg-slate-100 px-4 py-3 text-sm font-semibold text-slate-900 transition hover:bg-white"
+            >
+              Open moCODE
+            </a>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <script>
+      (function () {
+        const params = new URLSearchParams(window.location.search);
+        const status = (params.get("status") || "").toLowerCase();
+        const paymentId =
+          params.get("payment_id") || params.get("paymentId") || "";
+        const isSuccess =
+          status === "succeeded" ||
+          status === "success" ||
+          status === "paid" ||
+          (!status && paymentId);
+
+        const title = document.getElementById("title");
+        const description = document.getElementById("description");
+        const meta = document.getElementById("meta");
+        const ring = document.getElementById("ring");
+        const iconWrap = document.getElementById("iconWrap");
+        const successIcon = document.getElementById("successIcon");
+        const errorIcon = document.getElementById("errorIcon");
+
+        if (
+          !title ||
+          !description ||
+          !meta ||
+          !ring ||
+          !iconWrap ||
+          !successIcon ||
+          !errorIcon
+        ) {
+          return;
+        }
+
+        if (isSuccess) {
+          title.textContent = "Payment confirmed";
+          description.textContent =
+            "Thanks for completing setup. Your account should unlock in a few seconds. If the app still looks locked, tap refresh once.";
+
+          if (paymentId) {
+            meta.innerHTML =
+              '<span class="rounded-full border border-emerald-300/35 bg-emerald-500/10 px-4 py-1.5 text-xs text-emerald-200">Payment ID: ' +
+              paymentId +
+              "</span>";
+          }
+          return;
+        }
+
+        title.textContent = "Payment not completed";
+        description.textContent =
+          "No worries, your setup is still safe. Please try again from the app and complete the payment to unlock full access.";
+        ring.className =
+          "pulse-ring absolute h-full w-full rounded-full bg-rose-400/25";
+        iconWrap.className =
+          "relative flex h-16 w-16 items-center justify-center rounded-2xl bg-rose-500/20 ring-1 ring-rose-300/30";
+        successIcon.classList.add("hidden");
+        errorIcon.classList.remove("hidden");
+        meta.innerHTML =
+          '<span class="rounded-full border border-rose-300/35 bg-rose-500/10 px-4 py-1.5 text-xs text-rose-200">Status: ' +
+          (status || "unknown") +
+          "</span>";
+      })();
+    </script>
+  </body>
+</html>

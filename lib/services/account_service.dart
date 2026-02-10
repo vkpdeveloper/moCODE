@@ -29,14 +29,10 @@ class AccountService {
 
   Future<String> createCheckoutSession(
     String idToken, {
-    String? productId,
     String? returnUrl,
     int quantity = 1,
   }) async {
     final payload = <String, dynamic>{'quantity': quantity};
-    if (productId != null && productId.isNotEmpty) {
-      payload['productId'] = productId;
-    }
     if (returnUrl != null && returnUrl.isNotEmpty) {
       payload['returnUrl'] = returnUrl;
     }

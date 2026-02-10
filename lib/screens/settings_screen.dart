@@ -4,7 +4,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-import '../config/app_env.dart';
 import '../providers/providers.dart';
 import '../theme/app_theme.dart';
 
@@ -666,11 +665,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       }
       final checkoutUrl = await ref
           .read(accountServiceProvider)
-          .createCheckoutSession(
-            idToken,
-            productId: AppEnv.dodoProductId,
-            returnUrl: null,
-          );
+          .createCheckoutSession(idToken);
 
       if (!mounted) return;
       await launchUrl(
