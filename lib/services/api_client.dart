@@ -24,4 +24,30 @@ class ApiClient {
 
   String get baseUrl => _baseUrl;
   Dio get dio => _dio;
+
+  String buildWsUrl(String path, {Map<String, dynamic>? queryParameters}) {
+    var url = _baseUrl;
+    if (url.startsWith('http://')) {
+      url = 'ws://${url.substring('http://'.length)}';
+    } else if (url.startsWith('https://')) {
+      url = 'wss://${url.substring('https://'.length)}';
+    }
+    if (!path.startsWith('/')) {
+      url += '/$path';
+    } else {
+      url += path;
+    }
+    if (queryParameters != null && queryParameters.isNotEmpty) {
+      final filtered = <String, String>{};
+      queryParameters.forEach((key, value) {
+        if (value == null) return;
+        filtered[key] = value.toString();
+      });
+      if (filtered.isNotEmpty) {
+        final query = Uri(queryParameters: filtered).query;
+        url += '?$query';
+      }
+    }
+    return url;
+  }
 }

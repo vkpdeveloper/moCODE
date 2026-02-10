@@ -302,7 +302,6 @@ class Fuzzysort {
     final limit = options?.limit ?? 0x7FFFFFFF;
 
     var resultsLen = 0;
-    var limitedCount = 0;
     final targetsLen = targets.length;
 
     void pushResult(FuzzysortResult result) {
@@ -310,7 +309,6 @@ class Fuzzysort {
         _q.add(result);
         ++resultsLen;
       } else {
-        ++limitedCount;
         if (result._score > _q.peek()!._score) {
           _q.replaceTop(result);
         }
@@ -1001,16 +999,17 @@ class Fuzzysort {
         if (indexesIsConsecutiveSubstring) {
           final newBeginningIndex = indexes[indexesLen - 1] + 1;
           final nextBeginningIndexes = target._nextBeginningIndexes;
-          if (newBeginningIndex > 0 &&
-              nextBeginningIndexes != null &&
-              newBeginningIndex - 1 < nextBeginningIndexes.length) {
-            final toReplace = nextBeginningIndexes[newBeginningIndex - 1];
-            for (var j = newBeginningIndex - 1; j >= 0; j--) {
-              if (toReplace != nextBeginningIndexes[j]) break;
-              nextBeginningIndexes[j] = newBeginningIndex;
-              _nextBeginningIndexesChanges[changesLen * 2 + 0] = j;
-              _nextBeginningIndexesChanges[changesLen * 2 + 1] = toReplace;
-              changesLen++;
+          if (newBeginningIndex > 0) {
+            final nextBeginningIndexesLen = nextBeginningIndexes?.length ?? 0;
+            if (newBeginningIndex - 1 < nextBeginningIndexesLen) {
+              final toReplace = nextBeginningIndexes![newBeginningIndex - 1];
+              for (var j = newBeginningIndex - 1; j >= 0; j--) {
+                if (toReplace != nextBeginningIndexes[j]) break;
+                nextBeginningIndexes[j] = newBeginningIndex;
+                _nextBeginningIndexesChanges[changesLen * 2 + 0] = j;
+                _nextBeginningIndexesChanges[changesLen * 2 + 1] = toReplace;
+                changesLen++;
+              }
             }
           }
         }

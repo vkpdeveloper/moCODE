@@ -299,6 +299,15 @@ class _ChatInputState extends ConsumerState<ChatInput> {
     _overlayLockPosition = 0;
     _triggerPosition = -1;
 
+    if (commandName == 'run') {
+      _controller.text = '/run ';
+      _controller.selection = TextSelection.collapsed(
+        offset: _controller.text.length,
+      );
+      _focusNode.requestFocus();
+      return;
+    }
+
     final text = _controller.text;
     final cursorPos = _controller.selection.baseOffset;
     final after = text.substring(cursorPos);
@@ -316,6 +325,17 @@ class _ChatInputState extends ConsumerState<ChatInput> {
     final text = rawText.trim();
     if (text.isEmpty && _attachedFiles.isEmpty && _attachedImages.isEmpty) {
       return;
+    }
+
+    if (_attachedFiles.isEmpty && _attachedImages.isEmpty) {
+      if (text == '/run' || text.startsWith('/run ')) {
+        final command = text.length > 4 ? text.substring(4).trim() : '';
+        _controller.clear();
+        if (command.isNotEmpty) {
+          widget.onSendCommand('run', command);
+        }
+        return;
+      }
     }
 
     if (_totalImageBase64Length() > _maxAttachmentBase64Length) {
@@ -587,9 +607,7 @@ class _ChatInputAttachments extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       decoration: const BoxDecoration(
-        border: Border(
-          bottom: BorderSide(color: AppTheme.border, width: 0.5),
-        ),
+        border: Border(bottom: BorderSide(color: AppTheme.border, width: 0.5)),
       ),
       child: Wrap(
         spacing: 6,
@@ -615,11 +633,16 @@ class _ChatInputAttachments extends StatelessWidget {
                     color: AppTheme.info,
                   ),
                   const SizedBox(width: 4),
-                  Text(
-                    entry.value['filename'] as String? ?? 'file',
-                    style: const TextStyle(
-                      color: AppTheme.textSecondary,
-                      fontSize: 11,
+                  ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 160),
+                    child: Text(
+                      entry.value['filename'] as String? ?? 'file',
+                      style: const TextStyle(
+                        color: AppTheme.textSecondary,
+                        fontSize: 11,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
                   ),
                   const SizedBox(width: 4),
@@ -727,15 +750,18 @@ class _ChatInputFieldRow extends StatelessWidget {
                   fontSize: 13,
                 ),
                 decoration: InputDecoration(
-                  hintText:
-                      isBusy ? 'Processing...' : 'Message... (@ files, / commands)',
+                  hintText: isBusy
+                      ? 'Processing...'
+                      : 'Message... (@ files, / commands)',
                   border: InputBorder.none,
                   enabledBorder: InputBorder.none,
                   focusedBorder: InputBorder.none,
                   fillColor: Colors.transparent,
                   filled: true,
-                  contentPadding:
-                      const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 12,
+                  ),
                 ),
                 onSubmitted: (_) => onSend(),
               ),
@@ -756,8 +782,7 @@ class _ChatInputFieldRow extends StatelessWidget {
               child: Icon(
                 isBusy ? Icons.stop : Icons.arrow_upward,
                 size: 18,
-                color:
-                    isBusy || enabled ? Colors.white : AppTheme.textTertiary,
+                color: isBusy || enabled ? Colors.white : AppTheme.textTertiary,
               ),
             ),
           ),
@@ -1154,6 +1179,13 @@ class _CommandList extends ConsumerWidget {
         final skills = skillsAsync.valueOrNull ?? [];
 
         final allItems = <Map<String, dynamic>>[];
+
+        allItems.add({
+          'name': 'run',
+          'description': 'Run a shell command in the project directory',
+          'type': 'command',
+          'source': 'local',
+        });
 
         for (final cmd in commands) {
           allItems.add({

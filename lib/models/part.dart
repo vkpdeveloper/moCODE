@@ -44,6 +44,7 @@ sealed class Part {
       'retry' => RetryPart.fromJson(json),
       'compaction' => CompactionPart.fromJson(json),
       'subtask' => SubtaskPart.fromJson(json),
+      'command-output' => CommandOutputPart.fromJson(json),
       _ => UnknownPart.fromJson(json),
     };
   }
@@ -544,6 +545,63 @@ class SubtaskPart extends Part {
       'agent': agent,
       if (model != null) 'model': model,
       if (command != null) 'command': command,
+    };
+  }
+}
+
+class CommandOutputPart extends Part {
+  final String command;
+  final List<String> args;
+  final String cwd;
+  final String? status;
+  final int? exitCode;
+  final PartTime? time;
+  final Map<String, dynamic>? metadata;
+
+  CommandOutputPart({
+    required super.id,
+    required super.sessionID,
+    required super.messageID,
+    required this.command,
+    this.args = const [],
+    required this.cwd,
+    this.status,
+    this.exitCode,
+    this.time,
+    this.metadata,
+  }) : super(type: 'command-output');
+
+  factory CommandOutputPart.fromJson(Map<String, dynamic> json) {
+    return CommandOutputPart(
+      id: json['id'] as String,
+      sessionID: json['sessionID'] as String,
+      messageID: json['messageID'] as String,
+      command: json['command'] as String? ?? '',
+      args: (json['args'] as List<dynamic>?)?.cast<String>() ?? const [],
+      cwd: json['cwd'] as String? ?? '',
+      status: json['status'] as String?,
+      exitCode: (json['exitCode'] as num?)?.toInt(),
+      time: json['time'] is Map<String, dynamic>
+          ? PartTime.fromJson(json['time'] as Map<String, dynamic>)
+          : null,
+      metadata: json['metadata'] as Map<String, dynamic>?,
+    );
+  }
+
+  @override
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'sessionID': sessionID,
+      'messageID': messageID,
+      'type': type,
+      'command': command,
+      'args': args,
+      'cwd': cwd,
+      if (status != null) 'status': status,
+      if (exitCode != null) 'exitCode': exitCode,
+      if (time != null) 'time': time!.toJson(),
+      if (metadata != null) 'metadata': metadata,
     };
   }
 }

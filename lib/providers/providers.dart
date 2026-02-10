@@ -26,6 +26,7 @@ import '../services/permission_service.dart';
 import '../services/question_service.dart';
 import '../services/session_diff_service.dart';
 import '../services/todo_service.dart';
+import '../services/pty_service.dart';
 
 // ---------------------------------------------------------------------------
 // Settings
@@ -248,6 +249,10 @@ final sessionDiffServiceProvider = Provider<SessionDiffService>((ref) {
 
 final todoServiceProvider = Provider<TodoService>((ref) {
   return TodoService(ref.watch(apiClientProvider));
+});
+
+final ptyServiceProvider = Provider<PtyService>((ref) {
+  return PtyService(ref.watch(apiClientProvider));
 });
 
 final preferencesServiceProvider = Provider<PreferencesService>((ref) {
@@ -567,6 +572,59 @@ class PtyState {
   }
 }
 
+class CommandRunsState {
+  final Map<String, CommandRun> items;
+
+  const CommandRunsState({this.items = const {}});
+
+  CommandRunsState copyWith({Map<String, CommandRun>? items}) {
+    return CommandRunsState(items: items ?? this.items);
+  }
+}
+
+class CommandRunsNotifier extends StateNotifier<CommandRunsState> {
+  CommandRunsNotifier() : super(const CommandRunsState());
+
+  void upsert(CommandRun run) {
+    final next = Map<String, CommandRun>.from(state.items);
+    next[run.id] = run;
+    state = state.copyWith(items: next);
+  }
+
+  void appendOutput(String id, String chunk) {
+    if (chunk.isEmpty) return;
+    final existing = state.items[id];
+    if (existing == null) return;
+    upsert(existing.copyWith(output: '${existing.output}$chunk'));
+  }
+
+  void updateStatus(
+    String id, {
+    String? status,
+    int? exitCode,
+    int? completedAt,
+  }) {
+    final existing = state.items[id];
+    if (existing == null) return;
+    upsert(
+      existing.copyWith(
+        status: status ?? existing.status,
+        exitCode: exitCode ?? existing.exitCode,
+        completedAt: completedAt ?? existing.completedAt,
+      ),
+    );
+  }
+
+  void clear() {
+    state = const CommandRunsState();
+  }
+}
+
+final commandRunsProvider =
+    StateNotifierProvider<CommandRunsNotifier, CommandRunsState>((ref) {
+      return CommandRunsNotifier();
+    });
+
 class PtyNotifier extends StateNotifier<PtyState> {
   PtyNotifier() : super(const PtyState());
 
@@ -597,6 +655,8 @@ class PtyNotifier extends StateNotifier<PtyState> {
 final ptyProvider = StateNotifierProvider<PtyNotifier, PtyState>((ref) {
   return PtyNotifier();
 });
+
+final activeCommandRunProvider = StateProvider<String?>((ref) => null);
 
 // ---------------------------------------------------------------------------
 // Session Error

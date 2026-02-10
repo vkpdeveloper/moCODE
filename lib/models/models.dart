@@ -1,5 +1,6 @@
 export 'agent.dart';
 export 'command.dart';
+export 'command_run.dart';
 export 'config.dart';
 export 'file_diff.dart';
 export 'health.dart';

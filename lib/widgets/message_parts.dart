@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
+import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../models/part.dart';
@@ -48,6 +49,7 @@ class MessagePartsWidget extends StatelessWidget {
       AgentPart p => _buildAgentPart(p),
       RetryPart p => _buildRetryPart(p),
       SubtaskPart p => _buildSubtaskPart(p),
+      CommandOutputPart p => _buildCommandOutputPart(context, p),
       CompactionPart _ => const SizedBox.shrink(),
       UnknownPart _ => const SizedBox.shrink(),
     };
@@ -522,6 +524,209 @@ class MessagePartsWidget extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  Widget _buildCommandOutputPart(BuildContext context, CommandOutputPart part) {
+    final rawOutput = part.metadata?['output']?.toString() ?? '';
+    final output = _stripAnsi(rawOutput);
+    final isRunning = part.status == 'running';
+    final statusLabel = part.status?.toUpperCase() ?? 'RUNNING';
+    final header = [
+      part.command,
+      ...part.args,
+    ].where((s) => s.isNotEmpty).toList();
+
+    Color statusColor;
+    if (isRunning) {
+      statusColor = AppTheme.warning;
+    } else if (part.exitCode == 0) {
+      statusColor = AppTheme.success;
+    } else if (part.exitCode != null) {
+      statusColor = AppTheme.error;
+    } else {
+      statusColor = AppTheme.textTertiary;
+    }
+
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: 4),
+      decoration: BoxDecoration(
+        color: AppTheme.surfaceVariant,
+        border: Border.all(color: AppTheme.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+            decoration: BoxDecoration(
+              border: Border(bottom: BorderSide(color: AppTheme.border)),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.terminal, size: 14, color: AppTheme.info),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    header.join(' '),
+                    style: GoogleFonts.jetBrainsMono(
+                      textStyle: const TextStyle(
+                        color: AppTheme.textPrimary,
+                        fontSize: 11,
+                      ),
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                const SizedBox(width: 4),
+                SizedBox(
+                  width: 24,
+                  height: 24,
+                  child: IconButton(
+                    icon: const Icon(Icons.copy, size: 12),
+                    onPressed: header.isEmpty
+                        ? null
+                        : () async {
+                            await Clipboard.setData(
+                              ClipboardData(text: header.join(' ')),
+                            );
+                            if (context.mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text('Command copied.'),
+                                ),
+                              );
+                            }
+                          },
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(),
+                    visualDensity: VisualDensity.compact,
+                    tooltip: 'Copy command',
+                  ),
+                ),
+                const SizedBox(width: 6),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 6,
+                    vertical: 2,
+                  ),
+                  decoration: BoxDecoration(
+                    border: Border.all(color: statusColor),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Text(
+                    statusLabel,
+                    style: TextStyle(
+                      color: statusColor,
+                      fontSize: 8,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 0.5,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          if (part.cwd.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              child: Text(
+                part.cwd,
+                style: const TextStyle(
+                  color: AppTheme.textTertiary,
+                  fontSize: 10,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          if (output.isNotEmpty)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(10),
+              decoration: const BoxDecoration(
+                border: Border(top: BorderSide(color: AppTheme.border)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      const Text(
+                        'OUTPUT',
+                        style: TextStyle(
+                          color: AppTheme.textTertiary,
+                          fontSize: 9,
+                          letterSpacing: 1,
+                        ),
+                      ),
+                      const Spacer(),
+                      SizedBox(
+                        width: 24,
+                        height: 24,
+                        child: IconButton(
+                          icon: const Icon(Icons.copy, size: 12),
+                          onPressed: output.isEmpty
+                              ? null
+                              : () async {
+                                  await Clipboard.setData(
+                                    ClipboardData(text: output),
+                                  );
+                                  if (context.mounted) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(
+                                        content: Text('Output copied.'),
+                                      ),
+                                    );
+                                  }
+                                },
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(),
+                          visualDensity: VisualDensity.compact,
+                          tooltip: 'Copy output',
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  SelectableText(
+                    output,
+                    style: GoogleFonts.jetBrainsMono(
+                      textStyle: const TextStyle(
+                        color: AppTheme.textSecondary,
+                        fontSize: 11,
+                        height: 1.4,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            )
+          else
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(10),
+              decoration: const BoxDecoration(
+                border: Border(top: BorderSide(color: AppTheme.border)),
+              ),
+              child: Text(
+                isRunning ? 'Running...' : 'No output',
+                style: const TextStyle(
+                  color: AppTheme.textTertiary,
+                  fontSize: 10,
+                  fontStyle: FontStyle.italic,
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  String _stripAnsi(String input) {
+    final ansiRegex = RegExp(r'\x1B\[[0-9;]*[A-Za-z]');
+    return input.replaceAll(ansiRegex, '');
   }
 
   String _truncate(String text, int maxLength) {

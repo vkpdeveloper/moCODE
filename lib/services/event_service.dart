@@ -59,6 +59,7 @@ class _EventConnection {
   bool _isConnected = false;
   bool _isDisposed = false;
   bool _isConnecting = false;
+  bool _hasConnectedBefore = false;
   Timer? _closeTimer;
 
   _EventConnection(this._apiClient, {required this.directory})
@@ -112,6 +113,13 @@ class _EventConnection {
 
       _isConnected = true;
       _isConnecting = false;
+
+      // Emit a synthetic reconnect event so listeners can refresh state
+      if (_hasConnectedBefore && !_controller.isClosed) {
+        _controller.add({'type': '__reconnected__'});
+      }
+      _hasConnectedBefore = true;
+
       final stream = response.data!.stream;
       String buffer = '';
 
@@ -141,6 +149,11 @@ class _EventConnection {
           }
         }
       }
+
+      // Stream ended normally (server closed connection) — reconnect
+      _isConnected = false;
+      _isConnecting = false;
+      await _retryConnect();
     } on DioException catch (e) {
       _isConnected = false;
       _isConnecting = false;

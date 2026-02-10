@@ -1,8 +1,12 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:google_fonts/google_fonts.dart';
+import 'package:web_socket_channel/web_socket_channel.dart';
 
 import '../models/message.dart';
 import '../models/permission_request.dart';
@@ -12,6 +16,7 @@ import '../models/todo.dart';
 import '../models/pty.dart';
 import '../models/file_diff.dart';
 import '../models/part.dart';
+import '../models/command_run.dart';
 import '../providers/providers.dart';
 import '../theme/app_theme.dart';
 import '../widgets/chat_input.dart';
@@ -48,6 +53,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
   bool _didSyncModeFromMessages = false;
   bool _isSidebarOpen = false;
   bool _showScrollToBottom = false;
+  bool _isPinnedToBottom = true;
   bool _isUndoRedoInFlight = false;
   bool _didInitialScroll = false;
   Timer? _refreshTimer;
@@ -65,6 +71,44 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
   String? _todosSessionId;
   String? _diffSessionId;
   String? _vcsSessionId;
+  StreamSubscription? _ptyStreamSub;
+  WebSocketChannel? _ptyChannel;
+  String? _activeRunId;
+  Timer? _pollTimer;
+
+  AssistantMessageInfo _commandMessageInfo(
+    CommandOutputPart part,
+    String sessionId,
+  ) {
+    return AssistantMessageInfo(
+      id: 'command_${part.id}',
+      sessionID: sessionId,
+      time: MessageTime(
+        created: part.time?.start ?? DateTime.now().millisecondsSinceEpoch,
+        completed: part.time?.end ?? part.time?.start,
+      ),
+      modelID: 'command',
+      providerID: 'local',
+      mode: 'build',
+      cost: 0.0,
+      tokens: MessageTokens(
+        input: 0,
+        output: 0,
+        reasoning: 0,
+        cache: MessageCacheTokens(read: 0, write: 0),
+      ),
+    );
+  }
+
+  MessageWrapper? _buildCommandMessage(List<Part> parts, Session? session) {
+    if (parts.isEmpty || parts.first is! CommandOutputPart) return null;
+    final part = parts.first as CommandOutputPart;
+    final sessionId = session?.id ?? part.sessionID;
+    return MessageWrapper(
+      info: _commandMessageInfo(part, sessionId),
+      parts: parts,
+    );
+  }
 
   @override
   void initState() {
@@ -94,6 +138,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
   @override
   void dispose() {
     _refreshTimer?.cancel();
+    _pollTimer?.cancel();
     _syncTimeout?.cancel();
     _eventSub?.cancel();
     _sessionSub?.close();
@@ -102,6 +147,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     _sessionModeSub?.close();
     _scrollController.removeListener(_onScroll);
     _scrollController.dispose();
+    _ptyStreamSub?.cancel();
+    _ptyChannel?.sink.close();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -116,8 +163,18 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
   void _onScroll() {
     if (!_scrollController.hasClients) return;
     final isNearBottom = _isNearBottom();
-    if (_showScrollToBottom == isNearBottom) {
-      setState(() => _showScrollToBottom = !isNearBottom);
+    final shouldShow = !isNearBottom;
+    var nextPinned = _isPinnedToBottom;
+    if (isNearBottom && !_isPinnedToBottom) {
+      nextPinned = true;
+    } else if (!isNearBottom && _isPinnedToBottom) {
+      nextPinned = false;
+    }
+    if (_showScrollToBottom != shouldShow || nextPinned != _isPinnedToBottom) {
+      setState(() {
+        _showScrollToBottom = shouldShow;
+        _isPinnedToBottom = nextPinned;
+      });
     }
   }
 
@@ -141,6 +198,15 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     ) {
       try {
         final type = event['type'] as String? ?? '';
+
+        // SSE reconnected — full sync to catch up on missed events
+        if (type == '__reconnected__') {
+          final session = ref.read(selectedSessionProvider);
+          if (session != null) {
+            _refreshAfterReconnect(session);
+          }
+          return;
+        }
 
         if (type == 'message.updated' ||
             type == 'message.removed' ||
@@ -187,6 +253,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
               statusStr = status is String ? status : status?.toString();
             }
           }
+          final wasBusy = _isBusy;
           if (mounted) {
             setState(() {
               _isBusy = statusStr != null && statusStr != 'idle';
@@ -194,15 +261,20 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
           }
           if (_isBusy) {
             _markSessionActive();
-          }
-          if (_isBusy) {
             _debouncedRefresh();
+          }
+          // Start / stop periodic polling based on busy state
+          if (_isBusy && !wasBusy) {
+            _startBusyPolling();
+          } else if (!_isBusy && wasBusy) {
+            _stopBusyPolling();
           }
         } else if (type == 'session.idle') {
           if (!_isCurrentSessionEvent(event['properties'])) return;
           if (mounted) {
             setState(() => _isBusy = false);
           }
+          _stopBusyPolling();
           _debouncedRefresh();
         } else if (type == 'session.deleted') {
           _handleSessionDeleted(event['properties']);
@@ -303,6 +375,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     ref.read(todosProvider.notifier).clear();
     ref.read(sessionErrorProvider.notifier).clear();
     ref.read(ptyProvider.notifier).clear();
+    ref.read(commandRunsProvider.notifier).clear();
+    ref.read(activeCommandRunProvider.notifier).state = null;
     ref.read(sessionDiffProvider.notifier).clear();
     ref.read(vcsBranchProvider.notifier).state = null;
     await _loadProjectModel(session.projectID, session.id);
@@ -386,6 +460,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
         final prevLength = prev?.valueOrNull?.length ?? 0;
         final nextLength = next.valueOrNull?.length ?? 0;
         if (nextLength > prevLength) {
+          _scrollToBottom();
+        } else if (_isPinnedToBottom && nextMessages != null) {
           _scrollToBottom();
         }
       },
@@ -507,12 +583,26 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     });
   }
 
+  void _startBusyPolling() {
+    _pollTimer?.cancel();
+    _pollTimer = Timer.periodic(const Duration(seconds: 5), (_) {
+      if (!mounted) return;
+      _debouncedRefresh();
+    });
+  }
+
+  void _stopBusyPolling() {
+    _pollTimer?.cancel();
+    _pollTimer = null;
+  }
+
   void _handlePtyCreated(dynamic props) {
     if (props is! Map<String, dynamic>) return;
     if (!_isCurrentSessionEvent(props)) return;
     final info = props['info'];
     if (info is! Map<String, dynamic>) return;
-    ref.read(ptyProvider.notifier).upsert(PtyInfo.fromJson(info));
+    final pty = PtyInfo.fromJson(info);
+    ref.read(ptyProvider.notifier).upsert(pty);
   }
 
   void _handlePtyUpdated(dynamic props) {
@@ -520,7 +610,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     if (!_isCurrentSessionEvent(props)) return;
     final info = props['info'];
     if (info is! Map<String, dynamic>) return;
-    ref.read(ptyProvider.notifier).upsert(PtyInfo.fromJson(info));
+    final pty = PtyInfo.fromJson(info);
+    ref.read(ptyProvider.notifier).upsert(pty);
+    final runId = _activeRunId;
+    if (runId != null && pty.id == runId) {
+      ref
+          .read(commandRunsProvider.notifier)
+          .updateStatus(runId, status: pty.status, exitCode: pty.exitCode);
+    }
   }
 
   void _handlePtyExited(dynamic props) {
@@ -530,6 +627,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     if (id == null || id.isEmpty) return;
     final exitCode = (props['exitCode'] as num?)?.toInt() ?? 0;
     ref.read(ptyProvider.notifier).updateExit(id, exitCode);
+    ref
+        .read(commandRunsProvider.notifier)
+        .updateStatus(
+          id,
+          status: 'exited',
+          exitCode: exitCode,
+          completedAt: DateTime.now().millisecondsSinceEpoch,
+        );
   }
 
   void _handlePtyDeleted(dynamic props) {
@@ -538,6 +643,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     final id = props['id']?.toString();
     if (id == null || id.isEmpty) return;
     ref.read(ptyProvider.notifier).remove(id);
+    if (_activeRunId == id) {
+      ref.read(activeCommandRunProvider.notifier).state = null;
+      _activeRunId = null;
+    }
   }
 
   void _handleSessionError(dynamic props) {
@@ -615,6 +724,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
       _hasLoadedMessages = false;
       _permissionDialogVisible = false;
       _questionDialogVisible = false;
+      _showScrollToBottom = false;
+      _isPinnedToBottom = true;
     });
     _todosSessionId = null;
     _diffSessionId = null;
@@ -624,6 +735,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     _modeSyncSessionId = sessionId;
     _didSyncModeFromMessages = false;
     _didInitialScroll = false;
+    _activeRunId = null;
+    _stopBusyPolling();
+    _ptyStreamSub?.cancel();
+    _ptyStreamSub = null;
+    _ptyChannel?.sink.close();
+    _ptyChannel = null;
+    ref.read(commandRunsProvider.notifier).clear();
   }
 
   Future<void> _loadPendingPermissions() async {
@@ -1026,7 +1144,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
   void _scrollToBottom({bool animated = true, bool force = false}) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!_scrollController.hasClients) return;
-      if (!force && !_isNearBottom()) return;
+      if (!force && !_isPinnedToBottom) return;
       final maxExtent = _scrollController.position.maxScrollExtent;
       if (animated) {
         _scrollController.animateTo(
@@ -1104,6 +1222,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     required AsyncValue<List<MessageWrapper>> messagesAsync,
     required bool isInitialLoading,
     required String mode,
+    List<Part> extraParts = const [],
   }) {
     final session = ref.watch(selectedSessionProvider);
     final statusAsync = ref.watch(sessionStatusProvider);
@@ -1138,7 +1257,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
       return 'Session busy';
     }();
 
-    if (messagesAsync.hasError && displayMessages.isEmpty) {
+    final hasExtraParts = extraParts.isNotEmpty;
+
+    if (messagesAsync.hasError && displayMessages.isEmpty && !hasExtraParts) {
       return Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -1160,7 +1281,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
       );
     }
 
-    if (displayMessages.isEmpty) {
+    if (displayMessages.isEmpty && !hasExtraParts) {
       if (isInitialLoading && !_isBusy) {
         return const Center(
           child: SizedBox(
@@ -1209,6 +1330,22 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
       );
     }
 
+    final items = List<MessageWrapper>.from(displayMessages);
+    if (hasExtraParts) {
+      final commandMessage = _buildCommandMessage(extraParts, session);
+      if (commandMessage != null) {
+        final commandTime = _messageCreatedAt(commandMessage);
+        final insertIndex = items.indexWhere(
+          (msg) => _messageCreatedAt(msg) > commandTime,
+        );
+        if (insertIndex == -1) {
+          items.add(commandMessage);
+        } else {
+          items.insert(insertIndex, commandMessage);
+        }
+      }
+    }
+
     final listWidget = ListView.builder(
       controller: _scrollController,
       cacheExtent: 800,
@@ -1216,9 +1353,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
       addRepaintBoundaries: true,
       physics: const AlwaysScrollableScrollPhysics(),
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      itemCount: displayMessages.length,
+      itemCount: items.length,
       itemBuilder: (context, index) {
-        final msg = displayMessages[index];
+        final msg = items[index];
         return RepaintBoundary(
           child: KeyedSubtree(
             key: ValueKey(msg.info.id),
@@ -1241,7 +1378,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
                 side: BorderSide(color: AppTheme.border),
               ),
               child: InkWell(
-                onTap: _scrollToBottom,
+                onTap: () {
+                  setState(() {
+                    _isPinnedToBottom = true;
+                    _showScrollToBottom = false;
+                  });
+                  _scrollToBottom(force: true);
+                },
                 customBorder: const CircleBorder(),
                 child: Container(
                   width: 36,
@@ -1262,7 +1405,18 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     return listWithButton;
   }
 
-  Widget _buildSidebar({required SessionErrorState errorState}) {
+  int _messageCreatedAt(MessageWrapper msg) {
+    final info = msg.info;
+    if (info is UserMessageInfo) return info.time.created;
+    if (info is AssistantMessageInfo) return info.time.created;
+    return 0;
+  }
+
+  Widget _buildSidebar({
+    required SessionErrorState errorState,
+    required String? activeRunId,
+    required Map<String, CommandRun> commandRuns,
+  }) {
     final todosState = ref.watch(todosProvider);
     final ptyState = ref.watch(ptyProvider);
     final ptys = ptyState.items.values.toList()
@@ -1275,6 +1429,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
       Tab(text: 'CHANGES'),
       Tab(text: 'TODOS'),
       Tab(text: 'PTY'),
+      Tab(text: 'TERMINAL'),
     ];
 
     return Container(
@@ -1324,6 +1479,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
                         _buildChangesTab(),
                         _buildTodosTab(todosState),
                         _buildPtyTab(ptys),
+                        _buildTerminalTab(
+                          activeRunId: activeRunId,
+                          runs: commandRuns,
+                        ),
                       ],
                     ),
                   ),
@@ -1571,6 +1730,166 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     );
   }
 
+  Widget _buildTerminalTab({
+    required String? activeRunId,
+    required Map<String, CommandRun> runs,
+  }) {
+    if (activeRunId == null) {
+      return const Center(
+        child: Text(
+          'No running commands',
+          style: TextStyle(color: AppTheme.textTertiary, fontSize: 11),
+        ),
+      );
+    }
+
+    final run = runs[activeRunId];
+    if (run == null) {
+      return const Center(
+        child: Text(
+          'No output yet',
+          style: TextStyle(color: AppTheme.textTertiary, fontSize: 11),
+        ),
+      );
+    }
+
+    Color statusColor;
+    if (run.status == 'running') {
+      statusColor = AppTheme.warning;
+    } else if (run.exitCode == 0) {
+      statusColor = AppTheme.success;
+    } else if (run.exitCode != null) {
+      statusColor = AppTheme.error;
+    } else {
+      statusColor = AppTheme.textTertiary;
+    }
+    final header = [run.command, ...run.args].join(' ');
+    final output = _stripAnsi(run.output);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(10),
+          decoration: const BoxDecoration(
+            border: Border(bottom: BorderSide(color: AppTheme.border)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  const Icon(Icons.terminal, size: 14, color: AppTheme.info),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      header,
+                      style: GoogleFonts.jetBrainsMono(
+                        textStyle: const TextStyle(
+                          color: AppTheme.textPrimary,
+                          fontSize: 11,
+                        ),
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 6,
+                      vertical: 2,
+                    ),
+                    decoration: BoxDecoration(
+                      border: Border.all(color: statusColor),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Text(
+                      run.status.toUpperCase(),
+                      style: TextStyle(
+                        color: statusColor,
+                        fontSize: 8,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              Text(
+                run.cwd,
+                style: const TextStyle(
+                  color: AppTheme.textTertiary,
+                  fontSize: 10,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ],
+          ),
+        ),
+        Expanded(
+          child: Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(10),
+            color: AppTheme.surfaceVariant,
+            child: SelectableText(
+              output.isEmpty ? 'Running...' : output,
+              style: GoogleFonts.jetBrainsMono(
+                textStyle: const TextStyle(
+                  color: AppTheme.textSecondary,
+                  fontSize: 11,
+                  height: 1.4,
+                ),
+              ),
+            ),
+          ),
+        ),
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          decoration: const BoxDecoration(
+            border: Border(top: BorderSide(color: AppTheme.border)),
+          ),
+          child: Row(
+            children: [
+              Text(
+                run.exitCode == null ? '' : 'Exit ${run.exitCode}',
+                style: const TextStyle(
+                  color: AppTheme.textTertiary,
+                  fontSize: 10,
+                ),
+              ),
+              const Spacer(),
+              IconButton(
+                icon: const Icon(Icons.copy, size: 14),
+                onPressed: output.isEmpty
+                    ? null
+                    : () {
+                        Clipboard.setData(ClipboardData(text: output));
+                        if (!mounted) return;
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('Output copied.')),
+                        );
+                      },
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(minWidth: 24, minHeight: 24),
+                visualDensity: VisualDensity.compact,
+                tooltip: 'Copy output',
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  String _stripAnsi(String input) {
+    final ansiRegex = RegExp(r'\x1B\[[0-9;]*[A-Za-z]');
+    return input.replaceAll(ansiRegex, '');
+  }
+
   Future<bool> _sendMessage(
     String text, {
     List<Map<String, dynamic>>? fileParts,
@@ -1662,6 +1981,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
   Future<void> _sendCommand(String command, String arguments) async {
     final session = ref.read(selectedSessionProvider);
     if (session == null) return;
+    if (command == 'run') {
+      await _executeShellCommand(arguments);
+      return;
+    }
     final mode = ref.read(sessionModeProvider);
 
     try {
@@ -1687,6 +2010,128 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
         ).showSnackBar(SnackBar(content: Text('Failed: $e')));
       }
     }
+  }
+
+  Future<void> _executeShellCommand(String input) async {
+    final session = ref.read(selectedSessionProvider);
+    final project = ref.read(selectedProjectProvider);
+    if (session == null || project == null) return;
+    final trimmed = input.trim();
+    if (trimmed.isEmpty) return;
+
+    final tokens = _splitCommand(trimmed);
+    if (tokens.isEmpty) return;
+    final command = tokens.first;
+    final args = tokens.skip(1).toList();
+    final cwd = project.worktree;
+
+    try {
+      setState(() => _isBusy = true);
+      _markSessionActive();
+
+      final ptyService = ref.read(ptyServiceProvider);
+      final pty = await ptyService.createPty(
+        command: command,
+        args: args,
+        cwd: cwd,
+        title: trimmed,
+        directory: project.worktree,
+      );
+
+      final run = CommandRun(
+        id: pty.id,
+        command: command,
+        args: args,
+        cwd: cwd,
+        status: pty.status,
+        output: '',
+        startedAt: DateTime.now().millisecondsSinceEpoch,
+        exitCode: pty.exitCode,
+      );
+      ref.read(commandRunsProvider.notifier).upsert(run);
+      ref.read(ptyProvider.notifier).upsert(pty);
+      ref.read(activeCommandRunProvider.notifier).state = pty.id;
+      _activeRunId = pty.id;
+
+      unawaited(_connectPtyStream(pty.id, directory: project.worktree));
+
+      ref.invalidate(messagesProvider);
+      _scrollToBottom();
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isBusy = false);
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Command failed: $e')));
+      }
+    }
+  }
+
+  Future<void> _connectPtyStream(String ptyId, {String? directory}) async {
+    await _ptyStreamSub?.cancel();
+    _ptyChannel?.sink.close();
+    final ptyService = ref.read(ptyServiceProvider);
+    final channel = ptyService.connect(ptyId, directory: directory);
+    _ptyChannel = channel;
+    _ptyStreamSub = channel.stream.listen(
+      (event) {
+        if (event == null) return;
+        String chunk;
+        if (event is List<int>) {
+          chunk = utf8.decode(event);
+        } else {
+          chunk = event.toString();
+        }
+        if (chunk.isEmpty) return;
+        ref.read(commandRunsProvider.notifier).appendOutput(ptyId, chunk);
+        if (_isPinnedToBottom) {
+          _scrollToBottom();
+        }
+      },
+      onError: (_) {},
+      onDone: () {
+        if (_ptyChannel == channel) {
+          _ptyChannel = null;
+        }
+        if (mounted) {
+          setState(() => _isBusy = false);
+        }
+      },
+      cancelOnError: false,
+    );
+  }
+
+  List<String> _splitCommand(String input) {
+    final tokens = <String>[];
+    final buffer = StringBuffer();
+    String? quote;
+    for (var i = 0; i < input.length; i++) {
+      final ch = input[i];
+      if (quote != null) {
+        if (ch == quote) {
+          quote = null;
+        } else {
+          buffer.write(ch);
+        }
+        continue;
+      }
+      if (ch == '\'' || ch == '"') {
+        quote = ch;
+        continue;
+      }
+      if (ch.trim().isEmpty) {
+        if (buffer.isNotEmpty) {
+          tokens.add(buffer.toString());
+          buffer.clear();
+        }
+        continue;
+      }
+      buffer.write(ch);
+    }
+    if (buffer.isNotEmpty) {
+      tokens.add(buffer.toString());
+    }
+    return tokens;
   }
 
   Future<void> _abortSession() async {
@@ -1884,6 +2329,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     final statusAsync = ref.watch(sessionStatusProvider);
 
     final errorState = ref.watch(sessionErrorProvider);
+    final activeRunId = ref.watch(activeCommandRunProvider);
+    final commandRuns = ref.watch(commandRunsProvider).items;
+    final activeRun = activeRunId != null ? commandRuns[activeRunId] : null;
 
     final messages = messagesAsync.valueOrNull ?? const <MessageWrapper>[];
     final baseMessages = _cachedMessages.isNotEmpty
@@ -1921,6 +2369,27 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
             'No session selected',
             style: TextStyle(color: AppTheme.textTertiary),
           ),
+        ),
+      );
+    }
+
+    final commandParts = <Part>[];
+    if (activeRun != null) {
+      commandParts.add(
+        CommandOutputPart(
+          id: activeRun.id,
+          sessionID: session.id,
+          messageID: activeRun.id,
+          command: activeRun.command,
+          args: activeRun.args,
+          cwd: activeRun.cwd,
+          status: activeRun.status,
+          exitCode: activeRun.exitCode,
+          time: PartTime(
+            start: activeRun.startedAt,
+            end: activeRun.completedAt,
+          ),
+          metadata: {'output': activeRun.output},
         ),
       );
     }
@@ -2016,9 +2485,15 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
                     messagesAsync: messagesAsync,
                     isInitialLoading: isInitialLoading,
                     mode: mode,
+                    extraParts: commandParts,
                   ),
                 ),
-                if (_isSidebarOpen) _buildSidebar(errorState: errorState),
+                if (_isSidebarOpen)
+                  _buildSidebar(
+                    errorState: errorState,
+                    activeRunId: activeRunId,
+                    commandRuns: commandRuns,
+                  ),
               ],
             ),
           ),
@@ -2054,10 +2529,20 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     final isOptimistic = _optimisticMessages.any(
       (candidate) => candidate.info.id == msg.info.id,
     );
+    final isCommandMessage =
+        isAssistant &&
+        msg.info is AssistantMessageInfo &&
+        (msg.info as AssistantMessageInfo).providerID == 'local' &&
+        (msg.info as AssistantMessageInfo).modelID == 'command';
     final canUndo =
-        isAssistant && !_isBusy && !_isUndoRedoInFlight && session != null;
+        isAssistant &&
+        !isCommandMessage &&
+        !_isBusy &&
+        !_isUndoRedoInFlight &&
+        session != null;
     final canRedo =
         isAssistant &&
+        !isCommandMessage &&
         !_isBusy &&
         !_isUndoRedoInFlight &&
         session?.revert?.messageID == msg.info.id;
@@ -2150,7 +2635,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
             child: MessagePartsWidget(parts: msg.parts, isUser: isUser),
           ),
           // Cost info for assistant
-          if (!isUser && msg.info is AssistantMessageInfo) ...[
+          if (!isUser &&
+              msg.info is AssistantMessageInfo &&
+              !isCommandMessage) ...[
             Padding(
               padding: const EdgeInsets.only(top: 4, left: 6),
               child: Wrap(
