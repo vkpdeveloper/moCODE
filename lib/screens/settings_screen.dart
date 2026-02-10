@@ -54,18 +54,26 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final healthAsync = ref.watch(healthProvider);
     final defaultModel = ref.watch(defaultModelProvider);
     final authState = ref.watch(authStateProvider);
+    final accessStatus = ref.watch(accessGateStatusProvider);
     final firebaseUser = authState.valueOrNull;
     final profileAsync = ref.watch(accountProfileProvider);
     final billingAsync = ref.watch(billingStatusProvider);
     final billingData = billingAsync.valueOrNull;
     final oneTimeUnlocked = billingData?['oneTimeUnlocked'] == true;
 
+    final canAccess = accessStatus == AccessGateStatus.granted;
+    final needsAccess = !canAccess;
+    final canShowBack = canAccess && context.canPop();
+
     return Scaffold(
       appBar: AppBar(
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back, size: 20),
-          onPressed: () => context.pop(),
-        ),
+        automaticallyImplyLeading: canShowBack,
+        leading: canShowBack
+            ? IconButton(
+                icon: const Icon(Icons.arrow_back, size: 20),
+                onPressed: () => context.pop(),
+              )
+            : null,
         title: const Text(
           'SETTINGS',
           style: TextStyle(fontSize: 14, letterSpacing: 2),
@@ -78,94 +86,107 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             children: [
               _sectionHeader('SERVER CONNECTION'),
               const SizedBox(height: 8),
-              Container(
-                decoration: BoxDecoration(
-                  color: AppTheme.surface,
-                  border: Border.all(color: AppTheme.border),
-                ),
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'Host',
-                      style: TextStyle(
-                        color: AppTheme.textSecondary,
-                        fontSize: 11,
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    TextField(
-                      controller: _hostController,
-                      style: const TextStyle(
-                        color: AppTheme.textPrimary,
-                        fontSize: 13,
-                      ),
-                      decoration: const InputDecoration(
-                        hintText: 'localhost',
-                        isDense: true,
-                      ),
-                    ),
-                    const SizedBox(height: 14),
-                    const Text(
-                      'Port',
-                      style: TextStyle(
-                        color: AppTheme.textSecondary,
-                        fontSize: 11,
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    TextField(
-                      controller: _portController,
-                      keyboardType: TextInputType.number,
-                      style: const TextStyle(
-                        color: AppTheme.textPrimary,
-                        fontSize: 13,
-                      ),
-                      decoration: const InputDecoration(
-                        hintText: '3000',
-                        isDense: true,
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    SizedBox(
-                      width: double.infinity,
-                      child: ElevatedButton(
-                        onPressed: _saveSettings,
-                        child: const Text(
-                          'SAVE & CONNECT',
-                          style: TextStyle(fontSize: 12, letterSpacing: 1),
+              Opacity(
+                opacity: canAccess ? 1 : 0.45,
+                child: AbsorbPointer(
+                  absorbing: !canAccess,
+                  child: Column(
+                    children: [
+                      Container(
+                        decoration: BoxDecoration(
+                          color: AppTheme.surface,
+                          border: Border.all(color: AppTheme.border),
+                        ),
+                        padding: const EdgeInsets.all(16),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'Host',
+                              style: TextStyle(
+                                color: AppTheme.textSecondary,
+                                fontSize: 11,
+                              ),
+                            ),
+                            const SizedBox(height: 6),
+                            TextField(
+                              controller: _hostController,
+                              style: const TextStyle(
+                                color: AppTheme.textPrimary,
+                                fontSize: 13,
+                              ),
+                              decoration: const InputDecoration(
+                                hintText: 'localhost',
+                                isDense: true,
+                              ),
+                            ),
+                            const SizedBox(height: 14),
+                            const Text(
+                              'Port',
+                              style: TextStyle(
+                                color: AppTheme.textSecondary,
+                                fontSize: 11,
+                              ),
+                            ),
+                            const SizedBox(height: 6),
+                            TextField(
+                              controller: _portController,
+                              keyboardType: TextInputType.number,
+                              style: const TextStyle(
+                                color: AppTheme.textPrimary,
+                                fontSize: 13,
+                              ),
+                              decoration: const InputDecoration(
+                                hintText: '3000',
+                                isDense: true,
+                              ),
+                            ),
+                            const SizedBox(height: 16),
+                            SizedBox(
+                              width: double.infinity,
+                              child: ElevatedButton(
+                                onPressed: _saveSettings,
+                                child: const Text(
+                                  'SAVE & CONNECT',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    letterSpacing: 1,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
                       ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 8),
-              Container(
-                decoration: BoxDecoration(
-                  color: AppTheme.surface,
-                  border: Border.all(color: AppTheme.border),
-                ),
-                padding: const EdgeInsets.all(12),
-                child: Row(
-                  children: [
-                    const Text(
-                      'Current URL',
-                      style: TextStyle(
-                        color: AppTheme.textTertiary,
-                        fontSize: 11,
+                      const SizedBox(height: 8),
+                      Container(
+                        decoration: BoxDecoration(
+                          color: AppTheme.surface,
+                          border: Border.all(color: AppTheme.border),
+                        ),
+                        padding: const EdgeInsets.all(12),
+                        child: Row(
+                          children: [
+                            const Text(
+                              'Current URL',
+                              style: TextStyle(
+                                color: AppTheme.textTertiary,
+                                fontSize: 11,
+                              ),
+                            ),
+                            const Spacer(),
+                            Text(
+                              settings.serverUrl,
+                              style: const TextStyle(
+                                color: AppTheme.textSecondary,
+                                fontSize: 11,
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
-                    ),
-                    const Spacer(),
-                    Text(
-                      settings.serverUrl,
-                      style: const TextStyle(
-                        color: AppTheme.textSecondary,
-                        fontSize: 11,
-                      ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
 
@@ -209,10 +230,52 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               Container(
                 decoration: BoxDecoration(
                   color: AppTheme.surface,
-                  border: Border.all(color: AppTheme.border),
+                  border: Border.all(
+                    color: needsAccess ? AppTheme.accent : AppTheme.border,
+                    width: needsAccess ? 1.4 : 1,
+                  ),
+                  boxShadow: needsAccess
+                      ? [
+                          BoxShadow(
+                            color: AppTheme.accent.withValues(alpha: 0.12),
+                            blurRadius: 18,
+                            spreadRadius: 1,
+                          ),
+                        ]
+                      : null,
                 ),
                 child: Column(
                   children: [
+                    if (needsAccess)
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+                        decoration: BoxDecoration(
+                          color: AppTheme.accent.withValues(alpha: 0.12),
+                          border: Border(
+                            bottom: BorderSide(color: AppTheme.border),
+                          ),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(
+                              Icons.lock_outline,
+                              size: 16,
+                              color: AppTheme.accent,
+                            ),
+                            const SizedBox(width: 8),
+                            const Expanded(
+                              child: Text(
+                                'Sign in and complete setup to unlock access',
+                                style: TextStyle(
+                                  color: AppTheme.textSecondary,
+                                  fontSize: 11,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
                     ListTile(
                       leading: Icon(
                         firebaseUser == null
@@ -351,68 +414,74 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               const SizedBox(height: 24),
               _sectionHeader('ACTIONS'),
               const SizedBox(height: 8),
-              Container(
-                decoration: BoxDecoration(
-                  color: AppTheme.surface,
-                  border: Border.all(color: AppTheme.border),
-                ),
-                child: Column(
-                  children: [
-                    ListTile(
-                      leading: const Icon(
-                        Icons.refresh,
-                        color: AppTheme.textSecondary,
-                        size: 20,
-                      ),
-                      title: const Text(
-                        'Refresh All Data',
-                        style: TextStyle(fontSize: 13),
-                      ),
-                      trailing: const Icon(
-                        Icons.chevron_right,
-                        color: AppTheme.textTertiary,
-                        size: 18,
-                      ),
-                      onTap: () {
-                        ref.invalidate(healthProvider);
-                        ref.invalidate(projectsProvider);
-                        ref.invalidate(sessionsProvider);
-                        ref.invalidate(providersListProvider);
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('Refreshing...')),
-                        );
-                      },
+              Opacity(
+                opacity: canAccess ? 1 : 0.45,
+                child: AbsorbPointer(
+                  absorbing: !canAccess,
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: AppTheme.surface,
+                      border: Border.all(color: AppTheme.border),
                     ),
-                    const Divider(height: 1),
-                    ListTile(
-                      leading: const Icon(
-                        Icons.model_training,
-                        color: AppTheme.textSecondary,
-                        size: 20,
-                      ),
-                      title: const Text(
-                        'Default Model',
-                        style: TextStyle(fontSize: 13),
-                      ),
-                      subtitle: defaultModel != null
-                          ? Text(
-                              '${defaultModel['providerID']}/${defaultModel['modelID']}',
-                              style: const TextStyle(
-                                color: AppTheme.textTertiary,
-                                fontSize: 11,
-                              ),
-                            )
-                          : null,
-                      trailing: const Icon(
-                        Icons.chevron_right,
-                        color: AppTheme.textTertiary,
-                        size: 18,
-                      ),
-                      onTap: () {
-                        context.push('/models', extra: {'mode': 'default'});
-                      },
+                    child: Column(
+                      children: [
+                        ListTile(
+                          leading: const Icon(
+                            Icons.refresh,
+                            color: AppTheme.textSecondary,
+                            size: 20,
+                          ),
+                          title: const Text(
+                            'Refresh All Data',
+                            style: TextStyle(fontSize: 13),
+                          ),
+                          trailing: const Icon(
+                            Icons.chevron_right,
+                            color: AppTheme.textTertiary,
+                            size: 18,
+                          ),
+                          onTap: () {
+                            ref.invalidate(healthProvider);
+                            ref.invalidate(projectsProvider);
+                            ref.invalidate(sessionsProvider);
+                            ref.invalidate(providersListProvider);
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text('Refreshing...')),
+                            );
+                          },
+                        ),
+                        const Divider(height: 1),
+                        ListTile(
+                          leading: const Icon(
+                            Icons.model_training,
+                            color: AppTheme.textSecondary,
+                            size: 20,
+                          ),
+                          title: const Text(
+                            'Default Model',
+                            style: TextStyle(fontSize: 13),
+                          ),
+                          subtitle: defaultModel != null
+                              ? Text(
+                                  '${defaultModel['providerID']}/${defaultModel['modelID']}',
+                                  style: const TextStyle(
+                                    color: AppTheme.textTertiary,
+                                    fontSize: 11,
+                                  ),
+                                )
+                              : null,
+                          trailing: const Icon(
+                            Icons.chevron_right,
+                            color: AppTheme.textTertiary,
+                            size: 18,
+                          ),
+                          onTap: () {
+                            context.push('/models', extra: {'mode': 'default'});
+                          },
+                        ),
+                      ],
                     ),
-                  ],
+                  ),
                 ),
               ),
 
@@ -579,6 +648,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final host = _hostController.text.trim();
     final port = int.tryParse(_portController.text.trim()) ?? 3000;
     ref.read(settingsProvider.notifier).updateServer(host, port);
+    ref.read(settingsReloadProvider.future);
     ref.invalidate(healthProvider);
     ref.invalidate(projectsProvider);
     ScaffoldMessenger.of(

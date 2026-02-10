@@ -35,29 +35,48 @@ class SettingsState {
   final String serverUrl;
   final String serverHost;
   final int serverPort;
+  final bool isLoaded;
 
   const SettingsState({
     this.serverUrl = 'http://127.0.0.1:4096',
     this.serverHost = '127.0.0.1',
     this.serverPort = 4096,
+    this.isLoaded = false,
   });
 
   SettingsState copyWith({
     String? serverUrl,
     String? serverHost,
     int? serverPort,
+    bool? isLoaded,
   }) {
     return SettingsState(
       serverUrl: serverUrl ?? this.serverUrl,
       serverHost: serverHost ?? this.serverHost,
       serverPort: serverPort ?? this.serverPort,
+      isLoaded: isLoaded ?? this.isLoaded,
     );
   }
 }
 
 class SettingsNotifier extends StateNotifier<SettingsState> {
+  Future<void>? _loading;
+
   SettingsNotifier() : super(const SettingsState()) {
-    _load();
+    ensureLoaded();
+  }
+
+  Future<void> ensureLoaded() {
+    final existing = _loading;
+    if (existing != null) return existing;
+    final next = _load();
+    _loading = next;
+    return next;
+  }
+
+  Future<void> reload() async {
+    _loading = _load();
+    await _loading;
   }
 
   Future<void> _load() async {
@@ -68,6 +87,7 @@ class SettingsNotifier extends StateNotifier<SettingsState> {
       serverHost: host,
       serverPort: port,
       serverUrl: 'http://$host:$port',
+      isLoaded: true,
     );
   }
 
@@ -79,6 +99,7 @@ class SettingsNotifier extends StateNotifier<SettingsState> {
       serverHost: host,
       serverPort: port,
       serverUrl: 'http://$host:$port',
+      isLoaded: true,
     );
   }
 }
@@ -96,6 +117,10 @@ final settingsProvider = StateNotifierProvider<SettingsNotifier, SettingsState>(
 final apiClientProvider = Provider<ApiClient>((ref) {
   final settings = ref.watch(settingsProvider);
   final client = ApiClient(baseUrl: settings.serverUrl);
+  ref.listen<SettingsState>(settingsProvider, (prev, next) {
+    if (prev?.serverUrl == next.serverUrl) return;
+    client.updateBaseUrl(next.serverUrl);
+  });
   return client;
 });
 
@@ -746,6 +771,11 @@ class DefaultModelNotifier extends StateNotifier<Map<String, String>?> {
     _load();
   }
 
+  Future<void> preload() async {
+    if (state != null) return;
+    await _load();
+  }
+
   Future<void> _load() async {
     final model = await _preferencesService.getDefaultModel();
     if (model != null) {
@@ -786,6 +816,11 @@ class ProjectModelNotifier extends StateNotifier<ProjectModelState> {
 
   ProjectModelNotifier(this._preferencesService)
     : super(const ProjectModelState(model: null, isLoading: true));
+
+  Future<void> preload(String projectId) async {
+    if (state.projectId == projectId && !state.isLoading) return;
+    await load(projectId);
+  }
 
   Future<void> load(String projectId) async {
     state = ProjectModelState(
@@ -843,6 +878,54 @@ final activeModelProvider = Provider<Map<String, String>?>((ref) {
   if (defaultModel != null) return defaultModel;
 
   return null;
+});
+
+// ---------------------------------------------------------------------------
+// App preload
+// ---------------------------------------------------------------------------
+
+final appPreloadProvider = FutureProvider<bool>((ref) async {
+  final settingsNotifier = ref.read(settingsProvider.notifier);
+  await settingsNotifier.ensureLoaded();
+  final settings = ref.read(settingsProvider);
+  if (!settings.isLoaded) return true;
+
+  ref.read(apiClientProvider);
+  ref.read(pathInfoProvider);
+  ref.read(authStateProvider);
+
+  var hadError = false;
+  Future<void> safe(Future<dynamic> future) async {
+    try {
+      await future;
+    } catch (_) {
+      hadError = true;
+    }
+  }
+
+  final settingsState = ref.read(settingsProvider);
+  if (settingsState.isLoaded) {
+    final currentUrl = settingsState.serverUrl;
+    final preloaded = ref.read(apiClientProvider);
+    if (preloaded.baseUrl != currentUrl) {
+      preloaded.updateBaseUrl(currentUrl);
+    }
+  }
+
+  await Future.wait([
+    safe(ref.read(healthProvider.future)),
+    safe(ref.read(projectsProvider.future)),
+    safe(ref.read(defaultModelProvider.notifier).preload()),
+    safe(ref.read(accountProfileProvider.future)),
+    safe(ref.read(billingStatusProvider.future)),
+  ]);
+
+  return hadError;
+});
+
+final settingsReloadProvider = FutureProvider<void>((ref) async {
+  final notifier = ref.read(settingsProvider.notifier);
+  await notifier.reload();
 });
 
 // ---------------------------------------------------------------------------

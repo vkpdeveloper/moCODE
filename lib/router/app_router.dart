@@ -9,17 +9,19 @@ import '../screens/chat_screen.dart';
 import '../screens/settings_screen.dart';
 import '../screens/payment_checkout_screen.dart';
 import '../screens/model_picker_screen.dart';
+import '../screens/splash_screen.dart';
 
 final routerProvider = Provider<GoRouter>((ref) {
   final accessGateStatus = ref.watch(accessGateStatusProvider);
 
   return GoRouter(
-    initialLocation: '/projects',
+    initialLocation: '/splash',
     redirect: (context, state) {
       final path = state.uri.path;
       final isSettings = path == '/settings';
       final isPaymentCheckout = path == '/payment/checkout';
-      final isGateRoute = isSettings || isPaymentCheckout;
+      final isSplash = path == '/splash';
+      final isGateRoute = isSettings || isPaymentCheckout || isSplash;
 
       if (accessGateStatus == AccessGateStatus.loading) {
         return isGateRoute ? null : '/settings';
@@ -36,6 +38,10 @@ final routerProvider = Provider<GoRouter>((ref) {
       return null;
     },
     routes: [
+      GoRoute(
+        path: '/splash',
+        builder: (context, state) => const SplashScreen(),
+      ),
       GoRoute(
         path: '/projects',
         builder: (context, state) => const ProjectsScreen(),
