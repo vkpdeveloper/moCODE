@@ -26,13 +26,15 @@ class PtyService {
           'args': args,
           'cwd': cwd,
           if (title != null) 'title': title,
-          'env': env,
+          if (env != null) 'env': env,
         },
         queryParameters: {'directory': directory},
       );
       final data = parseJsonObjectBytes(response.data as List<int>);
       return PtyInfo.fromJson(data);
-    } on DioException {
+    } on DioException catch (e) {
+      final data = parseJsonObjectBytes(e.response?.data as List<int>);
+      print(data);
       rethrow;
     }
   }
@@ -45,7 +47,11 @@ class PtyService {
       );
       final data = parseJsonObjectBytes(response.data as List<int>);
       return PtyInfo.fromJson(data);
-    } on DioException {
+    } on DioException catch (e) {
+      final data = e.response?.data;
+      if (data is List<int>) {
+        parseJsonObjectBytes(data);
+      }
       rethrow;
     }
   }

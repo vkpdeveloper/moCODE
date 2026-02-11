@@ -528,7 +528,7 @@ class MessagePartsWidget extends StatelessWidget {
 
   Widget _buildCommandOutputPart(BuildContext context, CommandOutputPart part) {
     final rawOutput = part.metadata?['output']?.toString() ?? '';
-    final output = _stripAnsi(rawOutput);
+    final output = _cleanTerminalOutput(rawOutput);
     final isRunning = part.status == 'running';
     final statusLabel = part.status?.toUpperCase() ?? 'RUNNING';
     final header = [
@@ -724,9 +724,64 @@ class MessagePartsWidget extends StatelessWidget {
     );
   }
 
-  String _stripAnsi(String input) {
-    final ansiRegex = RegExp(r'\x1B\[[0-9;]*[A-Za-z]');
-    return input.replaceAll(ansiRegex, '');
+  /// Clean raw terminal output for display.
+  ///
+  /// 1. Strip all ANSI escape sequences (CSI, OSC, single-char).
+  /// 2. Simulate carriage-return (\r) line overwrites so progress bars
+  ///    collapse to the final visible text on each line.
+  /// 3. Remove remaining non-printable control chars (except \n and \t).
+  /// 4. Collapse runs of 3+ blank lines into 2.
+  /// 5. Trim trailing whitespace.
+  String _cleanTerminalOutput(String input) {
+    // 1. Strip all ANSI escape sequences
+    //    - CSI sequences: \x1B[ ... letter
+    //    - OSC sequences: \x1B] ... (terminated by BEL \x07 or ST \x1B\\)
+    //    - Two-char sequences: \x1B followed by a single char (e.g. \x1B(B)
+    final ansiRegex = RegExp(
+      r'\x1B' // ESC
+      r'(?:'
+      r'\[[0-9;?]*[A-Za-z]' // CSI: \x1B[ ... letter
+      r'|'
+      r'\][^\x07\x1B]*(?:\x07|\x1B\\)?' // OSC: \x1B] ... BEL/ST
+      r'|'
+      r'[()#][A-Za-z0-9]?' // charset switching
+      r'|'
+      r'[A-Za-z]' // single-char (e.g. \x1BM)
+      r')',
+    );
+    var cleaned = input.replaceAll(ansiRegex, '');
+
+    // 2. Simulate carriage-return overwrites.
+    //    Split by newlines, then for each line if it contains \r,
+    //    split by \r and keep only the last non-empty segment.
+    final lines = cleaned.split('\n');
+    final processed = <String>[];
+    for (final line in lines) {
+      if (line.contains('\r')) {
+        final segments = line.split('\r');
+        // Find the last non-empty segment (that's what the terminal shows)
+        var lastVisible = '';
+        for (final seg in segments) {
+          if (seg.isNotEmpty) {
+            lastVisible = seg;
+          }
+        }
+        processed.add(lastVisible);
+      } else {
+        processed.add(line);
+      }
+    }
+
+    // 3. Remove remaining non-printable control characters
+    //    (keep \n implicit via the join, keep \t for indentation)
+    var result = processed.join('\n');
+    result = result.replaceAll(RegExp(r'[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]'), '');
+
+    // 4. Collapse runs of 3+ blank lines into 2
+    result = result.replaceAll(RegExp(r'\n{4,}'), '\n\n\n');
+
+    // 5. Trim
+    return result.trim();
   }
 
   String _truncate(String text, int maxLength) {

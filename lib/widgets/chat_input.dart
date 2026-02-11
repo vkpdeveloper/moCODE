@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../providers/providers.dart';
+import '../models/app_models.dart' as app_models;
 import '../theme/app_theme.dart';
 import '../constants/file_icons.dart';
 
@@ -122,7 +123,7 @@ class _ChatInputState extends ConsumerState<ChatInput> {
 
     _debounce?.cancel();
     _debounce = Timer(const Duration(milliseconds: _overlayDebounceMs), () {
-      _showOverlay(match.mode, match.query);
+      _showOverlay(match.mode, match.query, match.triggerChar);
     });
   }
 
@@ -137,7 +138,7 @@ class _ChatInputState extends ConsumerState<ChatInput> {
 
     if (cursorPos >= 1) {
       final prev = text[cursorPos - 1];
-      if (prev == '@' || prev == '/') {
+      if (prev == '@' || prev == '/' || prev == r'$') {
         if (cursorPos == 1 || text[cursorPos - 2] == ' ') {
           return true;
         }
@@ -168,6 +169,20 @@ class _ChatInputState extends ConsumerState<ChatInput> {
           );
         }
       }
+      if (ch == r'$') {
+        if (i == 0 || text[i - 1] == ' ') {
+          final query = text.substring(i + 1, cursorPos);
+          if (query.isEmpty || query.contains(' ') || query.length >= 50) {
+            return null;
+          }
+          return _TriggerMatch(
+            position: i,
+            query: query,
+            mode: 'command',
+            triggerChar: r'$',
+          );
+        }
+      }
       if (ch == '/') {
         if (i == 0) {
           final query = text.substring(i + 1, cursorPos);
@@ -194,6 +209,7 @@ class _ChatInputState extends ConsumerState<ChatInput> {
           return _OverlayContent(
             mode: payload.mode,
             query: payload.query,
+            triggerChar: payload.triggerChar,
             layerLink: _layerLink,
             onSelectFile: _onFileSelected,
             onSelectCommand: _onCommandSelected,
@@ -205,13 +221,20 @@ class _ChatInputState extends ConsumerState<ChatInput> {
     Overlay.of(context).insert(_overlayEntry!);
   }
 
-  void _showOverlay(String mode, String query) {
+  void _showOverlay(String mode, String query, String triggerChar) {
     _ensureOverlayEntry();
     final current = _overlayPayload.value;
-    if (current != null && current.mode == mode && current.query == query) {
+    if (current != null &&
+        current.mode == mode &&
+        current.query == query &&
+        current.triggerChar == triggerChar) {
       return;
     }
-    _overlayPayload.value = _OverlayPayload(mode: mode, query: query);
+    _overlayPayload.value = _OverlayPayload(
+      mode: mode,
+      query: query,
+      triggerChar: triggerChar,
+    );
   }
 
   void _hideOverlay() {
@@ -230,6 +253,7 @@ class _ChatInputState extends ConsumerState<ChatInput> {
     _overlayLocked = true;
     _overlayLockChar = '@';
     _overlayLockPosition = _triggerPosition;
+    _triggerPosition = -1;
 
     final project = ref.read(selectedProjectProvider);
     var path = filePath;
@@ -292,32 +316,50 @@ class _ChatInputState extends ConsumerState<ChatInput> {
     });
   }
 
-  void _onCommandSelected(String commandName) {
+  void _onCommandSelected(String commandName, String type) {
     _hideOverlay();
     _overlayLocked = true;
-    _overlayLockChar = '/';
-    _overlayLockPosition = 0;
+    _overlayLockChar = type == 'skill' ? r'$' : '/';
+    _overlayLockPosition = _triggerPosition;
     _triggerPosition = -1;
 
-    if (commandName == 'run') {
-      _controller.text = '/run ';
+    final text = _controller.text;
+    final cursorPos = _controller.selection.baseOffset;
+    var triggerPos = _triggerPosition;
+    if (triggerPos < 0 || triggerPos > text.length) {
+      final lookupIndex = cursorPos > 0 ? cursorPos - 1 : text.length - 1;
+      triggerPos = text.lastIndexOf(
+        type == 'skill' ? r'$' : '/',
+        lookupIndex,
+      );
+    }
+    if (triggerPos < 0) {
+      triggerPos = cursorPos.clamp(0, text.length);
+    }
+
+    final before = text.substring(0, triggerPos);
+    final after = text.substring(cursorPos);
+
+    if (type == 'skill') {
+      final insertion = r'$skill ' + commandName;
+      final needsSpace = after.isEmpty || !after.startsWith(' ');
+      final next = '$before$insertion${needsSpace ? ' ' : ''}$after';
+      _controller.text = next;
       _controller.selection = TextSelection.collapsed(
-        offset: _controller.text.length,
+        offset: (before + insertion).length + (needsSpace ? 1 : 0),
       );
       _focusNode.requestFocus();
       return;
     }
 
-    final text = _controller.text;
-    final cursorPos = _controller.selection.baseOffset;
-    final after = text.substring(cursorPos);
-    final remaining = after.trim();
-
-    widget.onSendCommand(commandName, remaining);
-    _controller.clear();
+    final insertion = commandName == 'run' ? '/run ' : '/$commandName ';
+    final needsSpace = after.isNotEmpty && !after.startsWith(' ');
+    final next = '$before$insertion${needsSpace ? ' ' : ''}$after';
+    _controller.text = next;
     _controller.selection = TextSelection.collapsed(
-      offset: _controller.text.length,
+      offset: (before + insertion).length + (needsSpace ? 1 : 0),
     );
+    _focusNode.requestFocus();
   }
 
   Future<void> _send() async {
@@ -328,13 +370,35 @@ class _ChatInputState extends ConsumerState<ChatInput> {
     }
 
     if (_attachedFiles.isEmpty && _attachedImages.isEmpty) {
-      if (text == '/run' || text.startsWith('/run ')) {
-        final command = text.length > 4 ? text.substring(4).trim() : '';
-        _controller.clear();
+      if (text.startsWith('/')) {
+        final parts = text.substring(1).split(RegExp(r'\s+'));
+        final command = parts.isNotEmpty ? parts.first : '';
+        final args = parts.length > 1
+            ? parts.sublist(1).where((part) => part.isNotEmpty).toList()
+            : <String>[];
         if (command.isNotEmpty) {
-          widget.onSendCommand('run', command);
+          final commands = ref.read(commandsProvider).valueOrNull ?? [];
+          app_models.Command? commandMeta;
+          for (final item in commands) {
+            if (item.name == command) {
+              commandMeta = item;
+              break;
+            }
+          }
+          final hints = commandMeta?.hints ?? const [];
+          final requiresArgs = command == 'run' || hints.isNotEmpty;
+          if (requiresArgs && args.isEmpty) {
+            if (hints.isNotEmpty) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text('Hint: ${hints.join(' ')}')),
+              );
+            }
+            return;
+          }
+          _controller.clear();
+          widget.onSendCommand(command, args.join(' '));
+          return;
         }
-        return;
       }
     }
 
@@ -799,14 +863,16 @@ class _ChatInputFieldRow extends StatelessWidget {
 class _OverlayContent extends ConsumerWidget {
   final String mode;
   final String query;
+  final String triggerChar;
   final LayerLink layerLink;
   final void Function(String) onSelectFile;
-  final void Function(String) onSelectCommand;
+  final void Function(String, String) onSelectCommand;
   final VoidCallback onDismiss;
 
   const _OverlayContent({
     required this.mode,
     required this.query,
+    required this.triggerChar,
     required this.layerLink,
     required this.onSelectFile,
     required this.onSelectCommand,
@@ -837,7 +903,11 @@ class _OverlayContent extends ConsumerWidget {
                 ),
                 child: mode == 'file'
                     ? _FileSearchList(query: query, onSelect: onSelectFile)
-                    : _CommandList(query: query, onSelect: onSelectCommand),
+                    : _CommandList(
+                        query: query,
+                        triggerChar: triggerChar,
+                        onSelect: onSelectCommand,
+                      ),
               ),
             ),
           ),
@@ -850,8 +920,29 @@ class _OverlayContent extends ConsumerWidget {
 class _OverlayPayload {
   final String mode;
   final String query;
+  final String triggerChar;
 
-  const _OverlayPayload({required this.mode, required this.query});
+  const _OverlayPayload({
+    required this.mode,
+    required this.query,
+    required this.triggerChar,
+  });
+}
+
+class _CommandSuggestion {
+  final String name;
+  final String? description;
+  final String type;
+  final String source;
+  final List<String> hints;
+
+  const _CommandSuggestion({
+    required this.name,
+    this.description,
+    required this.type,
+    required this.source,
+    this.hints = const [],
+  });
 }
 
 class _TriggerMatch {
@@ -1169,54 +1260,77 @@ class _FileSearchList extends ConsumerWidget {
 
 class _CommandList extends ConsumerWidget {
   final String query;
-  final void Function(String) onSelect;
+  final String triggerChar;
+  final void Function(String, String) onSelect;
 
-  const _CommandList({required this.query, required this.onSelect});
+  const _CommandList({
+    required this.query,
+    required this.triggerChar,
+    required this.onSelect,
+  });
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final commandsAsync = ref.watch(commandsProvider);
-    final skillsAsync = ref.watch(skillsProvider);
 
     return commandsAsync.when(
       data: (commands) {
-        final skills = skillsAsync.valueOrNull ?? [];
-
-        final allItems = <Map<String, dynamic>>[];
-
-        allItems.add({
-          'name': 'run',
-          'description': 'Run a shell command in the project directory',
-          'type': 'command',
-          'source': 'local',
-        });
+        final commandsItems = <_CommandSuggestion>[
+          const _CommandSuggestion(
+            name: 'run',
+            description: 'Run a shell command in the project directory',
+            type: 'command',
+            source: 'command',
+            hints: [],
+          ),
+        ];
+        final skillsItems = <_CommandSuggestion>[];
 
         for (final cmd in commands) {
-          allItems.add({
-            'name': cmd.name,
-            'description': cmd.description,
-            'type': 'command',
-            'source': cmd.source ?? 'command',
-          });
+          if (cmd.source == 'mcp') {
+            continue;
+          }
+          if (cmd.source == 'skill') {
+            skillsItems.add(
+              _CommandSuggestion(
+                name: cmd.name,
+                description: cmd.description,
+                type: 'skill',
+                source: 'skill',
+                hints: const [],
+              ),
+            );
+          } else {
+            commandsItems.add(
+              _CommandSuggestion(
+                name: cmd.name,
+                description: cmd.description,
+                type: 'command',
+                source: cmd.source ?? 'command',
+                hints: cmd.hints,
+              ),
+            );
+          }
         }
 
-        for (final skill in skills) {
-          allItems.add({
-            'name': skill['name'] ?? '',
-            'description': skill['description'] ?? '',
-            'type': 'skill',
-            'source': 'skill',
-          });
+        List<_CommandSuggestion> filterItems(
+          List<_CommandSuggestion> items,
+        ) {
+          if (query.isEmpty) return items;
+          final lower = query.toLowerCase();
+          return items
+              .where((item) => item.name.toLowerCase().contains(lower))
+              .toList();
         }
 
-        final filtered = query.isEmpty
-            ? allItems
-            : allItems.where((item) {
-                final name = (item['name'] as String).toLowerCase();
-                return name.contains(query.toLowerCase());
-              }).toList();
+        final filteredCommands = triggerChar == '/'
+            ? filterItems(commandsItems)
+            : <_CommandSuggestion>[];
+        final filteredSkills = triggerChar == r'$'
+            ? filterItems(skillsItems)
+            : <_CommandSuggestion>[];
 
-        if (filtered.isEmpty) {
+        if (filteredCommands.isEmpty && filteredSkills.isEmpty) {
           return Padding(
             padding: const EdgeInsets.all(16),
             child: Text(
@@ -1229,90 +1343,23 @@ class _CommandList extends ConsumerWidget {
           );
         }
 
-        return ListView.builder(
+        return ListView(
           shrinkWrap: true,
           padding: EdgeInsets.zero,
-          itemExtent: 52,
-          itemCount: filtered.length,
-          itemBuilder: (context, index) {
-            final item = filtered[index];
-            final isSkill = item['type'] == 'skill';
-
-            return GestureDetector(
-              onTap: () => onSelect(item['name'] as String),
-              child: Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 8,
-                ),
-                decoration: BoxDecoration(
-                  border: Border(
-                    bottom: BorderSide(
-                      color: Theme.of(context).colorScheme.outlineVariant,
-                      width: 0.5,
-                    ),
-                  ),
-                ),
-                child: Row(
-                  children: [
-                    Icon(
-                      isSkill ? Icons.auto_awesome : Icons.terminal,
-                      size: 14,
-                      color: isSkill
-                          ? Theme.of(context).colorScheme.tertiary
-                          : Theme.of(context).colorScheme.primary,
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            '/${item['name']}',
-                            style: TextStyle(
-                              color: Theme.of(context).colorScheme.onSurface,
-                              fontSize: 12,
-                            ),
-                          ),
-                          if ((item['description'] as String?)?.isNotEmpty ??
-                              false)
-                            Text(
-                              item['description'] as String,
-                              style: TextStyle(
-                                color: Theme.of(
-                                  context,
-                                ).colorScheme.onSurfaceVariant,
-                                fontSize: 10,
-                              ),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                        ],
-                      ),
-                    ),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 4,
-                        vertical: 1,
-                      ),
-                      decoration: BoxDecoration(
-                        border: Border.all(
-                          color: Theme.of(context).colorScheme.outline,
-                        ),
-                      ),
-                      child: Text(
-                        (item['source'] as String? ?? '').toUpperCase(),
-                        style: TextStyle(
-                          color: Theme.of(context).colorScheme.onSurfaceVariant,
-                          fontSize: 8,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
+          children: [
+            if (filteredCommands.isNotEmpty)
+              _CommandSection(
+                title: 'Commands',
+                items: filteredCommands,
+                onSelect: onSelect,
               ),
-            );
-          },
+            if (filteredSkills.isNotEmpty)
+              _CommandSection(
+                title: 'Skills',
+                items: filteredSkills,
+                onSelect: onSelect,
+              ),
+          ],
         );
       },
       loading: () => Padding(
@@ -1338,6 +1385,128 @@ class _CommandList extends ConsumerWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+class _CommandSection extends StatelessWidget {
+  final String title;
+  final List<_CommandSuggestion> items;
+  final void Function(String, String) onSelect;
+
+  const _CommandSection({
+    required this.title,
+    required this.items,
+    required this.onSelect,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          child: Text(
+            title,
+            style: TextStyle(
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+              fontSize: 10,
+              fontWeight: FontWeight.w600,
+              letterSpacing: 0.6,
+            ),
+          ),
+        ),
+        ...items.map((item) {
+          final isSkill = item.type == 'skill';
+          final titleText = isSkill ? item.name : '/${item.name}';
+          final hint = item.hints.isNotEmpty ? item.hints.join(' ') : '';
+
+          return GestureDetector(
+            onTap: () => onSelect(item.name, item.type),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                border: Border(
+                  bottom: BorderSide(
+                    color: Theme.of(context).colorScheme.outlineVariant,
+                    width: 0.5,
+                  ),
+                ),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    isSkill ? Icons.auto_awesome : Icons.terminal,
+                    size: 14,
+                    color: isSkill
+                        ? Theme.of(context).colorScheme.tertiary
+                        : Theme.of(context).colorScheme.primary,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          titleText,
+                          style: TextStyle(
+                            color: Theme.of(context).colorScheme.onSurface,
+                            fontSize: 12,
+                          ),
+                        ),
+                        if ((item.description ?? '').isNotEmpty)
+                          Text(
+                            item.description ?? '',
+                            style: TextStyle(
+                              color: Theme.of(context)
+                                  .colorScheme
+                                  .onSurfaceVariant,
+                              fontSize: 10,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        if (hint.isNotEmpty)
+                          Text(
+                            hint,
+                            style: TextStyle(
+                              color: Theme.of(context)
+                                  .colorScheme
+                                  .onSurfaceVariant,
+                              fontSize: 10,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                      ],
+                    ),
+                  ),
+                  if (item.source.isNotEmpty)
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 4,
+                        vertical: 1,
+                      ),
+                      decoration: BoxDecoration(
+                        border: Border.all(
+                          color: Theme.of(context).colorScheme.outline,
+                        ),
+                      ),
+                      child: Text(
+                        item.source.toUpperCase(),
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                          fontSize: 8,
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          );
+        }),
+      ],
     );
   }
 }

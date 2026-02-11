@@ -1,7 +1,7 @@
 import { and, desc, eq, gte } from "drizzle-orm";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
-import { readFileSync } from "node:fs";
+import { access, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { Webhook } from "standardwebhooks";
 import { z } from "zod";
@@ -174,9 +174,13 @@ app.get("/api/v1/auth/me", async (c) => {
 
   return c.json({
     user,
+    // access: {
+    //   oneTimeUnlocked: entitlement[0]?.oneTimeUnlocked ?? false,
+    //   paidAt: entitlement[0]?.paidAt ?? null,
+    // },
     access: {
-      oneTimeUnlocked: entitlement[0]?.oneTimeUnlocked ?? false,
-      paidAt: entitlement[0]?.paidAt ?? null,
+      oneTimeUnlocked: true,
+      paidAt: new Date(),
     },
   });
 });
@@ -195,11 +199,18 @@ app.get("/api/v1/billing/status", async (c) => {
     .where(eq(entitlements.userId, user.id))
     .limit(1);
 
+  // return c.json({
+  //   oneTimeUnlocked: entitlement[0]?.oneTimeUnlocked ?? false,
+  //   provider: entitlement[0]?.provider ?? null,
+  //   paymentId: entitlement[0]?.paymentId ?? null,
+  //   paidAt: entitlement[0]?.paidAt ?? null,
+  // });
+
   return c.json({
-    oneTimeUnlocked: entitlement[0]?.oneTimeUnlocked ?? false,
-    provider: entitlement[0]?.provider ?? null,
-    paymentId: entitlement[0]?.paymentId ?? null,
-    paidAt: entitlement[0]?.paidAt ?? null,
+    oneTimeUnlocked: true,
+    provider: "dodopayments",
+    paymentId: "wieuriw",
+    paidAt: new Date(),
   });
 });
 

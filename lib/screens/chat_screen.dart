@@ -13,14 +13,13 @@ import '../models/permission_request.dart';
 import '../models/question_request.dart';
 import '../models/session.dart';
 import '../models/todo.dart';
-import '../models/pty.dart';
 import '../models/file_diff.dart';
 import '../models/part.dart';
 import '../models/command_run.dart';
+import '../models/pty.dart';
 import '../providers/providers.dart';
 import '../theme/app_theme.dart';
 import '../widgets/chat_input.dart';
-import '../widgets/file_changes_tree.dart';
 import '../widgets/message_parts.dart';
 import '../widgets/session_busy_indicator.dart';
 
@@ -1417,18 +1416,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     required String? activeRunId,
     required Map<String, CommandRun> commandRuns,
   }) {
-    final todosState = ref.watch(todosProvider);
-    final ptyState = ref.watch(ptyProvider);
-    final ptys = ptyState.items.values.toList()
-      ..sort((a, b) {
-        final titleA = a.title.isNotEmpty ? a.title : a.command;
-        final titleB = b.title.isNotEmpty ? b.title : b.command;
-        return titleA.compareTo(titleB);
-      });
     final tabs = const [
-      Tab(text: 'CHANGES'),
-      Tab(text: 'TODOS'),
-      Tab(text: 'PTY'),
       Tab(text: 'TERMINAL'),
     ];
 
@@ -1476,9 +1464,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
                     child: TabBarView(
                       physics: const NeverScrollableScrollPhysics(),
                       children: [
-                        _buildChangesTab(),
-                        _buildTodosTab(todosState),
-                        _buildPtyTab(ptys),
                         _buildTerminalTab(
                           activeRunId: activeRunId,
                           runs: commandRuns,
@@ -1496,237 +1481,15 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
   }
 
   Widget _buildSidebarToggle() {
-    final todos = ref.watch(todosProvider).todos;
-    final pendingCount = todos.where((todo) {
-      final status = todo.status.toLowerCase();
-      return status == 'in_progress' ||
-          status == 'inprogress' ||
-          status == 'pending' ||
-          status == 'todo';
-    }).length;
-
-    return Stack(
-      clipBehavior: Clip.none,
-      children: [
-        IconButton(
-          icon: Icon(
-            _isSidebarOpen ? Icons.view_sidebar : Icons.view_sidebar_outlined,
-            size: 20,
-          ),
-          onPressed: () {
-            setState(() => _isSidebarOpen = !_isSidebarOpen);
-          },
-          tooltip: 'Sidebar',
-        ),
-        if (pendingCount > 0)
-          Positioned(
-            right: 4,
-            top: 4,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-              decoration: BoxDecoration(
-                color: AppTheme.warning,
-                border: Border.all(color: AppTheme.border),
-              ),
-              child: Text(
-                pendingCount > 99 ? '99+' : pendingCount.toString(),
-                style: const TextStyle(
-                  fontSize: 8,
-                  color: AppTheme.background,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ),
-          ),
-      ],
-    );
-  }
-
-  Widget _buildChangesTab() {
-    final diffState = ref.watch(sessionDiffProvider);
-    if (diffState.isLoading) {
-      return const Center(
-        child: SizedBox(
-          width: 18,
-          height: 18,
-          child: CircularProgressIndicator(strokeWidth: 2),
-        ),
-      );
-    }
-
-    if (diffState.error != null) {
-      return Center(
-        child: Text(
-          'Diff error: ${diffState.error}',
-          style: const TextStyle(color: AppTheme.textTertiary, fontSize: 11),
-          textAlign: TextAlign.center,
-        ),
-      );
-    }
-
-    return FileChangesTree(diffs: diffState.diffs);
-  }
-
-  Widget _buildTodosTab(TodosState todosState) {
-    if (todosState.isLoading) {
-      return const Center(
-        child: SizedBox(
-          width: 18,
-          height: 18,
-          child: CircularProgressIndicator(strokeWidth: 2),
-        ),
-      );
-    }
-
-    if (todosState.todos.isEmpty) {
-      return const Center(
-        child: Text(
-          'No todos',
-          style: TextStyle(color: AppTheme.textTertiary, fontSize: 11),
-        ),
-      );
-    }
-
-    return ListView.separated(
-      padding: const EdgeInsets.all(12),
-      itemCount: todosState.todos.length,
-      separatorBuilder: (context, index) => const Divider(height: 16),
-      itemBuilder: (context, index) {
-        final todo = todosState.todos[index];
-        final status = todo.status.toUpperCase();
-        final priority = todo.priority.toUpperCase();
-
-        // Determine status color based on status value
-        Color statusColor;
-        switch (todo.status.toLowerCase()) {
-          case 'in_progress':
-          case 'inprogress':
-          case 'pending':
-            statusColor = AppTheme.warning;
-          case 'done':
-          case 'completed':
-          case 'complete':
-            statusColor = AppTheme.success;
-          default:
-            statusColor = AppTheme.textTertiary;
-        }
-
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              todo.content,
-              style: const TextStyle(color: AppTheme.textPrimary, fontSize: 12),
-            ),
-            const SizedBox(height: 6),
-            Wrap(
-              spacing: 8,
-              runSpacing: 4,
-              children: [
-                Text(
-                  status,
-                  style: TextStyle(
-                    color: statusColor,
-                    fontSize: 9,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                Text(
-                  priority,
-                  style: const TextStyle(
-                    color: AppTheme.textTertiary,
-                    fontSize: 9,
-                  ),
-                ),
-              ],
-            ),
-          ],
-        );
+    return IconButton(
+      icon: Icon(
+        _isSidebarOpen ? Icons.view_sidebar : Icons.view_sidebar_outlined,
+        size: 20,
+      ),
+      onPressed: () {
+        setState(() => _isSidebarOpen = !_isSidebarOpen);
       },
-    );
-  }
-
-  Widget _buildPtyTab(List<PtyInfo> ptys) {
-    if (ptys.isEmpty) {
-      return const Center(
-        child: Text(
-          'No ptys',
-          style: TextStyle(color: AppTheme.textTertiary, fontSize: 11),
-        ),
-      );
-    }
-
-    return ListView.separated(
-      padding: const EdgeInsets.all(12),
-      itemCount: ptys.length,
-      separatorBuilder: (context, index) => const Divider(height: 16),
-      itemBuilder: (context, index) {
-        final pty = ptys[index];
-        final title = pty.title.isNotEmpty ? pty.title : pty.command;
-        final exitCode = pty.exitCode;
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              title,
-              style: const TextStyle(color: AppTheme.textPrimary, fontSize: 12),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-            const SizedBox(height: 4),
-            Text(
-              pty.cwd,
-              style: const TextStyle(
-                color: AppTheme.textTertiary,
-                fontSize: 10,
-              ),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-            const SizedBox(height: 6),
-            Row(
-              children: [
-                Container(
-                  width: 6,
-                  height: 6,
-                  decoration: BoxDecoration(
-                    color: pty.status == 'running'
-                        ? AppTheme.success
-                        : AppTheme.textTertiary,
-                    shape: BoxShape.circle,
-                  ),
-                ),
-                const SizedBox(width: 6),
-                Text(
-                  pty.status.toUpperCase(),
-                  style: const TextStyle(
-                    color: AppTheme.textTertiary,
-                    fontSize: 9,
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Text(
-                  'PID ${pty.pid}',
-                  style: const TextStyle(
-                    color: AppTheme.textTertiary,
-                    fontSize: 9,
-                  ),
-                ),
-                if (exitCode != null) ...[
-                  const SizedBox(width: 8),
-                  Text(
-                    'EXIT $exitCode',
-                    style: const TextStyle(
-                      color: AppTheme.textTertiary,
-                      fontSize: 9,
-                    ),
-                  ),
-                ],
-              ],
-            ),
-          ],
-        );
-      },
+      tooltip: 'Sidebar',
     );
   }
 
@@ -2024,6 +1787,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     final command = tokens.first;
     final args = tokens.skip(1).toList();
     final cwd = project.worktree;
+
 
     try {
       setState(() => _isBusy = true);

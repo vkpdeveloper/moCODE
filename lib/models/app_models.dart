@@ -36,14 +36,24 @@ class Command {
   final String name;
   final String? description;
   final String? source;
+  final List<String> hints;
 
-  const Command({required this.name, this.description, this.source});
+  const Command({
+    required this.name,
+    this.description,
+    this.source,
+    this.hints = const [],
+  });
 
   factory Command.fromJson(Map<String, dynamic> json) {
     return Command(
       name: json['name'] as String? ?? '',
       description: json['description'] as String?,
       source: json['source'] as String?,
+      hints: (json['hints'] as List<dynamic>?)
+              ?.map((e) => e as String)
+              .toList() ??
+          [],
     );
   }
 }
