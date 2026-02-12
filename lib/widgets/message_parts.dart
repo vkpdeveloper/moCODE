@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:markdown/markdown.dart' as md;
+import 'package:url_launcher/url_launcher.dart';
 
 import '../models/part.dart';
 import '../theme/app_theme.dart';
@@ -63,6 +65,15 @@ class MessagePartsWidget extends StatelessWidget {
       child: MarkdownBody(
         data: part.text,
         selectable: true,
+        softLineBreak: true,
+        extensionSet: md.ExtensionSet.gitHubWeb,
+        builders: {'pre': _CodeBlockBuilder(context)},
+        onTapLink: (text, href, title) async {
+          if (href == null || href.isEmpty) return;
+          final uri = Uri.tryParse(href);
+          if (uri == null) return;
+          await launchUrl(uri, mode: LaunchMode.externalApplication);
+        },
         styleSheet: MarkdownStyleSheet(
           p: const TextStyle(
             color: AppTheme.textPrimary,
@@ -84,6 +95,8 @@ class MessagePartsWidget extends StatelessWidget {
             fontSize: 14,
             fontWeight: FontWeight.bold,
           ),
+          listBulletPadding: const EdgeInsets.only(right: 8),
+          blockSpacing: 10,
           code: GoogleFonts.jetBrainsMono(
             textStyle: const TextStyle(
               color: AppTheme.accent,
@@ -94,8 +107,24 @@ class MessagePartsWidget extends StatelessWidget {
           codeblockDecoration: BoxDecoration(
             color: AppTheme.surfaceVariant,
             border: Border.all(color: AppTheme.border),
+            borderRadius: BorderRadius.circular(8),
           ),
-          codeblockPadding: const EdgeInsets.all(12),
+          codeblockPadding: const EdgeInsets.all(0),
+          tableHead: const TextStyle(
+            color: AppTheme.textPrimary,
+            fontSize: 12,
+            fontWeight: FontWeight.w700,
+          ),
+          tableBody: const TextStyle(
+            color: AppTheme.textSecondary,
+            fontSize: 12,
+            height: 1.4,
+          ),
+          tableBorder: TableBorder.all(color: AppTheme.border),
+          tableCellsPadding: const EdgeInsets.symmetric(
+            horizontal: 8,
+            vertical: 6,
+          ),
           blockquoteDecoration: BoxDecoration(
             border: Border(
               left: BorderSide(
@@ -787,5 +816,99 @@ class MessagePartsWidget extends StatelessWidget {
   String _truncate(String text, int maxLength) {
     if (text.length <= maxLength) return text;
     return '${text.substring(0, maxLength)}...';
+  }
+}
+
+class _CodeBlockBuilder extends MarkdownElementBuilder {
+  final BuildContext context;
+
+  _CodeBlockBuilder(this.context);
+
+  @override
+  Widget? visitElementAfter(md.Element element, TextStyle? preferredStyle) {
+    final language = _extractLanguage(element);
+    final code = _extractCode(element);
+    if (code.isEmpty) return const SizedBox.shrink();
+
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(top: 2, bottom: 2),
+      decoration: BoxDecoration(
+        color: AppTheme.surfaceVariant,
+        border: Border.all(color: AppTheme.border),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            decoration: BoxDecoration(
+              border: Border(bottom: BorderSide(color: AppTheme.border)),
+            ),
+            child: Row(
+              children: [
+                Text(
+                  language,
+                  style: const TextStyle(
+                    color: AppTheme.textTertiary,
+                    fontSize: 10,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const Spacer(),
+                GestureDetector(
+                  onTap: () async {
+                    await Clipboard.setData(ClipboardData(text: code));
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Code copied.')),
+                      );
+                    }
+                  },
+                  child: const Icon(Icons.copy, size: 14, color: AppTheme.textTertiary),
+                ),
+              ],
+            ),
+          ),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.all(12),
+            child: SelectableText(
+              code,
+              style: GoogleFonts.jetBrainsMono(
+                textStyle: const TextStyle(
+                  color: AppTheme.textSecondary,
+                  fontSize: 12,
+                  height: 1.5,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _extractCode(md.Element element) {
+    if (element.children == null || element.children!.isEmpty) return '';
+    final child = element.children!.first;
+    if (child is md.Element && child.tag == 'code') {
+      return child.textContent;
+    }
+    return element.textContent;
+  }
+
+  String _extractLanguage(md.Element element) {
+    if (element.children == null || element.children!.isEmpty) {
+      return 'code';
+    }
+    final child = element.children!.first;
+    if (child is! md.Element) return 'code';
+    final className = child.attributes['class'];
+    if (className == null || className.isEmpty) return 'code';
+    const prefix = 'language-';
+    if (!className.startsWith(prefix)) return 'code';
+    return className.substring(prefix.length);
   }
 }

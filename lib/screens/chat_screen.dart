@@ -37,7 +37,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
   final ScrollController _scrollController = ScrollController();
   StreamSubscription<Map<String, dynamic>>? _eventSub;
   ProviderSubscription<Session?>? _sessionSub;
-  ProviderSubscription<AsyncValue<List<MessageWrapper>>>? _messagesSub;
+  ProviderSubscription<MessagesState>? _messagesSub;
   ProviderSubscription<AsyncValue<Map<String, dynamic>>>? _statusSub;
   ProviderSubscription<String>? _sessionModeSub;
   bool _isBusy = false;
@@ -55,7 +55,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
   bool _isPinnedToBottom = true;
   bool _isUndoRedoInFlight = false;
   bool _didInitialScroll = false;
-  Timer? _refreshTimer;
   final GlobalKey _chatInputKey = GlobalKey();
   final List<MessageWrapper> _optimisticMessages = [];
   int? _optimisticBaseCount;
@@ -73,7 +72,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
   StreamSubscription? _ptyStreamSub;
   WebSocketChannel? _ptyChannel;
   String? _activeRunId;
-  Timer? _pollTimer;
 
   AssistantMessageInfo _commandMessageInfo(
     CommandOutputPart part,
@@ -136,8 +134,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
 
   @override
   void dispose() {
-    _refreshTimer?.cancel();
-    _pollTimer?.cancel();
     _syncTimeout?.cancel();
     _eventSub?.cancel();
     _sessionSub?.close();
@@ -177,16 +173,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     }
   }
 
-  void _debouncedRefresh() {
-    _refreshTimer?.cancel();
-    _refreshTimer = Timer(const Duration(milliseconds: 200), () {
-      if (mounted) {
-        ref.invalidate(messagesProvider);
-        _refreshTimer = null;
-      }
-    });
-  }
-
   void _subscribeToEvents() {
     final project = ref.read(selectedProjectProvider);
     if (project == null) return;
@@ -207,12 +193,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
           return;
         }
 
-        if (type == 'message.updated' ||
-            type == 'message.removed' ||
-            type == 'message.part.updated' ||
-            type == 'message.part.removed') {
-          _debouncedRefresh();
-        } else if (type == 'permission.asked') {
+        if (type == 'permission.asked') {
           final props = event['properties'];
           if (props is Map<String, dynamic>) {
             _handlePermissionAsked(props);
@@ -227,68 +208,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
           }
         } else if (type == 'question.replied' || type == 'question.rejected') {
           _handleQuestionUpdated(event['properties']);
-        } else if (type == 'session.updated') {
-          ref.invalidate(sessionsProvider);
-          final session = ref.read(selectedSessionProvider);
-          if (session != null) {
-            ref
-                .read(sessionServiceProvider)
-                .getSession(session.id, directory: session.directory)
-                .then((updated) {
-                  ref.read(selectedSessionProvider.notifier).state = updated;
-                });
-          }
-        } else if (type == 'session.created') {
-          ref.invalidate(sessionsProvider);
-        } else if (type == 'session.status') {
-          final props = event['properties'];
-          if (!_isCurrentSessionEvent(props)) return;
-          String? statusStr;
-          if (props is Map<String, dynamic>) {
-            final status = props['status'];
-            if (status is Map<String, dynamic>) {
-              statusStr = status['type']?.toString();
-            } else {
-              statusStr = status is String ? status : status?.toString();
-            }
-          }
-          final wasBusy = _isBusy;
-          if (mounted) {
-            setState(() {
-              _isBusy = statusStr != null && statusStr != 'idle';
-            });
-          }
-          if (_isBusy) {
-            _markSessionActive();
-            _debouncedRefresh();
-          }
-          // Start / stop periodic polling based on busy state
-          if (_isBusy && !wasBusy) {
-            _startBusyPolling();
-          } else if (!_isBusy && wasBusy) {
-            _stopBusyPolling();
-          }
-        } else if (type == 'session.idle') {
-          if (!_isCurrentSessionEvent(event['properties'])) return;
-          if (mounted) {
-            setState(() => _isBusy = false);
-          }
-          _stopBusyPolling();
-          _debouncedRefresh();
         } else if (type == 'session.deleted') {
           _handleSessionDeleted(event['properties']);
-          ref.invalidate(sessionsProvider);
-        } else if (type == 'session.compacted') {
-          if (!_isCurrentSessionEvent(event['properties'])) return;
-          _debouncedRefresh();
-        } else if (type == 'session.error') {
-          _handleSessionError(event['properties']);
-        } else if (type == 'session.diff') {
-          _handleSessionDiff(event['properties']);
-        } else if (type == 'todo.updated') {
-          _handleTodoUpdated(event['properties']);
-        } else if (type == 'vcs.branch.updated') {
-          _handleBranchUpdated(event['properties']);
         } else if (type == 'tui.prompt.append') {
           _handlePromptAppend(event['properties']);
         } else if (type == 'tui.command.execute') {
@@ -297,14 +218,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
           _handleCommandExecuted(event['properties']);
         } else if (type == 'tui.toast.show') {
           _handleToastEvent(event['properties']);
-        } else if (type == 'pty.created') {
-          _handlePtyCreated(event['properties']);
-        } else if (type == 'pty.updated') {
-          _handlePtyUpdated(event['properties']);
-        } else if (type == 'pty.exited') {
-          _handlePtyExited(event['properties']);
-        } else if (type == 'pty.deleted') {
-          _handlePtyDeleted(event['properties']);
         }
       } catch (e) {
         debugPrint('[ChatScreen] Event error: $e\nRaw event: $event');
@@ -350,7 +263,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
   Future<void> _refreshAfterReconnect(Session session) async {
     await Future<void>.delayed(const Duration(milliseconds: 120));
     if (!mounted) return;
-    ref.invalidate(messagesProvider);
+    await ref.read(messagesProvider.notifier).loadForSession(session);
     await _loadTodos(session, force: true);
     await _loadSessionDiff(session, force: true);
     await _loadVcsBranch(session, force: true);
@@ -440,27 +353,27 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
   }
 
   void _listenToMessageUpdates() {
-    _messagesSub = ref.listenManual<AsyncValue<List<MessageWrapper>>>(
+    _messagesSub = ref.listenManual<MessagesState>(
       messagesProvider,
-      (prev, next) {
+      (MessagesState? prev, MessagesState next) {
         final session = ref.read(selectedSessionProvider);
-        final nextMessages = next.valueOrNull;
-        if (session != null && nextMessages != null) {
+        final nextMessages = next.messages;
+        if (session != null) {
           _updateCachedMessages(session.id, nextMessages);
           _syncSelectedModelFromMessages(session, nextMessages);
           _syncSessionModeFromMessages(session, nextMessages);
         }
 
-        if (_isSyncing && nextMessages != null) {
+        if (_isSyncing && !next.isLoading) {
           _syncMessagesReady = true;
           _completeSyncIfReady();
         }
 
-        final prevLength = prev?.valueOrNull?.length ?? 0;
-        final nextLength = next.valueOrNull?.length ?? 0;
+        final prevLength = prev?.messages.length ?? 0;
+        final nextLength = next.messages.length;
         if (nextLength > prevLength) {
           _scrollToBottom();
-        } else if (_isPinnedToBottom && nextMessages != null) {
+        } else if (_isPinnedToBottom) {
           _scrollToBottom();
         }
       },
@@ -559,7 +472,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
       _syncMessagesReady = false;
       _syncStatusReady = false;
     });
-    ref.invalidate(messagesProvider);
+    final session = ref.read(selectedSessionProvider);
+    unawaited(ref.read(messagesProvider.notifier).loadForSession(session));
     ref.invalidate(sessionStatusProvider);
     _syncTimeout = Timer(const Duration(seconds: 8), () {
       if (!mounted || token != _syncToken) return;
@@ -580,19 +494,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
       _syncStatusReady = false;
       _syncMessagesReady = false;
     });
-  }
-
-  void _startBusyPolling() {
-    _pollTimer?.cancel();
-    _pollTimer = Timer.periodic(const Duration(seconds: 5), (_) {
-      if (!mounted) return;
-      _debouncedRefresh();
-    });
-  }
-
-  void _stopBusyPolling() {
-    _pollTimer?.cancel();
-    _pollTimer = null;
   }
 
   void _handlePtyCreated(dynamic props) {
@@ -735,7 +636,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     _didSyncModeFromMessages = false;
     _didInitialScroll = false;
     _activeRunId = null;
-    _stopBusyPolling();
     _ptyStreamSub?.cancel();
     _ptyStreamSub = null;
     _ptyChannel?.sink.close();
@@ -1218,7 +1118,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
 
   Widget _buildMessagesPanel({
     required List<MessageWrapper> displayMessages,
-    required AsyncValue<List<MessageWrapper>> messagesAsync,
+    required MessagesState messagesState,
     required bool isInitialLoading,
     required String mode,
     List<Part> extraParts = const [],
@@ -1258,13 +1158,15 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
 
     final hasExtraParts = extraParts.isNotEmpty;
 
-    if (messagesAsync.hasError && displayMessages.isEmpty && !hasExtraParts) {
+    if (messagesState.error != null &&
+        displayMessages.isEmpty &&
+        !hasExtraParts) {
       return Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             Text(
-              'Error: ${messagesAsync.error}',
+              'Error: ${messagesState.error}',
               style: const TextStyle(
                 color: AppTheme.textTertiary,
                 fontSize: 12,
@@ -1272,7 +1174,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
             ),
             const SizedBox(height: 12),
             OutlinedButton(
-              onPressed: () => ref.invalidate(messagesProvider),
+              onPressed: () {
+                final session = ref.read(selectedSessionProvider);
+                unawaited(
+                  ref.read(messagesProvider.notifier).loadForSession(session),
+                );
+              },
               child: const Text('RETRY'),
             ),
           ],
@@ -1683,9 +1590,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     }
 
     final messageId = _optimisticId();
-    final currentCount =
-        ref.read(messagesProvider).valueOrNull?.length ??
-        _cachedMessages.length;
+    final currentCount = ref.read(messagesProvider).messages.length;
     try {
       final optimistic = _buildOptimisticMessage(
         sessionId: session.id,
@@ -1716,7 +1621,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
         directory: session.directory,
       );
 
-      ref.invalidate(messagesProvider);
       if (currentCount == 0) {
         ref.invalidate(projectsProvider);
       }
@@ -1763,7 +1667,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
         directory: session.directory,
       );
 
-      ref.invalidate(messagesProvider);
       _scrollToBottom();
     } catch (e) {
       if (mounted) {
@@ -1819,7 +1722,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
 
       unawaited(_connectPtyStream(pty.id, directory: project.worktree));
 
-      ref.invalidate(messagesProvider);
       _scrollToBottom();
     } catch (e) {
       if (mounted) {
@@ -2001,7 +1903,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
         directory: session.directory,
       );
       ref.read(selectedSessionProvider.notifier).state = updated;
-      ref.invalidate(messagesProvider);
+      await ref.read(messagesProvider.notifier).loadForSession(updated);
       ref.read(sessionDiffProvider.notifier).clear();
       await _loadSessionDiff(updated);
       await _loadTodos(updated);
@@ -2033,7 +1935,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
         directory: session.directory,
       );
       ref.read(selectedSessionProvider.notifier).state = updated;
-      ref.invalidate(messagesProvider);
+      await ref.read(messagesProvider.notifier).loadForSession(updated);
       ref.read(sessionDiffProvider.notifier).clear();
       await _loadSessionDiff(updated);
       await _loadTodos(updated);
@@ -2087,7 +1989,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
   @override
   Widget build(BuildContext context) {
     final session = ref.watch(selectedSessionProvider);
-    final messagesAsync = ref.watch(messagesProvider);
+    final messagesState = ref.watch(messagesProvider);
     final mode = ref.watch(sessionModeProvider);
     final activeModel = ref.watch(activeModelProvider);
     final statusAsync = ref.watch(sessionStatusProvider);
@@ -2097,14 +1999,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     final commandRuns = ref.watch(commandRunsProvider).items;
     final activeRun = activeRunId != null ? commandRuns[activeRunId] : null;
 
-    final messages = messagesAsync.valueOrNull ?? const <MessageWrapper>[];
+    final messages = messagesState.messages;
     final baseMessages = _cachedMessages.isNotEmpty
         ? _cachedMessages
         : messages;
     final displayMessages = _optimisticMessages.isNotEmpty
         ? [...baseMessages, ..._optimisticMessages]
         : baseMessages;
-    final isInitialLoading = messagesAsync.isLoading && !_hasLoadedMessages;
+    final isInitialLoading = messagesState.isLoading && !_hasLoadedMessages;
     final isSessionBusy = statusAsync.maybeWhen(
       data: (status) {
         if (session == null) return false;
@@ -2246,7 +2148,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
                 Expanded(
                   child: _buildMessagesPanel(
                     displayMessages: displayMessages,
-                    messagesAsync: messagesAsync,
+                    messagesState: messagesState,
                     isInitialLoading: isInitialLoading,
                     mode: mode,
                     extraParts: commandParts,

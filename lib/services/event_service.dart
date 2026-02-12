@@ -141,7 +141,7 @@ class _EventConnection {
             try {
               final parsed = parseJsonObjectBytes(utf8.encode(data));
               if (!_controller.isClosed) {
-                _controller.add(parsed);
+                _controller.add(_normalizeEvent(parsed));
               }
             } on FormatException {
               // skip malformed events
@@ -169,6 +169,33 @@ class _EventConnection {
       }
       await _retryConnect();
     }
+  }
+
+  Map<String, dynamic> _normalizeEvent(Map<String, dynamic> raw) {
+    final payloadRaw = raw['payload'];
+    final payload = payloadRaw is Map<String, dynamic>
+        ? payloadRaw
+        : payloadRaw is Map
+        ? Map<String, dynamic>.from(payloadRaw)
+        : raw;
+
+    final type = payload['type']?.toString();
+    final propertiesRaw = payload['properties'];
+    final properties = propertiesRaw is Map<String, dynamic>
+        ? propertiesRaw
+        : propertiesRaw is Map
+        ? Map<String, dynamic>.from(propertiesRaw)
+        : <String, dynamic>{};
+
+    if (type == null || type.isEmpty) {
+      return raw;
+    }
+
+    return {
+      'type': type,
+      'properties': properties,
+      if (raw['directory'] != null) 'directory': raw['directory'],
+    };
   }
 
   Future<void> _retryConnect() async {

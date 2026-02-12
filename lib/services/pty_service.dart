@@ -25,16 +25,18 @@ class PtyService {
           'command': command,
           'args': args,
           'cwd': cwd,
-          if (title != null) 'title': title,
-          if (env != null) 'env': env,
+          if (title case final title?) 'title': title,
+          if (env case final env?) 'env': env,
         },
         queryParameters: {'directory': directory},
       );
       final data = parseJsonObjectBytes(response.data as List<int>);
       return PtyInfo.fromJson(data);
     } on DioException catch (e) {
-      final data = parseJsonObjectBytes(e.response?.data as List<int>);
-      print(data);
+      final data = e.response?.data;
+      if (data is List<int>) {
+        parseJsonObjectBytes(data);
+      }
       rethrow;
     }
   }

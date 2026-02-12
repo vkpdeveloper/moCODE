@@ -979,8 +979,7 @@ class Fuzzysort {
         }
       }
 
-      final resolved = result;
-      if (resolved == null) continue;
+      final resolved = result!;
 
       // Mutate _nextBeginningIndexes for next search
       final isTheLastSearch = i == searchesLen - 1;

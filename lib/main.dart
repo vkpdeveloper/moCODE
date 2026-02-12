@@ -9,6 +9,7 @@ import 'router/app_router.dart';
 import 'theme/app_theme.dart';
 import 'widgets/active_session_manager.dart';
 import 'widgets/path_bootstrap.dart';
+import 'providers/providers.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -31,6 +32,7 @@ class MoCODEApp extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    ref.watch(globalEventCoordinatorProvider);
     final router = ref.watch(routerProvider);
 
     return PathBootstrap(
