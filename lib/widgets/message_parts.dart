@@ -8,6 +8,8 @@ import 'package:url_launcher/url_launcher.dart';
 import '../models/part.dart';
 import '../theme/app_theme.dart';
 import '../constants/file_icons.dart';
+import 'message_parts_presenter.dart';
+import 'patch_diff_widget.dart';
 
 class MessagePartsWidget extends StatelessWidget {
   final List<Part> parts;
@@ -32,10 +34,22 @@ class MessagePartsWidget extends StatelessWidget {
       );
     }
 
+    final blocks = buildMessagePartBlocks(parts);
+    if (blocks.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
-      children: parts.map((part) => _buildPart(context, part)).toList(),
+      children: blocks.map((block) => _buildBlock(context, block)).toList(),
     );
+  }
+
+  Widget _buildBlock(BuildContext context, MessagePartBlock block) {
+    return switch (block) {
+      SinglePartBlock b => _buildPart(context, b.part),
+      StepPartBlock b => _StepBlockCard(parts: b.parts, finish: b.finish),
+    };
   }
 
   Widget _buildPart(BuildContext context, Part part) {
@@ -160,7 +174,10 @@ class MessagePartsWidget extends StatelessWidget {
 
   Widget _buildToolPart(BuildContext context, ToolPart part) {
     final status = part.status;
-    final title = part.title ?? part.tool;
+    final label = toolDisplayLabel(part.tool);
+    final title = toolSummary(part) ?? label;
+    final trimmedInput = _truncate((part.input ?? '').trim(), 1200);
+    final trimmedOutput = _truncate((part.output ?? '').trim(), 1200);
 
     Color statusColor;
     IconData statusIcon;
@@ -199,38 +216,54 @@ class MessagePartsWidget extends StatelessWidget {
         ),
         child: ExpansionTile(
           leading: Icon(statusIcon, size: 14, color: statusColor),
-          title: Row(
+          title: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
-                decoration: BoxDecoration(
-                  border: Border.all(color: statusColor.withValues(alpha: 0.3)),
-                ),
-                child: Text(
-                  part.tool,
-                  style: TextStyle(
-                    color: statusColor,
-                    fontSize: 9,
-                    fontWeight: FontWeight.bold,
+              Row(
+                children: [
+                  Text(
+                    label,
+                    style: TextStyle(
+                      color: AppTheme.textPrimary,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
-                ),
+                  const SizedBox(width: 8),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                    decoration: BoxDecoration(
+                      border: Border.all(
+                        color: statusColor.withValues(alpha: 0.5),
+                        width: 0.8,
+                      ),
+                    ),
+                    child: Text(
+                      status.toUpperCase(),
+                      style: TextStyle(
+                        color: statusColor,
+                        fontSize: 8,
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: 0.5,
+                      ),
+                    ),
+                  ),
+                ],
               ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  title,
-                  style: const TextStyle(
-                    color: AppTheme.textSecondary,
-                    fontSize: 11,
-                  ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
+              const SizedBox(height: 2),
+              Text(
+                title,
+                style: const TextStyle(
+                  color: AppTheme.textSecondary,
+                  fontSize: 11,
                 ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
               ),
             ],
           ),
           children: [
-            if (part.input != null && part.input!.isNotEmpty)
+            if (trimmedInput.isNotEmpty)
               Container(
                 width: double.infinity,
                 padding: const EdgeInsets.all(10),
@@ -252,7 +285,7 @@ class MessagePartsWidget extends StatelessWidget {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      _truncate(part.input!, 500),
+                      trimmedInput,
                       style: GoogleFonts.jetBrainsMono(
                         textStyle: const TextStyle(
                           color: AppTheme.textSecondary,
@@ -264,7 +297,7 @@ class MessagePartsWidget extends StatelessWidget {
                   ],
                 ),
               ),
-            if (part.output != null && part.output!.isNotEmpty)
+            if (trimmedOutput.isNotEmpty)
               Container(
                 width: double.infinity,
                 padding: const EdgeInsets.all(10),
@@ -286,7 +319,7 @@ class MessagePartsWidget extends StatelessWidget {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      _truncate(part.output!, 500),
+                      trimmedOutput,
                       style: GoogleFonts.jetBrainsMono(
                         textStyle: const TextStyle(
                           color: AppTheme.textSecondary,
@@ -302,15 +335,19 @@ class MessagePartsWidget extends StatelessWidget {
               Container(
                 width: double.infinity,
                 padding: const EdgeInsets.all(10),
-                decoration: const BoxDecoration(
+                decoration: BoxDecoration(
                   border: Border(
                     top: BorderSide(color: AppTheme.border, width: 0.5),
                   ),
-                  color: AppTheme.error,
+                  color: AppTheme.error.withValues(alpha: 0.1),
                 ),
                 child: Text(
                   part.error!,
-                  style: const TextStyle(color: AppTheme.error, fontSize: 11),
+                  style: const TextStyle(
+                    color: AppTheme.error,
+                    fontSize: 11,
+                    height: 1.4,
+                  ),
                 ),
               ),
           ],
@@ -425,31 +462,124 @@ class MessagePartsWidget extends StatelessWidget {
   }
 
   Widget _buildPatchPart(PatchPart part) {
+    final partIndex = parts.indexOf(part);
+    final fileCount = part.files.length;
+    final title = fileCount == 1 ? 'Patch 1 file' : 'Patch $fileCount files';
+    final patchText = _nearestPatchText(partIndex);
+
     return Container(
       width: double.infinity,
       margin: const EdgeInsets.only(bottom: 4),
-      padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
         color: AppTheme.surfaceVariant,
         border: Border.all(color: AppTheme.border),
       ),
-      child: Wrap(
-        spacing: 8,
-        runSpacing: 4,
-        crossAxisAlignment: WrapCrossAlignment.center,
-        children: [
-          const Icon(
+      child: Theme(
+        data: ThemeData(
+          dividerColor: Colors.transparent,
+          expansionTileTheme: const ExpansionTileThemeData(
+            tilePadding: EdgeInsets.symmetric(horizontal: 10, vertical: 0),
+            childrenPadding: EdgeInsets.zero,
+            collapsedIconColor: AppTheme.textTertiary,
+            iconColor: AppTheme.textTertiary,
+            shape: RoundedRectangleBorder(),
+            collapsedShape: RoundedRectangleBorder(),
+          ),
+        ),
+        child: ExpansionTile(
+          leading: const Icon(
             Icons.difference_outlined,
             size: 14,
             color: AppTheme.warning,
           ),
-          Text(
-            '${part.files.length} file(s) patched',
-            style: const TextStyle(color: AppTheme.textSecondary, fontSize: 11),
+          title: Text(
+            title,
+            style: const TextStyle(
+              color: AppTheme.textPrimary,
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+            ),
           ),
-        ],
+          children: [
+            if (part.files.isNotEmpty)
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.fromLTRB(10, 2, 10, 8),
+                decoration: const BoxDecoration(
+                  border: Border(top: BorderSide(color: AppTheme.border, width: 0.5)),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: part.files
+                      .map(
+                        (file) => Padding(
+                          padding: const EdgeInsets.only(top: 6),
+                          child: Row(
+                            children: [
+                              Icon(
+                                getIconForExtension(file.split('.').last),
+                                size: 13,
+                                color: AppTheme.textSecondary,
+                              ),
+                              const SizedBox(width: 6),
+                              Expanded(
+                                child: Text(
+                                  file,
+                                  style: const TextStyle(
+                                    color: AppTheme.textSecondary,
+                                    fontSize: 11,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      )
+                      .toList(),
+                ),
+              ),
+            if (patchText != null && patchText.isNotEmpty)
+              Container(
+                width: double.infinity,
+                margin: const EdgeInsets.only(top: 6),
+                decoration: const BoxDecoration(
+                  border: Border(top: BorderSide(color: AppTheme.border, width: 0.5)),
+                ),
+                child: PatchDiffWidget(
+                  rawPatch: patchText,
+                  fallbackFiles: part.files,
+                ),
+              ),
+          ],
+        ),
       ),
     );
+  }
+
+  String? _nearestPatchText(int partIndex) {
+    if (partIndex < 0 || parts.isEmpty) return null;
+
+    for (var i = partIndex; i >= 0; i--) {
+      final candidate = parts[i];
+      if (candidate is ToolPart) {
+        final text = extractPatchDiffFromTool(candidate);
+        if (text != null && text.isNotEmpty) {
+          return _truncate(text, 6000);
+        }
+      }
+    }
+
+    for (var i = partIndex + 1; i < parts.length; i++) {
+      final candidate = parts[i];
+      if (candidate is ToolPart) {
+        final text = extractPatchDiffFromTool(candidate);
+        if (text != null && text.isNotEmpty) {
+          return _truncate(text, 6000);
+        }
+      }
+    }
+
+    return null;
   }
 
   Widget _buildAgentPart(AgentPart part) {
@@ -816,6 +946,94 @@ class MessagePartsWidget extends StatelessWidget {
   String _truncate(String text, int maxLength) {
     if (text.length <= maxLength) return text;
     return '${text.substring(0, maxLength)}...';
+  }
+}
+
+class _StepBlockCard extends StatefulWidget {
+  final List<Part> parts;
+  final StepFinishPart? finish;
+
+  const _StepBlockCard({required this.parts, this.finish});
+
+  @override
+  State<_StepBlockCard> createState() => _StepBlockCardState();
+}
+
+class _StepBlockCardState extends State<_StepBlockCard> {
+  bool _expanded = true;
+
+  @override
+  Widget build(BuildContext context) {
+    final partCount = widget.parts.length;
+    final summary = partCount == 1 ? '1 item' : '$partCount items';
+
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: 6),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          InkWell(
+            onTap: () => setState(() => _expanded = !_expanded),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 4),
+              child: Row(
+                children: [
+                  Icon(
+                    _expanded ? Icons.expand_more : Icons.chevron_right,
+                    size: 14,
+                    color: AppTheme.textTertiary,
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    _expanded ? 'Hide steps' : 'Show steps',
+                    style: TextStyle(
+                      color: AppTheme.textSecondary,
+                      fontSize: 11,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    summary,
+                    style: const TextStyle(
+                      color: AppTheme.textTertiary,
+                      fontSize: 10,
+                    ),
+                  ),
+                  const Spacer(),
+                  if (widget.finish?.reason.isNotEmpty == true)
+                    Flexible(
+                      child: Text(
+                        widget.finish!.reason,
+                        style: const TextStyle(
+                          color: AppTheme.textTertiary,
+                          fontSize: 10,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
+          if (_expanded)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.fromLTRB(8, 2, 0, 8),
+              decoration: BoxDecoration(
+                border: Border(
+                  left: BorderSide(
+                    color: AppTheme.border.withValues(alpha: 0.8),
+                    width: 1,
+                  ),
+                ),
+              ),
+              child: MessagePartsWidget(parts: widget.parts),
+            ),
+        ],
+      ),
+    );
   }
 }
 
