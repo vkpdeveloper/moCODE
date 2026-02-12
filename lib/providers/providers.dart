@@ -1438,20 +1438,32 @@ final selectedModelProvider = StateProvider<Map<String, String>?>(
 class SessionModeNotifier extends StateNotifier<String> {
   final PreferencesService _preferencesService;
   final Map<String, String> _sessionModes = {};
+  final Set<String> _hydratedFromMessages = {};
+  final Map<String, String> _persistDesired = {};
+  final Set<String> _persistInFlight = {};
   String? _activeSessionId;
   int _loadToken = 0;
+  static const String _defaultMode = 'build';
 
-  SessionModeNotifier(this._preferencesService) : super('plan');
+  SessionModeNotifier(this._preferencesService) : super(_defaultMode);
+
+  String _normalizeMode(String mode) {
+    final normalized = mode.trim().toLowerCase();
+    if (normalized == 'plan' || normalized == 'build') {
+      return normalized;
+    }
+    return _defaultMode;
+  }
 
   void setActiveSession(String? sessionId) {
     _activeSessionId = sessionId;
     if (sessionId == null) {
-      if (state != 'plan') {
-        state = 'plan';
+      if (state != _defaultMode) {
+        state = _defaultMode;
       }
       return;
     }
-    final cachedMode = _sessionModes[sessionId] ?? 'plan';
+    final cachedMode = _sessionModes[sessionId] ?? _defaultMode;
     if (state != cachedMode) {
       state = cachedMode;
     }
@@ -1459,19 +1471,77 @@ class SessionModeNotifier extends StateNotifier<String> {
   }
 
   Future<void> setModeForCurrentSession(String mode) async {
-    final normalized = mode.trim().isEmpty ? 'plan' : mode.trim();
     final sessionId = _activeSessionId;
     if (sessionId == null) {
+      final normalized = _normalizeMode(mode);
       if (state != normalized) {
         state = normalized;
       }
       return;
     }
+    await setModeForSession(sessionId, mode);
+  }
+
+  Future<void> setModeForSession(String sessionId, String mode) async {
+    final normalized = _normalizeMode(mode);
     _sessionModes[sessionId] = normalized;
-    if (state != normalized) {
+    if (_activeSessionId == sessionId && state != normalized) {
       state = normalized;
     }
-    await _preferencesService.saveSessionMode(sessionId, normalized);
+    _persistDesired[sessionId] = normalized;
+    _schedulePersist(sessionId);
+  }
+
+  void resetMessageHydration(String sessionId) {
+    _hydratedFromMessages.remove(sessionId);
+  }
+
+  Future<void> hydrateFromMessages(
+    String sessionId,
+    List<MessageWrapper> messages,
+  ) async {
+    if (_hydratedFromMessages.contains(sessionId)) return;
+    _hydratedFromMessages.add(sessionId);
+    final mode = _extractModeFromMessages(messages);
+    if (mode == null) return;
+    await setModeForSession(sessionId, mode);
+  }
+
+  String? _extractModeFromMessages(List<MessageWrapper> messages) {
+    for (var i = messages.length - 1; i >= 0; i--) {
+      final info = messages[i].info;
+      if (info is UserMessageInfo) {
+        final agent = info.agent;
+        if (agent != null && agent.trim().isNotEmpty) {
+          return _normalizeMode(agent);
+        }
+      }
+      if (info is AssistantMessageInfo && info.mode.trim().isNotEmpty) {
+        return _normalizeMode(info.mode);
+      }
+    }
+    return null;
+  }
+
+  void _schedulePersist(String sessionId) {
+    if (_persistInFlight.contains(sessionId)) return;
+    unawaited(_flushPersist(sessionId));
+  }
+
+  Future<void> _flushPersist(String sessionId) async {
+    _persistInFlight.add(sessionId);
+    try {
+      while (true) {
+        final mode = _persistDesired.remove(sessionId);
+        if (mode == null) break;
+        await _preferencesService.saveSessionMode(sessionId, mode);
+      }
+    } finally {
+      _persistInFlight.remove(sessionId);
+      if (_persistDesired.containsKey(sessionId)) {
+        _schedulePersist(sessionId);
+      }
+    }
   }
 
   Future<void> _loadMode(String sessionId) async {
@@ -1479,9 +1549,14 @@ class SessionModeNotifier extends StateNotifier<String> {
     final savedMode = await _preferencesService.getSessionMode(sessionId);
     if (token != _loadToken) return;
     if (savedMode == null || savedMode.isEmpty) return;
-    _sessionModes[sessionId] = savedMode;
-    if (_activeSessionId == sessionId && state != savedMode) {
-      state = savedMode;
+    final normalized = _normalizeMode(savedMode);
+    final currentMode = _sessionModes[sessionId];
+    if (currentMode != null && currentMode != normalized) {
+      return;
+    }
+    _sessionModes[sessionId] = normalized;
+    if (_activeSessionId == sessionId && state != normalized) {
+      state = normalized;
     }
   }
 }

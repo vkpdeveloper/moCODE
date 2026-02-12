@@ -47,8 +47,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
   bool _hasLoadedMessages = false;
   String? _modelSyncSessionId;
   bool _didSyncModelFromMessages = false;
-  String? _modeSyncSessionId;
-  bool _didSyncModeFromMessages = false;
   bool _isSidebarOpen = false;
   bool _showScrollToBottom = false;
   bool _isPinnedToBottom = true;
@@ -664,8 +662,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     _vcsSessionId = null;
     _modelSyncSessionId = sessionId;
     _didSyncModelFromMessages = false;
-    _modeSyncSessionId = sessionId;
-    _didSyncModeFromMessages = false;
+    ref.read(sessionModeProvider.notifier).resetMessageHydration(sessionId);
     _didInitialScroll = false;
     _activeRunId = null;
     _ptyStreamSub?.cancel();
@@ -1038,34 +1035,17 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     Session session,
     List<MessageWrapper> messages,
   ) {
-    if (_modeSyncSessionId != session.id) {
-      _modeSyncSessionId = session.id;
-      _didSyncModeFromMessages = false;
-    }
-    if (_didSyncModeFromMessages || messages.isEmpty) return;
+    if (messages.isEmpty) return;
+    unawaited(
+      ref.read(sessionModeProvider.notifier).hydrateFromMessages(
+            session.id,
+            messages,
+          ),
+    );
+  }
 
-    String? mode;
-
-    for (var i = messages.length - 1; i >= 0; i--) {
-      final info = messages[i].info;
-      if (info is UserMessageInfo) {
-        final agent = info.agent?.trim();
-        if (agent != null && agent.isNotEmpty) {
-          mode = agent;
-          break;
-        }
-      }
-    }
-
-    if (mode == null) return;
-
-    final current = ref.read(sessionModeProvider);
-    if (current != mode) {
-      unawaited(
-        ref.read(sessionModeProvider.notifier).setModeForCurrentSession(mode),
-      );
-    }
-    _didSyncModeFromMessages = true;
+  Future<void> _setSessionMode(String mode) async {
+    await ref.read(sessionModeProvider.notifier).setModeForCurrentSession(mode);
   }
 
   bool _isNearBottom() {
@@ -2138,14 +2118,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
         ),
         actions: [
           GestureDetector(
-              onTap: () {
-                final newMode = mode == 'plan' ? 'build' : 'plan';
-                unawaited(
-                  ref
-                      .read(sessionModeProvider.notifier)
-                      .setModeForCurrentSession(newMode),
-                );
-              },
+            onTap: () {
+              final newMode = mode == 'plan' ? 'build' : 'plan';
+              unawaited(_setSessionMode(newMode));
+            },
             child: Container(
               margin: const EdgeInsets.only(right: 4),
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
