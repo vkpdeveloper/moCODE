@@ -39,7 +39,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
   ProviderSubscription<Session?>? _sessionSub;
   ProviderSubscription<MessagesState>? _messagesSub;
   ProviderSubscription<AsyncValue<Map<String, dynamic>>>? _statusSub;
-  ProviderSubscription<String>? _sessionModeSub;
   bool _isBusy = false;
   bool _permissionDialogVisible = false;
   bool _questionDialogVisible = false;
@@ -115,7 +114,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     _listenToSessionChanges();
     _listenToMessageUpdates();
     _listenToStatusUpdates();
-    _listenToSessionMode();
     _scrollController.addListener(_onScroll);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final targetId = widget.sessionId;
@@ -139,7 +137,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     _sessionSub?.close();
     _messagesSub?.close();
     _statusSub?.close();
-    _sessionModeSub?.close();
     _scrollController.removeListener(_onScroll);
     _scrollController.dispose();
     _ptyStreamSub?.cancel();
@@ -208,6 +205,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
           }
         } else if (type == 'question.replied' || type == 'question.rejected') {
           _handleQuestionUpdated(event['properties']);
+        } else if (type == 'session.status') {
+          _handleSessionStatusEvent(event['properties']);
+        } else if (type == 'session.idle') {
+          _handleSessionIdleEvent(event['properties']);
         } else if (type == 'session.deleted') {
           _handleSessionDeleted(event['properties']);
         } else if (type == 'tui.prompt.append') {
@@ -283,7 +284,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
 
   Future<void> _bootstrapSession(Session session) async {
     _startSync();
-    ref.read(sessionModeProvider.notifier).state = 'plan';
     ref.read(todosProvider.notifier).clear();
     ref.read(sessionErrorProvider.notifier).clear();
     ref.read(ptyProvider.notifier).clear();
@@ -313,18 +313,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     ref.read(activeSessionsProvider.notifier).clearActive(sessionId);
   }
 
-  void _listenToSessionMode() {
-    _sessionModeSub = ref.listenManual<String>(sessionModeProvider, (
-      prev,
-      next,
-    ) {
-      final session = ref.read(selectedSessionProvider);
-      if (session == null) return;
-      if (prev == next) return;
-      ref.read(preferencesServiceProvider).saveSessionMode(session.id, next);
-    });
-  }
-
   void _listenToStatusUpdates() {
     _statusSub = ref.listenManual<AsyncValue<Map<String, dynamic>>>(
       sessionStatusProvider,
@@ -336,20 +324,63 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
         }
         final session = ref.read(selectedSessionProvider);
         if (session == null) return;
-        final info = next.valueOrNull?[session.id];
-        String? statusType;
-        if (info is Map<String, dynamic>) {
-          statusType = info['type']?.toString();
-        } else if (info is String) {
-          statusType = info;
-        }
-        if (statusType != null && mounted) {
+        final statusMap = next.valueOrNull;
+        if (statusMap == null) return;
+        final isBusy = _isBusyStatus(statusMap[session.id], fallback: false);
+        if (mounted && _isBusy != isBusy) {
           setState(() {
-            _isBusy = statusType != 'idle';
+            _isBusy = isBusy;
           });
+        }
+        if (!isBusy) {
+          _releaseActiveSession(session.id);
         }
       },
     );
+  }
+
+  String? _statusType(dynamic info) {
+    if (info is Map<String, dynamic>) {
+      return info['type']?.toString();
+    }
+    if (info is String) return info;
+    return info?.toString();
+  }
+
+  bool _isBusyStatus(dynamic info, {required bool fallback}) {
+    final type = _statusType(info);
+    if (type == null || type.isEmpty) return fallback;
+    return type != 'idle';
+  }
+
+  void _handleSessionStatusEvent(dynamic props) {
+    if (props is! Map<String, dynamic>) return;
+    final session = ref.read(selectedSessionProvider);
+    if (session == null) return;
+    final sessionID = props['sessionID']?.toString();
+    if (sessionID == null || sessionID != session.id) return;
+    final status = props['status'];
+    ref.read(sessionStatusProvider.notifier).upsertStatus(sessionID, status);
+    final isBusy = _isBusyStatus(status, fallback: true);
+    if (mounted && _isBusy != isBusy) {
+      setState(() => _isBusy = isBusy);
+    }
+    if (!isBusy) {
+      _releaseActiveSession(sessionID);
+    }
+  }
+
+  void _handleSessionIdleEvent(dynamic props) {
+    if (props is! Map<String, dynamic>) return;
+    final session = ref.read(selectedSessionProvider);
+    if (session == null) return;
+    final sessionID = props['sessionID']?.toString();
+    if (sessionID == null || sessionID != session.id) return;
+    ref.read(sessionStatusProvider.notifier).markIdle(sessionID);
+    if (mounted && _isBusy) {
+      setState(() => _isBusy = false);
+    }
+    _releaseActiveSession(sessionID);
   }
 
   void _listenToMessageUpdates() {
@@ -618,6 +649,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     setState(() {
       _cachedSessionId = sessionId;
       _cachedMessages = const [];
+      _isBusy = false;
       _optimisticMessages.clear();
       _optimisticBaseCount = null;
       _optimisticMessageId = null;
@@ -1029,7 +1061,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
 
     final current = ref.read(sessionModeProvider);
     if (current != mode) {
-      ref.read(sessionModeProvider.notifier).state = mode;
+      unawaited(
+        ref.read(sessionModeProvider.notifier).setModeForCurrentSession(mode),
+      );
     }
     _didSyncModeFromMessages = true;
   }
@@ -2104,10 +2138,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
         ),
         actions: [
           GestureDetector(
-            onTap: () {
-              final newMode = mode == 'plan' ? 'build' : 'plan';
-              ref.read(sessionModeProvider.notifier).state = newMode;
-            },
+              onTap: () {
+                final newMode = mode == 'plan' ? 'build' : 'plan';
+                unawaited(
+                  ref
+                      .read(sessionModeProvider.notifier)
+                      .setModeForCurrentSession(newMode),
+                );
+              },
             child: Container(
               margin: const EdgeInsets.only(right: 4),
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),

@@ -23,7 +23,9 @@ class MessagePartsWidget extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (parts.isEmpty) {
+    final displayParts = _partsForDisplay(parts);
+
+    if (displayParts.isEmpty) {
       return const Text(
         '(empty)',
         style: TextStyle(
@@ -34,7 +36,7 @@ class MessagePartsWidget extends StatelessWidget {
       );
     }
 
-    final blocks = buildMessagePartBlocks(parts);
+    final blocks = buildMessagePartBlocks(displayParts);
     if (blocks.isEmpty) {
       return const SizedBox.shrink();
     }
@@ -45,10 +47,61 @@ class MessagePartsWidget extends StatelessWidget {
     );
   }
 
+  List<Part> _partsForDisplay(List<Part> source) {
+    if (!isUser) {
+      return source;
+    }
+
+    final hasAttachment = source.any((part) => part is FilePart);
+    if (!hasAttachment) {
+      return source;
+    }
+
+    final files = <Part>[];
+    final other = <Part>[];
+    TextPart? finalUserText;
+
+    for (final part in source) {
+      if (part is FilePart) {
+        files.add(part);
+        continue;
+      }
+
+      if (part is TextPart) {
+        final text = part.text.trim();
+        if (text.isNotEmpty) {
+          finalUserText = part;
+        }
+        continue;
+      }
+
+      if (part is StepStartPart || part is StepFinishPart) {
+        continue;
+      }
+
+      other.add(part);
+    }
+
+    final merged = <Part>[...files, ...other];
+    if (finalUserText != null) {
+      merged.add(finalUserText);
+    }
+    return merged;
+  }
+
   Widget _buildBlock(BuildContext context, MessagePartBlock block) {
     return switch (block) {
       SinglePartBlock b => _buildPart(context, b.part),
-      StepPartBlock b => _StepBlockCard(parts: b.parts, finish: b.finish),
+      StepPartBlock b => _StepsGroupCard(
+        parts: b.parts,
+        stepCount: 1,
+        lastReason: b.finish?.reason,
+      ),
+      StepsGroupBlock b => _StepsGroupCard(
+        parts: b.parts,
+        stepCount: b.stepCount,
+        lastReason: b.lastReason,
+      ),
     };
   }
 
@@ -176,7 +229,9 @@ class MessagePartsWidget extends StatelessWidget {
     final status = part.status;
     final label = toolDisplayLabel(part.tool);
     final title = toolSummary(part) ?? label;
-    final trimmedInput = _truncate((part.input ?? '').trim(), 1200);
+    final inputHeader = toolInputHeader(part);
+    final inputText = toolInputText(part) ?? '';
+    final trimmedInput = _truncate(inputText.trim(), 1200);
     final trimmedOutput = _truncate((part.output ?? '').trim(), 1200);
 
     Color statusColor;
@@ -275,9 +330,9 @@ class MessagePartsWidget extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text(
-                      'INPUT',
-                      style: TextStyle(
+                    Text(
+                      inputHeader,
+                      style: const TextStyle(
                         color: AppTheme.textTertiary,
                         fontSize: 9,
                         letterSpacing: 1,
@@ -949,23 +1004,29 @@ class MessagePartsWidget extends StatelessWidget {
   }
 }
 
-class _StepBlockCard extends StatefulWidget {
+class _StepsGroupCard extends StatefulWidget {
   final List<Part> parts;
-  final StepFinishPart? finish;
+  final int stepCount;
+  final String? lastReason;
 
-  const _StepBlockCard({required this.parts, this.finish});
+  const _StepsGroupCard({
+    required this.parts,
+    required this.stepCount,
+    this.lastReason,
+  });
 
   @override
-  State<_StepBlockCard> createState() => _StepBlockCardState();
+  State<_StepsGroupCard> createState() => _StepsGroupCardState();
 }
 
-class _StepBlockCardState extends State<_StepBlockCard> {
+class _StepsGroupCardState extends State<_StepsGroupCard> {
   bool _expanded = true;
 
   @override
   Widget build(BuildContext context) {
-    final partCount = widget.parts.length;
-    final summary = partCount == 1 ? '1 item' : '$partCount items';
+    final count = widget.stepCount > 0 ? widget.stepCount : widget.parts.length;
+    final summary = count == 1 ? '1 item' : '$count items';
+    final hasToolCalls = widget.parts.any((part) => part is ToolPart);
 
     return Container(
       width: double.infinity,
@@ -1001,10 +1062,21 @@ class _StepBlockCardState extends State<_StepBlockCard> {
                     ),
                   ),
                   const Spacer(),
-                  if (widget.finish?.reason.isNotEmpty == true)
+                  if (hasToolCalls)
+                    const Padding(
+                      padding: EdgeInsets.only(right: 8),
+                      child: Text(
+                        'tool-calls',
+                        style: TextStyle(
+                          color: AppTheme.textTertiary,
+                          fontSize: 10,
+                        ),
+                      ),
+                    ),
+                  if (widget.lastReason != null && widget.lastReason!.isNotEmpty)
                     Flexible(
                       child: Text(
-                        widget.finish!.reason,
+                        widget.lastReason!,
                         style: const TextStyle(
                           color: AppTheme.textTertiary,
                           fontSize: 10,

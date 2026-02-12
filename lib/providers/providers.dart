@@ -1435,7 +1435,68 @@ final selectedModelProvider = StateProvider<Map<String, String>?>(
   (ref) => null,
 );
 
-final sessionModeProvider = StateProvider<String>((ref) => 'plan');
+class SessionModeNotifier extends StateNotifier<String> {
+  final PreferencesService _preferencesService;
+  final Map<String, String> _sessionModes = {};
+  String? _activeSessionId;
+  int _loadToken = 0;
+
+  SessionModeNotifier(this._preferencesService) : super('plan');
+
+  void setActiveSession(String? sessionId) {
+    _activeSessionId = sessionId;
+    if (sessionId == null) {
+      if (state != 'plan') {
+        state = 'plan';
+      }
+      return;
+    }
+    final cachedMode = _sessionModes[sessionId] ?? 'plan';
+    if (state != cachedMode) {
+      state = cachedMode;
+    }
+    unawaited(_loadMode(sessionId));
+  }
+
+  Future<void> setModeForCurrentSession(String mode) async {
+    final normalized = mode.trim().isEmpty ? 'plan' : mode.trim();
+    final sessionId = _activeSessionId;
+    if (sessionId == null) {
+      if (state != normalized) {
+        state = normalized;
+      }
+      return;
+    }
+    _sessionModes[sessionId] = normalized;
+    if (state != normalized) {
+      state = normalized;
+    }
+    await _preferencesService.saveSessionMode(sessionId, normalized);
+  }
+
+  Future<void> _loadMode(String sessionId) async {
+    final token = ++_loadToken;
+    final savedMode = await _preferencesService.getSessionMode(sessionId);
+    if (token != _loadToken) return;
+    if (savedMode == null || savedMode.isEmpty) return;
+    _sessionModes[sessionId] = savedMode;
+    if (_activeSessionId == sessionId && state != savedMode) {
+      state = savedMode;
+    }
+  }
+}
+
+final sessionModeProvider =
+    StateNotifierProvider<SessionModeNotifier, String>((ref) {
+      final notifier = SessionModeNotifier(ref.watch(preferencesServiceProvider));
+      ref.listen<Session?>(selectedSessionProvider, (previous, next) {
+        final previousId = previous?.id;
+        final nextId = next?.id;
+        if (previousId == nextId) return;
+        notifier.setActiveSession(nextId);
+      }, fireImmediately: true);
+      return notifier;
+    });
 
 class DefaultModelNotifier extends StateNotifier<Map<String, String>?> {
   final PreferencesService _preferencesService;

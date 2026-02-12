@@ -19,19 +19,39 @@ class StepPartBlock extends MessagePartBlock {
   const StepPartBlock({required this.parts, this.finish});
 }
 
+class StepsGroupBlock extends MessagePartBlock {
+  final List<Part> parts;
+  final int stepCount;
+  final String? lastReason;
+
+  const StepsGroupBlock({
+    required this.parts,
+    required this.stepCount,
+    this.lastReason,
+  });
+}
+
 List<MessagePartBlock> buildMessagePartBlocks(List<Part> parts) {
-  final blocks = <MessagePartBlock>[];
+  final firstStepIndex = parts.indexWhere((part) => part is StepStartPart);
+  if (firstStepIndex < 0) {
+    return parts.map((part) => SinglePartBlock(part)).toList();
+  }
+
+  final consumedIndices = <int>{};
+  final groupedStepParts = <Part>[];
+  var stepCount = 0;
+  String? lastReason;
+
   var i = 0;
   while (i < parts.length) {
     final current = parts[i];
     if (current is! StepStartPart) {
-      blocks.add(SinglePartBlock(current));
       i++;
       continue;
     }
 
-    final stepParts = <Part>[];
-    StepFinishPart? finish;
+    stepCount++;
+    consumedIndices.add(i);
     i++;
 
     while (i < parts.length) {
@@ -39,20 +59,49 @@ List<MessagePartBlock> buildMessagePartBlocks(List<Part> parts) {
       if (next is StepStartPart) {
         break;
       }
+      consumedIndices.add(i);
       if (next is StepFinishPart) {
-        finish = next;
+        final reason = next.reason.trim();
+        if (reason.isNotEmpty) {
+          lastReason = reason;
+        }
         i++;
         break;
       }
-      stepParts.add(next);
+      groupedStepParts.add(next);
       i++;
     }
+  }
 
-    if (stepParts.isEmpty && finish == null) {
+  final blocks = <MessagePartBlock>[];
+  var insertedGroup = false;
+  for (var index = 0; index < parts.length; index++) {
+    if (!insertedGroup && index == firstStepIndex) {
+      blocks.add(
+        StepsGroupBlock(
+          parts: groupedStepParts,
+          stepCount: stepCount,
+          lastReason: lastReason,
+        ),
+      );
+      insertedGroup = true;
+    }
+    if (consumedIndices.contains(index)) {
       continue;
     }
-    blocks.add(StepPartBlock(parts: stepParts, finish: finish));
+    blocks.add(SinglePartBlock(parts[index]));
   }
+
+  if (!insertedGroup) {
+    blocks.add(
+      StepsGroupBlock(
+        parts: groupedStepParts,
+        stepCount: stepCount,
+        lastReason: lastReason,
+      ),
+    );
+  }
+
   return blocks;
 }
 
@@ -111,6 +160,72 @@ String? toolSummary(ToolPart part) {
     return inputText;
   }
   return null;
+}
+
+bool isShellTool(ToolPart part) {
+  final tool = part.tool.toLowerCase();
+  return tool == 'bash' || tool == 'shell';
+}
+
+String toolInputHeader(ToolPart part) {
+  return isShellTool(part) ? 'COMMAND' : 'INPUT';
+}
+
+String? toolInputText(ToolPart part) {
+  if (isShellTool(part)) {
+    final command = _extractShellCommand(part);
+    if (command != null && command.isNotEmpty) {
+      return command;
+    }
+  }
+
+  final raw = part.input?.trim();
+  if (raw != null && raw.isNotEmpty) {
+    return raw;
+  }
+
+  final input = _normalizePayload(part.state['input']);
+  if (input is Map<String, dynamic>) {
+    final pretty = input.toString().trim();
+    if (pretty.isNotEmpty) {
+      return pretty;
+    }
+  }
+
+  return null;
+}
+
+String? _extractShellCommand(ToolPart part) {
+  final stateInput = _normalizePayload(part.state['input']);
+  if (stateInput is Map<String, dynamic>) {
+    final cmd = stateInput['command']?.toString().trim();
+    if (cmd != null && cmd.isNotEmpty) {
+      return cmd;
+    }
+  }
+
+  final input = part.input?.trim();
+  if (input == null || input.isEmpty) {
+    return null;
+  }
+
+  final normalized = _normalizePayload(input);
+  if (normalized is Map<String, dynamic>) {
+    final cmd = normalized['command']?.toString().trim();
+    if (cmd != null && cmd.isNotEmpty) {
+      return cmd;
+    }
+  }
+
+  final fromMapStyle = RegExp(r'\bcommand\s*:\s*(.+?)(?:,\s*\w+\s*:|\})')
+      .firstMatch(input)
+      ?.group(1)
+      ?.trim();
+  if (fromMapStyle != null && fromMapStyle.isNotEmpty) {
+    return fromMapStyle;
+  }
+
+  return input;
 }
 
 String? extractPatchDiffFromTool(ToolPart part) {
