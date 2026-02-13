@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:markdown/markdown.dart' as md;
 import 'package:url_launcher/url_launcher.dart';
 
@@ -11,14 +12,27 @@ import '../constants/file_icons.dart';
 import 'message_parts_presenter.dart';
 import 'patch_diff_widget.dart';
 
+final md.ExtensionSet _safeMarkdownExtensionSet = md.ExtensionSet(
+  md.ExtensionSet.gitHubWeb.blockSyntaxes,
+  List<md.InlineSyntax>.unmodifiable(
+    md.ExtensionSet.gitHubWeb.inlineSyntaxes.where(
+      (syntax) => syntax is! md.InlineHtmlSyntax,
+    ),
+  ),
+);
+
 class MessagePartsWidget extends StatelessWidget {
   final List<Part> parts;
   final bool isUser;
+  final bool collapseOperationalParts;
+  final bool groupOperationalByMessageID;
 
   const MessagePartsWidget({
     super.key,
     required this.parts,
     this.isUser = false,
+    this.collapseOperationalParts = true,
+    this.groupOperationalByMessageID = true,
   });
 
   @override
@@ -36,7 +50,11 @@ class MessagePartsWidget extends StatelessWidget {
       );
     }
 
-    final blocks = buildMessagePartBlocks(displayParts);
+    final blocks = buildMessagePartBlocks(
+      displayParts,
+      groupOperationalParts: collapseOperationalParts && !isUser,
+      groupByMessageID: groupOperationalByMessageID,
+    );
     if (blocks.isEmpty) {
       return const SizedBox.shrink();
     }
@@ -92,15 +110,13 @@ class MessagePartsWidget extends StatelessWidget {
   Widget _buildBlock(BuildContext context, MessagePartBlock block) {
     return switch (block) {
       SinglePartBlock b => _buildPart(context, b.part),
-      StepPartBlock b => _StepsGroupCard(
+      ToolCallSetBlock b => _ToolCallSetCard(
+        messageID: b.messageID,
         parts: b.parts,
-        stepCount: 1,
-        lastReason: b.finish?.reason,
-      ),
-      StepsGroupBlock b => _StepsGroupCard(
-        parts: b.parts,
-        stepCount: b.stepCount,
-        lastReason: b.lastReason,
+        toolCount: b.toolCount,
+        isRunning: b.isRunning,
+        hasError: b.hasError,
+        primaryTool: b.primaryTool,
       ),
     };
   }
@@ -133,7 +149,7 @@ class MessagePartsWidget extends StatelessWidget {
         data: part.text,
         selectable: true,
         softLineBreak: true,
-        extensionSet: md.ExtensionSet.gitHubWeb,
+        extensionSet: _safeMarkdownExtensionSet,
         builders: {'pre': _CodeBlockBuilder(context)},
         onTapLink: (text, href, title) async {
           if (href == null || href.isEmpty) return;
@@ -228,28 +244,39 @@ class MessagePartsWidget extends StatelessWidget {
   Widget _buildToolPart(BuildContext context, ToolPart part) {
     final status = part.status;
     final label = toolDisplayLabel(part.tool);
-    final title = toolSummary(part) ?? label;
+    final title = _toolHeaderTitle(part, label);
     final inputHeader = toolInputHeader(part);
     final inputText = toolInputText(part) ?? '';
-    final trimmedInput = _truncate(inputText.trim(), 1200);
-    final trimmedOutput = _truncate((part.output ?? '').trim(), 1200);
+    final rawInput = inputText.trim();
+    final rawOutput = (part.output ?? '').trim();
+    final isApplyPatchTool = part.tool.toLowerCase() == 'apply_patch';
+    final patchText = isApplyPatchTool ? extractPatchDiffFromTool(part) : null;
+    final hasInlinePatch = patchText != null && patchText.isNotEmpty;
 
-    Color statusColor;
-    IconData statusIcon;
-    switch (status) {
-      case 'completed':
-        statusColor = AppTheme.success;
-        statusIcon = Icons.check;
-      case 'running':
-        statusColor = AppTheme.warning;
-        statusIcon = Icons.hourglass_top;
-      case 'error':
-        statusColor = AppTheme.error;
-        statusIcon = Icons.error_outline;
-      default:
-        statusColor = AppTheme.textTertiary;
-        statusIcon = Icons.pending;
+    var trimmedInput = _truncate(rawInput, 1200);
+    var trimmedOutput = _truncate(rawOutput, 1200);
+    if (hasInlinePatch) {
+      if (_looksLikePatch(trimmedInput)) {
+        trimmedInput = '';
+      }
+      if (_looksLikePatch(trimmedOutput)) {
+        trimmedOutput = '';
+      }
     }
+
+    final isRunning = status == 'running' || status == 'pending';
+    final isError = status == 'error';
+    final iconColor = isError ? AppTheme.error : AppTheme.textSecondary;
+    final leading = isRunning
+        ? const SizedBox(
+            width: 14,
+            height: 14,
+            child: CircularProgressIndicator(
+              strokeWidth: 1.5,
+              valueColor: AlwaysStoppedAnimation<Color>(AppTheme.warning),
+            ),
+          )
+        : Icon(_iconForTool(part.tool), size: 14, color: iconColor);
 
     return Container(
       margin: const EdgeInsets.only(bottom: 4),
@@ -270,51 +297,44 @@ class MessagePartsWidget extends StatelessWidget {
           ),
         ),
         child: ExpansionTile(
-          leading: Icon(statusIcon, size: 14, color: statusColor),
-          title: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+          leading: leading,
+          title: Row(
             children: [
-              Row(
-                children: [
-                  Text(
-                    label,
-                    style: TextStyle(
+              if (!isRunning)
+                Expanded(
+                  child: Text(
+                    title,
+                    style: const TextStyle(
                       color: AppTheme.textPrimary,
                       fontSize: 12,
                       fontWeight: FontWeight.w600,
                     ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
-                  const SizedBox(width: 8),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
-                    decoration: BoxDecoration(
-                      border: Border.all(
-                        color: statusColor.withValues(alpha: 0.5),
-                        width: 0.8,
-                      ),
-                    ),
-                    child: Text(
-                      status.toUpperCase(),
-                      style: TextStyle(
-                        color: statusColor,
-                        fontSize: 8,
-                        fontWeight: FontWeight.bold,
-                        letterSpacing: 0.5,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 2),
-              Text(
-                title,
-                style: const TextStyle(
-                  color: AppTheme.textSecondary,
-                  fontSize: 11,
                 ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
+              if (isRunning) ...[
+                const Text(
+                  'Loading',
+                  style: TextStyle(
+                    color: AppTheme.textPrimary,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    title,
+                    style: const TextStyle(
+                      color: AppTheme.textSecondary,
+                      fontSize: 11,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
             ],
           ),
           children: [
@@ -405,6 +425,17 @@ class MessagePartsWidget extends StatelessWidget {
                   ),
                 ),
               ),
+            if (hasInlinePatch)
+              Container(
+                width: double.infinity,
+                margin: const EdgeInsets.only(top: 6),
+                decoration: const BoxDecoration(
+                  border: Border(
+                    top: BorderSide(color: AppTheme.border, width: 0.5),
+                  ),
+                ),
+                child: _PatchPreviewTile(rawPatch: patchText),
+              ),
           ],
         ),
       ),
@@ -437,41 +468,8 @@ class MessagePartsWidget extends StatelessWidget {
     );
   }
 
-  Widget _buildStepFinishPart(StepFinishPart part) {
-    return Container(
-      width: double.infinity,
-      margin: const EdgeInsets.only(bottom: 4),
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(
-        border: Border.all(color: AppTheme.border, width: 0.5),
-      ),
-      child: Wrap(
-        spacing: 6,
-        runSpacing: 4,
-        crossAxisAlignment: WrapCrossAlignment.center,
-        children: [
-          const Icon(
-            Icons.check_circle_outline,
-            size: 12,
-            color: AppTheme.success,
-          ),
-          const Text(
-            'Step complete',
-            style: TextStyle(color: AppTheme.textTertiary, fontSize: 10),
-          ),
-          if (part.reason.isNotEmpty)
-            Text(
-              part.reason,
-              style: const TextStyle(
-                color: AppTheme.textTertiary,
-                fontSize: 10,
-              ),
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-            ),
-        ],
-      ),
-    );
+  Widget _buildStepFinishPart(StepFinishPart _) {
+    return const SizedBox.shrink();
   }
 
   Widget _buildFilePart(FilePart part) {
@@ -561,7 +559,9 @@ class MessagePartsWidget extends StatelessWidget {
                 width: double.infinity,
                 padding: const EdgeInsets.fromLTRB(10, 2, 10, 8),
                 decoration: const BoxDecoration(
-                  border: Border(top: BorderSide(color: AppTheme.border, width: 0.5)),
+                  border: Border(
+                    top: BorderSide(color: AppTheme.border, width: 0.5),
+                  ),
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -598,7 +598,9 @@ class MessagePartsWidget extends StatelessWidget {
                 width: double.infinity,
                 margin: const EdgeInsets.only(top: 6),
                 decoration: const BoxDecoration(
-                  border: Border(top: BorderSide(color: AppTheme.border, width: 0.5)),
+                  border: Border(
+                    top: BorderSide(color: AppTheme.border, width: 0.5),
+                  ),
                 ),
                 child: PatchDiffWidget(
                   rawPatch: patchText,
@@ -1002,87 +1004,161 @@ class MessagePartsWidget extends StatelessWidget {
     if (text.length <= maxLength) return text;
     return '${text.substring(0, maxLength)}...';
   }
+
+  bool _looksLikePatch(String text) {
+    if (text.isEmpty) return false;
+    return text.contains('*** Begin Patch') ||
+        text.contains('diff --git ') ||
+        text.startsWith('@@ ') ||
+        text.contains('\n@@ ') ||
+        (text.contains('\n--- ') && text.contains('\n+++ '));
+  }
+
+  String _toolHeaderTitle(ToolPart part, String fallbackLabel) {
+    final tool = part.tool.toLowerCase();
+    if (tool == 'read') {
+      final payload = part.state['input'];
+      if (payload is Map) {
+        final raw = payload['filePath']?.toString().trim();
+        if (raw != null && raw.isNotEmpty) {
+          return 'Read ${_basename(raw)}';
+        }
+      }
+      final summary = toolSummary(part)?.trim();
+      if (summary != null && summary.isNotEmpty) {
+        return 'Read ${_basename(summary)}';
+      }
+      return fallbackLabel;
+    }
+    return fallbackLabel;
+  }
+
+  String _basename(String path) {
+    final normalized = path.replaceAll('\\', '/');
+    final segments = normalized.split('/').where((e) => e.isNotEmpty).toList();
+    if (segments.isEmpty) return path;
+    return segments.last;
+  }
 }
 
-class _StepsGroupCard extends StatefulWidget {
+class _ToolCallSetCard extends StatefulWidget {
+  final String messageID;
   final List<Part> parts;
-  final int stepCount;
-  final String? lastReason;
+  final int toolCount;
+  final bool isRunning;
+  final bool hasError;
+  final String? primaryTool;
 
-  const _StepsGroupCard({
+  const _ToolCallSetCard({
+    required this.messageID,
     required this.parts,
-    required this.stepCount,
-    this.lastReason,
+    required this.toolCount,
+    required this.isRunning,
+    required this.hasError,
+    this.primaryTool,
   });
 
   @override
-  State<_StepsGroupCard> createState() => _StepsGroupCardState();
+  State<_ToolCallSetCard> createState() => _ToolCallSetCardState();
 }
 
-class _StepsGroupCardState extends State<_StepsGroupCard> {
-  bool _expanded = true;
+class _ToolCallSetCardState extends State<_ToolCallSetCard> {
+  late bool _expanded;
+  late bool _wasRunning;
+
+  @override
+  void initState() {
+    super.initState();
+    _expanded = widget.isRunning;
+    _wasRunning = widget.isRunning;
+  }
+
+  @override
+  void didUpdateWidget(covariant _ToolCallSetCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.isRunning && !_expanded) {
+      setState(() {
+        _expanded = true;
+      });
+    } else if (_wasRunning && !widget.isRunning && _expanded) {
+      setState(() {
+        _expanded = false;
+      });
+    }
+    _wasRunning = widget.isRunning;
+  }
 
   @override
   Widget build(BuildContext context) {
-    final count = widget.stepCount > 0 ? widget.stepCount : widget.parts.length;
+    final count = widget.toolCount > 0 ? widget.toolCount : widget.parts.length;
     final summary = count == 1 ? '1 item' : '$count items';
-    final hasToolCalls = widget.parts.any((part) => part is ToolPart);
+
+    final headerColor = widget.isRunning
+        ? AppTheme.warning
+        : widget.hasError
+        ? AppTheme.error
+        : AppTheme.textSecondary;
+
+    final leadingIcon = widget.isRunning
+        ? LucideIcons.loaderCircle
+        : _iconForTool(widget.primaryTool);
+
+    final title = widget.toolCount == 1 && widget.primaryTool != null
+        ? toolDisplayLabel(widget.primaryTool!)
+        : 'Tool calls';
 
     return Container(
       width: double.infinity,
       margin: const EdgeInsets.only(bottom: 6),
+      decoration: BoxDecoration(
+        color: AppTheme.surfaceVariant.withValues(alpha: 0.35),
+        border: Border.all(color: AppTheme.border.withValues(alpha: 0.8)),
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           InkWell(
             onTap: () => setState(() => _expanded = !_expanded),
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 4),
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
               child: Row(
                 children: [
                   Icon(
-                    _expanded ? Icons.expand_more : Icons.chevron_right,
-                    size: 14,
-                    color: AppTheme.textTertiary,
+                    _expanded
+                        ? LucideIcons.chevronDown
+                        : LucideIcons.chevronRight,
+                    size: 13,
+                    color: AppTheme.textSecondary,
                   ),
                   const SizedBox(width: 6),
+                  Icon(leadingIcon, size: 14, color: headerColor),
+                  const SizedBox(width: 6),
                   Text(
-                    _expanded ? 'Hide steps' : 'Show steps',
+                    title,
                     style: TextStyle(
-                      color: AppTheme.textSecondary,
-                      fontSize: 11,
+                      color: AppTheme.textPrimary,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
                     ),
                   ),
                   const SizedBox(width: 8),
                   Text(
                     summary,
-                    style: const TextStyle(
+                    style: TextStyle(
                       color: AppTheme.textTertiary,
                       fontSize: 10,
                     ),
                   ),
                   const Spacer(),
-                  if (hasToolCalls)
-                    const Padding(
-                      padding: EdgeInsets.only(right: 8),
-                      child: Text(
-                        'tool-calls',
-                        style: TextStyle(
-                          color: AppTheme.textTertiary,
-                          fontSize: 10,
+                  if (widget.isRunning)
+                    SizedBox(
+                      width: 12,
+                      height: 12,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 1.5,
+                        valueColor: const AlwaysStoppedAnimation<Color>(
+                          AppTheme.warning,
                         ),
-                      ),
-                    ),
-                  if (widget.lastReason != null && widget.lastReason!.isNotEmpty)
-                    Flexible(
-                      child: Text(
-                        widget.lastReason!,
-                        style: const TextStyle(
-                          color: AppTheme.textTertiary,
-                          fontSize: 10,
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
                       ),
                     ),
                 ],
@@ -1101,11 +1177,94 @@ class _StepsGroupCardState extends State<_StepsGroupCard> {
                   ),
                 ),
               ),
-              child: MessagePartsWidget(parts: widget.parts),
+              child: MessagePartsWidget(
+                parts: widget.parts,
+                collapseOperationalParts: false,
+              ),
             ),
         ],
       ),
     );
+  }
+}
+
+class _PatchPreviewTile extends StatelessWidget {
+  final String rawPatch;
+
+  const _PatchPreviewTile({required this.rawPatch});
+
+  @override
+  Widget build(BuildContext context) {
+    return Theme(
+      data: ThemeData(
+        dividerColor: Colors.transparent,
+        expansionTileTheme: const ExpansionTileThemeData(
+          tilePadding: EdgeInsets.symmetric(horizontal: 10, vertical: 0),
+          childrenPadding: EdgeInsets.zero,
+          collapsedIconColor: AppTheme.textTertiary,
+          iconColor: AppTheme.textTertiary,
+          shape: RoundedRectangleBorder(),
+          collapsedShape: RoundedRectangleBorder(),
+        ),
+      ),
+      child: ExpansionTile(
+        leading: const Icon(
+          LucideIcons.fileDiff,
+          size: 14,
+          color: AppTheme.warning,
+        ),
+        title: const Text(
+          'Patch',
+          style: TextStyle(
+            color: AppTheme.textPrimary,
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        children: [
+          Container(
+            width: double.infinity,
+            decoration: const BoxDecoration(
+              border: Border(
+                top: BorderSide(color: AppTheme.border, width: 0.5),
+              ),
+            ),
+            child: PatchDiffWidget(
+              rawPatch: rawPatch,
+              fallbackFiles: const <String>[],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+IconData _iconForTool(String? tool) {
+  switch ((tool ?? '').toLowerCase()) {
+    case 'read':
+      return LucideIcons.glasses;
+    case 'grep':
+      return LucideIcons.scanSearch;
+    case 'glob':
+      return LucideIcons.search;
+    case 'bash':
+    case 'shell':
+      return LucideIcons.terminal;
+    case 'write':
+      return LucideIcons.fileCode;
+    case 'edit':
+      return LucideIcons.filePen;
+    case 'apply_patch':
+      return LucideIcons.fileDiff;
+    case 'task':
+      return LucideIcons.workflow;
+    case 'question':
+      return LucideIcons.messageCircleQuestionMark;
+    case 'webfetch':
+      return LucideIcons.globe;
+    default:
+      return LucideIcons.wrench;
   }
 }
 
@@ -1156,7 +1315,11 @@ class _CodeBlockBuilder extends MarkdownElementBuilder {
                       );
                     }
                   },
-                  child: const Icon(Icons.copy, size: 14, color: AppTheme.textTertiary),
+                  child: const Icon(
+                    Icons.copy,
+                    size: 14,
+                    color: AppTheme.textTertiary,
+                  ),
                 ),
               ],
             ),

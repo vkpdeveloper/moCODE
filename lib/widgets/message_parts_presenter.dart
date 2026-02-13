@@ -12,98 +12,130 @@ class SinglePartBlock extends MessagePartBlock {
   const SinglePartBlock(this.part);
 }
 
-class StepPartBlock extends MessagePartBlock {
+class ToolCallSetBlock extends MessagePartBlock {
+  final String messageID;
   final List<Part> parts;
-  final StepFinishPart? finish;
+  final int toolCount;
+  final bool isRunning;
+  final bool hasError;
+  final String? primaryTool;
 
-  const StepPartBlock({required this.parts, this.finish});
-}
-
-class StepsGroupBlock extends MessagePartBlock {
-  final List<Part> parts;
-  final int stepCount;
-  final String? lastReason;
-
-  const StepsGroupBlock({
+  const ToolCallSetBlock({
+    required this.messageID,
     required this.parts,
-    required this.stepCount,
-    this.lastReason,
+    required this.toolCount,
+    required this.isRunning,
+    required this.hasError,
+    this.primaryTool,
   });
 }
 
-List<MessagePartBlock> buildMessagePartBlocks(List<Part> parts) {
-  final firstStepIndex = parts.indexWhere((part) => part is StepStartPart);
-  if (firstStepIndex < 0) {
+List<MessagePartBlock> buildMessagePartBlocks(
+  List<Part> parts, {
+  bool groupOperationalParts = true,
+  bool groupByMessageID = true,
+}) {
+  if (!groupOperationalParts) {
     return parts.map((part) => SinglePartBlock(part)).toList();
   }
 
-  final consumedIndices = <int>{};
-  final groupedStepParts = <Part>[];
-  var stepCount = 0;
-  String? lastReason;
+  final hasOperationalPart = parts.any(_isOperationalPart);
+  if (!hasOperationalPart) {
+    return parts.map((part) => SinglePartBlock(part)).toList();
+  }
 
-  var i = 0;
-  while (i < parts.length) {
-    final current = parts[i];
-    if (current is! StepStartPart) {
-      i++;
+  if (!groupByMessageID) {
+    final operational = parts.where(_isOperationalPart).toList();
+    final toolParts = operational.whereType<ToolPart>().toList();
+    final isRunning = toolParts.any(
+      (tool) => tool.status == 'running' || tool.status == 'pending',
+    );
+    final hasError = toolParts.any((tool) => tool.status == 'error');
+    final primaryTool = toolParts.length == 1 ? toolParts.first.tool : null;
+    final opIndex = parts.indexWhere(_isOperationalPart);
+
+    final blocks = <MessagePartBlock>[];
+    var inserted = false;
+    for (var index = 0; index < parts.length; index++) {
+      final part = parts[index];
+      if (_isOperationalPart(part)) {
+        if (!inserted && index == opIndex) {
+          blocks.add(
+            ToolCallSetBlock(
+              messageID: operational.isNotEmpty
+                  ? operational.first.messageID
+                  : '',
+              parts: operational,
+              toolCount: toolParts.length,
+              isRunning: isRunning,
+              hasError: hasError,
+              primaryTool: primaryTool,
+            ),
+          );
+          inserted = true;
+        }
+        continue;
+      }
+      blocks.add(SinglePartBlock(part));
+    }
+    return blocks;
+  }
+
+  final groupedByMessage = <String, List<Part>>{};
+  final firstOperationalIndex = <String, int>{};
+
+  for (var index = 0; index < parts.length; index++) {
+    final part = parts[index];
+    if (!_isOperationalPart(part)) {
       continue;
     }
-
-    stepCount++;
-    consumedIndices.add(i);
-    i++;
-
-    while (i < parts.length) {
-      final next = parts[i];
-      if (next is StepStartPart) {
-        break;
-      }
-      consumedIndices.add(i);
-      if (next is StepFinishPart) {
-        final reason = next.reason.trim();
-        if (reason.isNotEmpty) {
-          lastReason = reason;
-        }
-        i++;
-        break;
-      }
-      groupedStepParts.add(next);
-      i++;
-    }
+    final key = part.messageID;
+    groupedByMessage.putIfAbsent(key, () => <Part>[]).add(part);
+    firstOperationalIndex.putIfAbsent(key, () => index);
   }
 
   final blocks = <MessagePartBlock>[];
-  var insertedGroup = false;
+  final insertedMessages = <String>{};
+
   for (var index = 0; index < parts.length; index++) {
-    if (!insertedGroup && index == firstStepIndex) {
-      blocks.add(
-        StepsGroupBlock(
-          parts: groupedStepParts,
-          stepCount: stepCount,
-          lastReason: lastReason,
-        ),
-      );
-      insertedGroup = true;
-    }
-    if (consumedIndices.contains(index)) {
+    final part = parts[index];
+
+    if (!_isOperationalPart(part)) {
+      blocks.add(SinglePartBlock(part));
       continue;
     }
-    blocks.add(SinglePartBlock(parts[index]));
-  }
 
-  if (!insertedGroup) {
-    blocks.add(
-      StepsGroupBlock(
-        parts: groupedStepParts,
-        stepCount: stepCount,
-        lastReason: lastReason,
-      ),
-    );
+    final messageID = part.messageID;
+    final groupStart = firstOperationalIndex[messageID];
+    if (groupStart == index && !insertedMessages.contains(messageID)) {
+      final grouped = groupedByMessage[messageID] ?? const <Part>[];
+      final toolParts = grouped.whereType<ToolPart>().toList();
+      final toolCount = toolParts.length;
+
+      final isRunning = toolParts.any(
+        (tool) => tool.status == 'running' || tool.status == 'pending',
+      );
+      final hasError = toolParts.any((tool) => tool.status == 'error');
+      final primaryTool = toolCount == 1 ? toolParts.first.tool : null;
+
+      blocks.add(
+        ToolCallSetBlock(
+          messageID: messageID,
+          parts: grouped,
+          toolCount: toolCount,
+          isRunning: isRunning,
+          hasError: hasError,
+          primaryTool: primaryTool,
+        ),
+      );
+      insertedMessages.add(messageID);
+    }
   }
 
   return blocks;
 }
+
+bool _isOperationalPart(Part part) => part is! TextPart;
 
 String toolDisplayLabel(String tool) {
   const labels = <String, String>{
@@ -217,10 +249,9 @@ String? _extractShellCommand(ToolPart part) {
     }
   }
 
-  final fromMapStyle = RegExp(r'\bcommand\s*:\s*(.+?)(?:,\s*\w+\s*:|\})')
-      .firstMatch(input)
-      ?.group(1)
-      ?.trim();
+  final fromMapStyle = RegExp(
+    r'\bcommand\s*:\s*(.+?)(?:,\s*\w+\s*:|\})',
+  ).firstMatch(input)?.group(1)?.trim();
   if (fromMapStyle != null && fromMapStyle.isNotEmpty) {
     return fromMapStyle;
   }
@@ -283,7 +314,8 @@ String? extractPatchDiffFromTool(ToolPart part) {
       return text.substring(begin).trim();
     }
 
-    final hasUnifiedDiff = text.contains('diff --git ') ||
+    final hasUnifiedDiff =
+        text.contains('diff --git ') ||
         text.contains('\n@@ ') ||
         text.startsWith('@@ ') ||
         (text.contains('\n--- ') && text.contains('\n+++ '));
@@ -291,13 +323,16 @@ String? extractPatchDiffFromTool(ToolPart part) {
       return text;
     }
 
-    final hasPatchedSummary = RegExp(r'^Patched\s+.+\+\d+\s+-\d+', multiLine: true)
-        .hasMatch(text);
+    final hasPatchedSummary = RegExp(
+      r'^Patched\s+.+\+\d+\s+-\d+',
+      multiLine: true,
+    ).hasMatch(text);
     if (hasPatchedSummary) {
       return text;
     }
 
-    if (text.contains('@@') && (text.contains('--- ') || text.contains('+++ '))) {
+    if (text.contains('@@') &&
+        (text.contains('--- ') || text.contains('+++ '))) {
       return text;
     }
   }

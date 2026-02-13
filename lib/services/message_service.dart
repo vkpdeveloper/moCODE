@@ -1,4 +1,5 @@
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 
 import '../models/message.dart';
 import '../utils/json_parser.dart';
@@ -20,6 +21,7 @@ class MessageService {
         queryParameters: {'limit': limit, 'directory': directory},
       );
       final data = parseJsonListBytes(response.data as List<int>);
+      debugPrint(response.requestOptions.uri.toString());
       return data
           .map((item) => MessageWrapper.fromJson(item as Map<String, dynamic>))
           .toList();

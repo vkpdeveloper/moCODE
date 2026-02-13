@@ -328,10 +328,7 @@ class _ChatInputState extends ConsumerState<ChatInput> {
     var triggerPos = _triggerPosition;
     if (triggerPos < 0 || triggerPos > text.length) {
       final lookupIndex = cursorPos > 0 ? cursorPos - 1 : text.length - 1;
-      triggerPos = text.lastIndexOf(
-        type == 'skill' ? r'$' : '/',
-        lookupIndex,
-      );
+      triggerPos = text.lastIndexOf(type == 'skill' ? r'$' : '/', lookupIndex);
     }
     if (triggerPos < 0) {
       triggerPos = cursorPos.clamp(0, text.length);
@@ -1313,9 +1310,7 @@ class _CommandList extends ConsumerWidget {
           }
         }
 
-        List<_CommandSuggestion> filterItems(
-          List<_CommandSuggestion> items,
-        ) {
+        List<_CommandSuggestion> filterItems(List<_CommandSuggestion> items) {
           if (query.isEmpty) return items;
           final lower = query.toLowerCase();
           return items
@@ -1459,9 +1454,9 @@ class _CommandSection extends StatelessWidget {
                           Text(
                             item.description ?? '',
                             style: TextStyle(
-                              color: Theme.of(context)
-                                  .colorScheme
-                                  .onSurfaceVariant,
+                              color: Theme.of(
+                                context,
+                              ).colorScheme.onSurfaceVariant,
                               fontSize: 10,
                             ),
                             maxLines: 1,
@@ -1471,9 +1466,9 @@ class _CommandSection extends StatelessWidget {
                           Text(
                             hint,
                             style: TextStyle(
-                              color: Theme.of(context)
-                                  .colorScheme
-                                  .onSurfaceVariant,
+                              color: Theme.of(
+                                context,
+                              ).colorScheme.onSurfaceVariant,
                               fontSize: 10,
                             ),
                             maxLines: 1,

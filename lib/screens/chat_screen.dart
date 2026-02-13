@@ -382,31 +382,31 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
   }
 
   void _listenToMessageUpdates() {
-    _messagesSub = ref.listenManual<MessagesState>(
-      messagesProvider,
-      (MessagesState? prev, MessagesState next) {
-        final session = ref.read(selectedSessionProvider);
-        final nextMessages = next.messages;
-        if (session != null) {
-          _updateCachedMessages(session.id, nextMessages);
-          _syncSelectedModelFromMessages(session, nextMessages);
-          _syncSessionModeFromMessages(session, nextMessages);
-        }
+    _messagesSub = ref.listenManual<MessagesState>(messagesProvider, (
+      MessagesState? prev,
+      MessagesState next,
+    ) {
+      final session = ref.read(selectedSessionProvider);
+      final nextMessages = next.messages;
+      if (session != null) {
+        _updateCachedMessages(session.id, nextMessages);
+        _syncSelectedModelFromMessages(session, nextMessages);
+        _syncSessionModeFromMessages(session, nextMessages);
+      }
 
-        if (_isSyncing && !next.isLoading) {
-          _syncMessagesReady = true;
-          _completeSyncIfReady();
-        }
+      if (_isSyncing && !next.isLoading) {
+        _syncMessagesReady = true;
+        _completeSyncIfReady();
+      }
 
-        final prevLength = prev?.messages.length ?? 0;
-        final nextLength = next.messages.length;
-        if (nextLength > prevLength) {
-          _scrollToBottom();
-        } else if (_isPinnedToBottom) {
-          _scrollToBottom();
-        }
-      },
-    );
+      final prevLength = prev?.messages.length ?? 0;
+      final nextLength = next.messages.length;
+      if (nextLength > prevLength) {
+        _scrollToBottom();
+      } else if (_isPinnedToBottom) {
+        _scrollToBottom();
+      }
+    });
   }
 
   bool _isCurrentSessionEvent(dynamic props) {
@@ -1037,10 +1037,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
   ) {
     if (messages.isEmpty) return;
     unawaited(
-      ref.read(sessionModeProvider.notifier).hydrateFromMessages(
-            session.id,
-            messages,
-          ),
+      ref
+          .read(sessionModeProvider.notifier)
+          .hydrateFromMessages(session.id, messages),
     );
   }
 
@@ -1266,6 +1265,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
       }
     }
 
+    final timelineMessages = _mergeAssistantMessagesByTurn(items);
+
     final listWidget = ListView.builder(
       controller: _scrollController,
       cacheExtent: 800,
@@ -1273,9 +1274,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
       addRepaintBoundaries: true,
       physics: const AlwaysScrollableScrollPhysics(),
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      itemCount: items.length,
+      itemCount: timelineMessages.length,
       itemBuilder: (context, index) {
-        final msg = items[index];
+        final msg = timelineMessages[index];
         return RepaintBoundary(
           child: KeyedSubtree(
             key: ValueKey(msg.info.id),
@@ -1332,14 +1333,109 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     return 0;
   }
 
+  List<MessageWrapper> _mergeAssistantMessagesByTurn(
+    List<MessageWrapper> source,
+  ) {
+    if (source.length < 2) return source;
+
+    final merged = <MessageWrapper>[];
+    String? currentUserID;
+    int? currentAssistantIndex;
+
+    for (final message in source) {
+      final info = message.info;
+
+      if (info is UserMessageInfo) {
+        merged.add(message);
+        currentUserID = info.id;
+        currentAssistantIndex = null;
+        continue;
+      }
+
+      if (info is AssistantMessageInfo) {
+        final isCommandMessage =
+            info.providerID == 'local' && info.modelID == 'command';
+        final canMergeIntoTurn =
+            !isCommandMessage &&
+            currentUserID != null &&
+            info.parentID != null &&
+            info.parentID == currentUserID;
+
+        if (canMergeIntoTurn && currentAssistantIndex != null) {
+          final existing = merged[currentAssistantIndex];
+          merged[currentAssistantIndex] = _mergeAssistantWrappers(
+            existing,
+            message,
+          );
+          continue;
+        }
+
+        merged.add(message);
+        if (canMergeIntoTurn) {
+          currentAssistantIndex = merged.length - 1;
+        }
+        continue;
+      }
+
+      merged.add(message);
+    }
+
+    return merged;
+  }
+
+  MessageWrapper _mergeAssistantWrappers(MessageWrapper a, MessageWrapper b) {
+    final aInfo = a.info;
+    final bInfo = b.info;
+    if (aInfo is! AssistantMessageInfo || bInfo is! AssistantMessageInfo) {
+      return b;
+    }
+
+    final mergedInfo = AssistantMessageInfo(
+      id: bInfo.id,
+      sessionID: bInfo.sessionID,
+      time: MessageTime(
+        created: aInfo.time.created,
+        completed: bInfo.time.completed ?? aInfo.time.completed,
+      ),
+      error: bInfo.error ?? aInfo.error,
+      parentID: bInfo.parentID ?? aInfo.parentID,
+      modelID: bInfo.modelID,
+      providerID: bInfo.providerID,
+      mode: bInfo.mode.isNotEmpty ? bInfo.mode : aInfo.mode,
+      agent: bInfo.agent ?? aInfo.agent,
+      path: bInfo.path ?? aInfo.path,
+      isSummary: bInfo.isSummary ?? aInfo.isSummary,
+      cost: aInfo.cost + bInfo.cost,
+      tokens: MessageTokens(
+        input: aInfo.tokens.input + bInfo.tokens.input,
+        output: aInfo.tokens.output + bInfo.tokens.output,
+        reasoning: aInfo.tokens.reasoning + bInfo.tokens.reasoning,
+        cache: MessageCacheTokens(
+          read: aInfo.tokens.cache.read + bInfo.tokens.cache.read,
+          write: aInfo.tokens.cache.write + bInfo.tokens.cache.write,
+        ),
+      ),
+      finish: bInfo.finish ?? aInfo.finish,
+    );
+
+    return MessageWrapper(
+      info: mergedInfo,
+      parts: <Part>[...a.parts, ...b.parts],
+    );
+  }
+
+  bool _hasMultipleAssistantPartMessages(MessageWrapper msg) {
+    if (msg.info is! AssistantMessageInfo) return false;
+    final ids = msg.parts.map((part) => part.messageID).toSet();
+    return ids.length > 1;
+  }
+
   Widget _buildSidebar({
     required SessionErrorState errorState,
     required String? activeRunId,
     required Map<String, CommandRun> commandRuns,
   }) {
-    final tabs = const [
-      Tab(text: 'TERMINAL'),
-    ];
+    final tabs = const [Tab(text: 'TERMINAL')];
 
     return Container(
       width: 280,
@@ -1704,7 +1800,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     final command = tokens.first;
     final args = tokens.skip(1).toList();
     final cwd = project.worktree;
-
 
     try {
       setState(() => _isBusy = true);
@@ -2312,7 +2407,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
               ),
             ),
             padding: const EdgeInsets.all(12),
-            child: MessagePartsWidget(parts: msg.parts, isUser: isUser),
+            child: MessagePartsWidget(
+              parts: msg.parts,
+              isUser: isUser,
+              groupOperationalByMessageID: !_hasMultipleAssistantPartMessages(
+                msg,
+              ),
+            ),
           ),
           // Cost info for assistant
           if (!isUser &&
