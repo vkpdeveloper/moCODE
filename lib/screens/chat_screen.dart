@@ -1329,10 +1329,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     final todosState = ref.watch(todosProvider);
     final diffState = ref.watch(sessionDiffProvider);
 
-    const tabs = [
-      Tab(text: 'TODOS'),
-      Tab(text: 'CHANGES'),
-    ];
+    const tabs = [Tab(text: 'TODOS'), Tab(text: 'CHANGES')];
 
     return Container(
       width: 280,
@@ -1650,7 +1647,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
             children: [
               Row(
                 children: [
-                  const Icon(Icons.insert_drive_file, size: 14, color: AppTheme.textTertiary),
+                  const Icon(
+                    Icons.insert_drive_file,
+                    size: 14,
+                    color: AppTheme.textTertiary,
+                  ),
                   const SizedBox(width: 6),
                   Expanded(
                     child: Text(
@@ -1679,10 +1680,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
                   const SizedBox(width: 8),
                   Text(
                     '-${diff.deletions}',
-                    style: const TextStyle(
-                      color: AppTheme.error,
-                      fontSize: 10,
-                    ),
+                    style: const TextStyle(color: AppTheme.error, fontSize: 10),
                   ),
                 ],
               ),
@@ -2486,9 +2484,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
                 : MessagePartsWidget(
                     parts: msg.parts,
                     isUser: isUser,
-                    groupOperationalByMessageID: !_hasMultipleAssistantPartMessages(
-                      msg,
-                    ),
+                    groupOperationalByMessageID:
+                        !_hasMultipleAssistantPartMessages(msg),
                     isSessionIdle: !isLastMessage || isSessionIdle,
                   ),
           ),
@@ -2642,6 +2639,11 @@ class _QuestionDialogState extends State<_QuestionDialog> {
                 color: AppTheme.textPrimary,
               ),
             ),
+            const SizedBox(height: 4),
+            Text(
+              'Answer all questions to continue',
+              style: TextStyle(fontSize: 10, color: AppTheme.textTertiary),
+            ),
             const SizedBox(height: 12),
             ConstrainedBox(
               constraints: const BoxConstraints(maxHeight: 320),
@@ -2650,15 +2652,57 @@ class _QuestionDialogState extends State<_QuestionDialog> {
                   children: List.generate(widget.request.questions.length, (i) {
                     final question = widget.request.questions[i];
                     final allowCustom = _allowsCustom(question);
+                    final isAnswered =
+                        _answers[i].isNotEmpty || _customAnswers[i] != null;
                     return Padding(
                       padding: EdgeInsets.only(
                         bottom: i == widget.request.questions.length - 1
                             ? 0
-                            : 16,
+                            : 20,
                       ),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
+                          Row(
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 6,
+                                  vertical: 2,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: isAnswered
+                                      ? AppTheme.success.withValues(alpha: 0.15)
+                                      : AppTheme.warning.withValues(
+                                          alpha: 0.15,
+                                        ),
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                                child: Text(
+                                  widget.request.questions.length > 1
+                                      ? 'Question ${i + 1} of ${widget.request.questions.length}'
+                                      : 'Question',
+                                  style: TextStyle(
+                                    fontSize: 9,
+                                    fontWeight: FontWeight.w600,
+                                    color: isAnswered
+                                        ? AppTheme.success
+                                        : AppTheme.warning,
+                                  ),
+                                ),
+                              ),
+                              const Spacer(),
+                              if (!isAnswered)
+                                Text(
+                                  'Required',
+                                  style: TextStyle(
+                                    fontSize: 9,
+                                    color: AppTheme.textTertiary,
+                                  ),
+                                ),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
                           Text(
                             question.header,
                             style: const TextStyle(
