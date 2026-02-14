@@ -16,12 +16,15 @@ import '../models/todo.dart';
 import '../models/file_diff.dart';
 import '../models/part.dart';
 import '../models/command_run.dart';
-import '../models/pty.dart';
 import '../providers/providers.dart';
+import '../providers/ssh_provider.dart';
 import '../theme/app_theme.dart';
 import '../widgets/chat_input.dart';
 import '../widgets/message_parts.dart';
+import '../widgets/message_widgets.dart';
 import '../widgets/session_busy_indicator.dart';
+import '../widgets/ssh_connection_dialog.dart';
+import '../widgets/terminal_bottom_sheet.dart';
 
 class ChatScreen extends ConsumerStatefulWidget {
   final String? sessionId;
@@ -417,27 +420,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     return sessionId == session.id;
   }
 
-  void _handleTodoUpdated(dynamic props) {
-    if (props is! Map<String, dynamic>) return;
-    final session = ref.read(selectedSessionProvider);
-    if (session == null) return;
-    final sessionId = props['sessionID']?.toString();
-    if (sessionId != session.id) return;
-    final todosRaw = props['todos'];
-    if (todosRaw is! List) return;
-    final todos = todosRaw
-        .whereType<Map<String, dynamic>>()
-        .map((item) => Todo.fromJson(item))
-        .toList();
-    ref.read(todosProvider.notifier).setTodos(session.id, todos);
-  }
-
-  void _handleBranchUpdated(dynamic props) {
-    if (props is! Map<String, dynamic>) return;
-    final branch = props['branch']?.toString();
-    ref.read(vcsBranchProvider.notifier).state = branch;
-  }
-
   void _handlePromptAppend(dynamic props) {
     if (props is! Map<String, dynamic>) return;
     final text = props['text']?.toString();
@@ -523,98 +505,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
       _syncStatusReady = false;
       _syncMessagesReady = false;
     });
-  }
-
-  void _handlePtyCreated(dynamic props) {
-    if (props is! Map<String, dynamic>) return;
-    if (!_isCurrentSessionEvent(props)) return;
-    final info = props['info'];
-    if (info is! Map<String, dynamic>) return;
-    final pty = PtyInfo.fromJson(info);
-    ref.read(ptyProvider.notifier).upsert(pty);
-  }
-
-  void _handlePtyUpdated(dynamic props) {
-    if (props is! Map<String, dynamic>) return;
-    if (!_isCurrentSessionEvent(props)) return;
-    final info = props['info'];
-    if (info is! Map<String, dynamic>) return;
-    final pty = PtyInfo.fromJson(info);
-    ref.read(ptyProvider.notifier).upsert(pty);
-    final runId = _activeRunId;
-    if (runId != null && pty.id == runId) {
-      ref
-          .read(commandRunsProvider.notifier)
-          .updateStatus(runId, status: pty.status, exitCode: pty.exitCode);
-    }
-  }
-
-  void _handlePtyExited(dynamic props) {
-    if (props is! Map<String, dynamic>) return;
-    if (!_isCurrentSessionEvent(props)) return;
-    final id = props['id']?.toString();
-    if (id == null || id.isEmpty) return;
-    final exitCode = (props['exitCode'] as num?)?.toInt() ?? 0;
-    ref.read(ptyProvider.notifier).updateExit(id, exitCode);
-    ref
-        .read(commandRunsProvider.notifier)
-        .updateStatus(
-          id,
-          status: 'exited',
-          exitCode: exitCode,
-          completedAt: DateTime.now().millisecondsSinceEpoch,
-        );
-  }
-
-  void _handlePtyDeleted(dynamic props) {
-    if (props is! Map<String, dynamic>) return;
-    if (!_isCurrentSessionEvent(props)) return;
-    final id = props['id']?.toString();
-    if (id == null || id.isEmpty) return;
-    ref.read(ptyProvider.notifier).remove(id);
-    if (_activeRunId == id) {
-      ref.read(activeCommandRunProvider.notifier).state = null;
-      _activeRunId = null;
-    }
-  }
-
-  void _handleSessionError(dynamic props) {
-    if (props is! Map<String, dynamic>) return;
-    if (!_isCurrentSessionEvent(props)) return;
-    final sessionId = props['sessionID']?.toString();
-    final error = props['error'];
-    String? message;
-    String? name;
-    if (error is Map<String, dynamic>) {
-      name = error['name']?.toString();
-      final data = error['data'];
-      if (data is Map<String, dynamic>) {
-        message = data['message']?.toString();
-      }
-    }
-    ref
-        .read(sessionErrorProvider.notifier)
-        .setError(sessionID: sessionId, message: message, name: name);
-    if (mounted) {
-      final display = message ?? name ?? 'Session error';
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(display), backgroundColor: AppTheme.error),
-      );
-    }
-  }
-
-  void _handleSessionDiff(dynamic props) {
-    if (props is! Map<String, dynamic>) return;
-    if (!_isCurrentSessionEvent(props)) return;
-    final diffsRaw = props['diff'];
-    if (diffsRaw is! List) return;
-    final diffs = diffsRaw
-        .whereType<Map<String, dynamic>>()
-        .map((item) => FileDiff.fromJson(item))
-        .toList();
-    final session = ref.read(selectedSessionProvider);
-    if (session == null) return;
-    ref.read(sessionDiffProvider.notifier).setDiff(session.id, diffs);
   }
 
   void _handleSessionDeleted(dynamic props) {
@@ -1277,10 +1167,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
       itemCount: timelineMessages.length,
       itemBuilder: (context, index) {
         final msg = timelineMessages[index];
+        final isLastMessage = index == timelineMessages.length - 1;
         return RepaintBoundary(
           child: KeyedSubtree(
             key: ValueKey(msg.info.id),
-            child: _buildMessage(msg),
+            child: _buildMessage(msg, isLastMessage: isLastMessage),
           ),
         );
       },
@@ -1435,7 +1326,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     required String? activeRunId,
     required Map<String, CommandRun> commandRuns,
   }) {
-    final tabs = const [Tab(text: 'TERMINAL')];
+    final todosState = ref.watch(todosProvider);
+    final diffState = ref.watch(sessionDiffProvider);
+
+    const tabs = [
+      Tab(text: 'TODOS'),
+      Tab(text: 'CHANGES'),
+    ];
 
     return Container(
       width: 280,
@@ -1481,10 +1378,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
                     child: TabBarView(
                       physics: const NeverScrollableScrollPhysics(),
                       children: [
-                        _buildTerminalTab(
-                          activeRunId: activeRunId,
-                          runs: commandRuns,
-                        ),
+                        _buildTodosTab(todosState.todos),
+                        _buildChangesTab(diffState.diffs),
                       ],
                     ),
                   ),
@@ -1662,6 +1557,139 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildTodosTab(List<Todo> todos) {
+    if (todos.isEmpty) {
+      return const Center(
+        child: Text(
+          'No todos',
+          style: TextStyle(color: AppTheme.textTertiary, fontSize: 11),
+        ),
+      );
+    }
+
+    return ListView.builder(
+      padding: const EdgeInsets.all(8),
+      itemCount: todos.length,
+      itemBuilder: (context, index) {
+        final todo = todos[index];
+        Color statusColor;
+        switch (todo.status) {
+          case 'completed':
+            statusColor = AppTheme.success;
+            break;
+          case 'in_progress':
+            statusColor = AppTheme.warning;
+            break;
+          case 'pending':
+          default:
+            statusColor = AppTheme.textTertiary;
+        }
+
+        return Container(
+          margin: const EdgeInsets.only(bottom: 6),
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            color: AppTheme.surfaceVariant,
+            borderRadius: BorderRadius.circular(4),
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: 6,
+                height: 6,
+                margin: const EdgeInsets.only(top: 4, right: 8),
+                decoration: BoxDecoration(
+                  color: statusColor,
+                  shape: BoxShape.circle,
+                ),
+              ),
+              Expanded(
+                child: Text(
+                  todo.content,
+                  style: const TextStyle(
+                    color: AppTheme.textPrimary,
+                    fontSize: 11,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildChangesTab(List<FileDiff> diffs) {
+    if (diffs.isEmpty) {
+      return const Center(
+        child: Text(
+          'No changes',
+          style: TextStyle(color: AppTheme.textTertiary, fontSize: 11),
+        ),
+      );
+    }
+
+    return ListView.builder(
+      padding: const EdgeInsets.all(8),
+      itemCount: diffs.length,
+      itemBuilder: (context, index) {
+        final diff = diffs[index];
+        return Container(
+          margin: const EdgeInsets.only(bottom: 6),
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            color: AppTheme.surfaceVariant,
+            borderRadius: BorderRadius.circular(4),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  const Icon(Icons.insert_drive_file, size: 14, color: AppTheme.textTertiary),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      diff.file,
+                      style: const TextStyle(
+                        color: AppTheme.textPrimary,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w500,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 4),
+              Row(
+                children: [
+                  Text(
+                    '+${diff.additions}',
+                    style: const TextStyle(
+                      color: AppTheme.success,
+                      fontSize: 10,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    '-${diff.deletions}',
+                    style: const TextStyle(
+                      color: AppTheme.error,
+                      fontSize: 10,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 
@@ -2095,6 +2123,27 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     );
   }
 
+  Future<void> _openTerminal(BuildContext context) async {
+    final settings = ref.read(settingsProvider);
+    final project = ref.read(selectedProjectProvider);
+    final sshState = ref.read(sshProvider);
+
+    if (sshState.isConnected) {
+      showTerminalBottomSheet(context);
+    } else {
+      final connected = await showSshConnectionDialog(
+        context,
+        defaultHost: settings.serverHost,
+        workingDirectory: project?.worktree ?? '/',
+      );
+      if (connected == true) {
+        if (context.mounted) {
+          showTerminalBottomSheet(context);
+        }
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final session = ref.watch(selectedSessionProvider);
@@ -2241,6 +2290,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
           ),
           _buildSidebarToggle(),
           IconButton(
+            icon: const Icon(Icons.terminal, size: 20),
+            onPressed: () => _openTerminal(context),
+            tooltip: 'Terminal',
+          ),
+          IconButton(
             icon: const Icon(Icons.swap_horiz, size: 20),
             onPressed: () {
               context.push('/models', extra: {'mode': 'session'});
@@ -2297,9 +2351,26 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     );
   }
 
-  Widget _buildMessage(MessageWrapper msg) {
+  Widget _buildMessage(MessageWrapper msg, {bool isLastMessage = false}) {
     final isUser = msg.info.role == 'user';
     final session = ref.watch(selectedSessionProvider);
+    final statusAsync = ref.watch(sessionStatusProvider);
+    final isSessionBusy = session != null
+        ? statusAsync.maybeWhen(
+            data: (status) {
+              final info = status[session.id];
+              if (info is Map<String, dynamic>) {
+                return info['type'] != 'idle';
+              }
+              if (info is String) {
+                return info != 'idle';
+              }
+              return false;
+            },
+            orElse: () => false,
+          )
+        : false;
+    final isSessionIdle = !isSessionBusy;
     final isAssistant = msg.info.role == 'assistant';
     final isOptimistic = _optimisticMessages.any(
       (candidate) => candidate.info.id == msg.info.id,
@@ -2407,13 +2478,19 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
               ),
             ),
             padding: const EdgeInsets.all(12),
-            child: MessagePartsWidget(
-              parts: msg.parts,
-              isUser: isUser,
-              groupOperationalByMessageID: !_hasMultipleAssistantPartMessages(
-                msg,
-              ),
-            ),
+            child: isUser
+                ? UserMessageWidget(
+                    parts: msg.parts,
+                    isOptimistic: isOptimistic,
+                  )
+                : MessagePartsWidget(
+                    parts: msg.parts,
+                    isUser: isUser,
+                    groupOperationalByMessageID: !_hasMultipleAssistantPartMessages(
+                      msg,
+                    ),
+                    isSessionIdle: !isLastMessage || isSessionIdle,
+                  ),
           ),
           // Cost info for assistant
           if (!isUser &&

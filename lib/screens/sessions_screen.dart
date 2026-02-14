@@ -6,8 +6,11 @@ import 'package:intl/intl.dart';
 
 import '../models/project.dart';
 import '../providers/providers.dart';
+import '../providers/ssh_provider.dart';
 import '../theme/app_theme.dart';
 import '../widgets/session_busy_indicator.dart';
+import '../widgets/ssh_connection_dialog.dart';
+import '../widgets/terminal_bottom_sheet.dart';
 
 class SessionsScreen extends ConsumerWidget {
   const SessionsScreen({super.key});
@@ -67,6 +70,11 @@ class SessionsScreen extends ConsumerWidget {
           ],
         ),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.terminal, size: 20),
+            tooltip: 'Terminal',
+            onPressed: () => _openTerminal(context, ref, project),
+          ),
           IconButton(
             icon: const Icon(Icons.swap_horiz, size: 20),
             tooltip: 'Models',
@@ -463,6 +471,30 @@ class SessionsScreen extends ConsumerWidget {
         ),
       ),
     );
+  }
+
+  Future<void> _openTerminal(
+    BuildContext context,
+    WidgetRef ref,
+    Project project,
+  ) async {
+    final settings = ref.read(settingsProvider);
+    final sshState = ref.read(sshProvider);
+
+    if (sshState.isConnected) {
+      showTerminalBottomSheet(context);
+    } else {
+      final connected = await showSshConnectionDialog(
+        context,
+        defaultHost: settings.serverHost,
+        workingDirectory: project.worktree,
+      );
+      if (connected == true) {
+        if (context.mounted) {
+          showTerminalBottomSheet(context);
+        }
+      }
+    }
   }
 
   Future<void> _confirmDeleteSession(

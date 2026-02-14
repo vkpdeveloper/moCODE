@@ -25,8 +25,8 @@ class PtyService {
           'command': command,
           'args': args,
           'cwd': cwd,
-          if (title case final title?) 'title': title,
-          if (env case final env?) 'env': env,
+          if (title != null) 'title': title,
+          if (env != null) 'env': env,
         },
         queryParameters: {'directory': directory},
       );

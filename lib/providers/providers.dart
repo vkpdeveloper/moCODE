@@ -595,9 +595,9 @@ final globalEventCoordinatorProvider = Provider<GlobalEventCoordinator>((ref) {
     coordinator.syncDirectories(computeDirectories());
   }
 
-  ref.listen<Project?>(selectedProjectProvider, (_, __) => sync());
-  ref.listen<Session?>(selectedSessionProvider, (_, __) => sync());
-  ref.listen<Map<String, String>>(activeSessionsProvider, (_, __) => sync());
+  ref.listen<Project?>(selectedProjectProvider, (_, _) => sync());
+  ref.listen<Session?>(selectedSessionProvider, (_, _) => sync());
+  ref.listen<Map<String, String>>(activeSessionsProvider, (_, _) => sync());
   sync();
 
   ref.onDispose(coordinator.dispose);

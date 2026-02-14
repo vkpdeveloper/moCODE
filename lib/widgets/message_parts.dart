@@ -26,6 +26,7 @@ class MessagePartsWidget extends StatelessWidget {
   final bool isUser;
   final bool collapseOperationalParts;
   final bool groupOperationalByMessageID;
+  final bool isSessionIdle;
 
   const MessagePartsWidget({
     super.key,
@@ -33,6 +34,7 @@ class MessagePartsWidget extends StatelessWidget {
     this.isUser = false,
     this.collapseOperationalParts = true,
     this.groupOperationalByMessageID = true,
+    this.isSessionIdle = false,
   });
 
   @override
@@ -41,7 +43,7 @@ class MessagePartsWidget extends StatelessWidget {
 
     if (displayParts.isEmpty) {
       return const Text(
-        '(empty)',
+        '',
         style: TextStyle(
           color: AppTheme.textTertiary,
           fontSize: 12,
@@ -54,6 +56,7 @@ class MessagePartsWidget extends StatelessWidget {
       displayParts,
       groupOperationalParts: collapseOperationalParts && !isUser,
       groupByMessageID: groupOperationalByMessageID,
+      isSessionIdle: isSessionIdle,
     );
     if (blocks.isEmpty) {
       return const SizedBox.shrink();
@@ -117,6 +120,7 @@ class MessagePartsWidget extends StatelessWidget {
         isRunning: b.isRunning,
         hasError: b.hasError,
         primaryTool: b.primaryTool,
+        isSessionIdle: b.isSessionIdle,
       ),
     };
   }
@@ -300,41 +304,18 @@ class MessagePartsWidget extends StatelessWidget {
           leading: leading,
           title: Row(
             children: [
-              if (!isRunning)
-                Expanded(
-                  child: Text(
-                    title,
-                    style: const TextStyle(
-                      color: AppTheme.textPrimary,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-              if (isRunning) ...[
-                const Text(
-                  'Loading',
-                  style: TextStyle(
+              Expanded(
+                child: Text(
+                  title,
+                  style: const TextStyle(
                     color: AppTheme.textPrimary,
                     fontSize: 12,
                     fontWeight: FontWeight.w600,
                   ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
-                const SizedBox(width: 6),
-                Expanded(
-                  child: Text(
-                    title,
-                    style: const TextStyle(
-                      color: AppTheme.textSecondary,
-                      fontSize: 11,
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-              ],
+              ),
             ],
           ),
           children: [
@@ -1048,6 +1029,7 @@ class _ToolCallSetCard extends StatefulWidget {
   final bool isRunning;
   final bool hasError;
   final String? primaryTool;
+  final bool isSessionIdle;
 
   const _ToolCallSetCard({
     required this.messageID,
@@ -1056,6 +1038,7 @@ class _ToolCallSetCard extends StatefulWidget {
     required this.isRunning,
     required this.hasError,
     this.primaryTool,
+    this.isSessionIdle = false,
   });
 
   @override
@@ -1064,28 +1047,33 @@ class _ToolCallSetCard extends StatefulWidget {
 
 class _ToolCallSetCardState extends State<_ToolCallSetCard> {
   late bool _expanded;
-  late bool _wasRunning;
+  late bool _wasSessionIdle;
 
   @override
   void initState() {
     super.initState();
-    _expanded = widget.isRunning;
-    _wasRunning = widget.isRunning;
+    _expanded = !widget.isSessionIdle;
+    _wasSessionIdle = widget.isSessionIdle;
   }
 
   @override
   void didUpdateWidget(covariant _ToolCallSetCard oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (widget.isRunning && !_expanded) {
+    
+    final isSessionBusy = !widget.isSessionIdle;
+    final wasSessionIdle = _wasSessionIdle;
+    
+    if (isSessionBusy && !_expanded) {
       setState(() {
         _expanded = true;
       });
-    } else if (_wasRunning && !widget.isRunning && _expanded) {
+    } else if (wasSessionIdle && !widget.isSessionIdle && !_expanded) {
       setState(() {
-        _expanded = false;
+        _expanded = true;
       });
     }
-    _wasRunning = widget.isRunning;
+    
+    _wasSessionIdle = widget.isSessionIdle;
   }
 
   @override
@@ -1093,15 +1081,27 @@ class _ToolCallSetCardState extends State<_ToolCallSetCard> {
     final count = widget.toolCount > 0 ? widget.toolCount : widget.parts.length;
     final summary = count == 1 ? '1 item' : '$count items';
 
-    final headerColor = widget.isRunning
+    final isSessionBusy = !widget.isSessionIdle;
+    final headerColor = isSessionBusy
         ? AppTheme.warning
         : widget.hasError
         ? AppTheme.error
         : AppTheme.textSecondary;
 
-    final leadingIcon = widget.isRunning
-        ? LucideIcons.loaderCircle
-        : _iconForTool(widget.primaryTool);
+    final leadingWidget = isSessionBusy
+        ? const SizedBox(
+            width: 14,
+            height: 14,
+            child: CircularProgressIndicator(
+              strokeWidth: 1.8,
+              valueColor: AlwaysStoppedAnimation<Color>(AppTheme.warning),
+            ),
+          )
+        : Icon(
+            _iconForTool(widget.primaryTool),
+            size: 14,
+            color: headerColor,
+          );
 
     final title = widget.toolCount == 1 && widget.primaryTool != null
         ? toolDisplayLabel(widget.primaryTool!)
@@ -1131,7 +1131,7 @@ class _ToolCallSetCardState extends State<_ToolCallSetCard> {
                     color: AppTheme.textSecondary,
                   ),
                   const SizedBox(width: 6),
-                  Icon(leadingIcon, size: 14, color: headerColor),
+                  leadingWidget,
                   const SizedBox(width: 6),
                   Text(
                     title,
@@ -1150,17 +1150,6 @@ class _ToolCallSetCardState extends State<_ToolCallSetCard> {
                     ),
                   ),
                   const Spacer(),
-                  if (widget.isRunning)
-                    SizedBox(
-                      width: 12,
-                      height: 12,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 1.5,
-                        valueColor: const AlwaysStoppedAnimation<Color>(
-                          AppTheme.warning,
-                        ),
-                      ),
-                    ),
                 ],
               ),
             ),
@@ -1180,6 +1169,7 @@ class _ToolCallSetCardState extends State<_ToolCallSetCard> {
               child: MessagePartsWidget(
                 parts: widget.parts,
                 collapseOperationalParts: false,
+                isSessionIdle: widget.isSessionIdle,
               ),
             ),
         ],

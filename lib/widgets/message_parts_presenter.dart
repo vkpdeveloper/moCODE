@@ -19,6 +19,7 @@ class ToolCallSetBlock extends MessagePartBlock {
   final bool isRunning;
   final bool hasError;
   final String? primaryTool;
+  final bool isSessionIdle;
 
   const ToolCallSetBlock({
     required this.messageID,
@@ -27,6 +28,7 @@ class ToolCallSetBlock extends MessagePartBlock {
     required this.isRunning,
     required this.hasError,
     this.primaryTool,
+    this.isSessionIdle = false,
   });
 }
 
@@ -34,6 +36,7 @@ List<MessagePartBlock> buildMessagePartBlocks(
   List<Part> parts, {
   bool groupOperationalParts = true,
   bool groupByMessageID = true,
+  bool isSessionIdle = false,
 }) {
   if (!groupOperationalParts) {
     return parts.map((part) => SinglePartBlock(part)).toList();
@@ -70,6 +73,7 @@ List<MessagePartBlock> buildMessagePartBlocks(
               isRunning: isRunning,
               hasError: hasError,
               primaryTool: primaryTool,
+              isSessionIdle: isSessionIdle,
             ),
           );
           inserted = true;
@@ -126,6 +130,7 @@ List<MessagePartBlock> buildMessagePartBlocks(
           isRunning: isRunning,
           hasError: hasError,
           primaryTool: primaryTool,
+          isSessionIdle: isSessionIdle,
         ),
       );
       insertedMessages.add(messageID);
