@@ -24,9 +24,9 @@ import '../widgets/message_parts.dart';
 import '../widgets/message_widgets.dart';
 import '../widgets/session_busy_indicator.dart';
 import '../widgets/ssh_connection_dialog.dart';
-import '../widgets/terminal_bottom_sheet.dart';
+import 'terminal_page.dart';
 import '../widgets/connection_choice_sheet.dart';
-import '../widgets/sftp_bottom_sheet.dart';
+import 'sftp_page.dart';
 
 class ChatScreen extends ConsumerStatefulWidget {
   final String? sessionId;
@@ -2132,29 +2132,43 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
       context,
       onTerminal: () async {
         if (sshState.isConnected) {
-          showTerminalBottomSheet(context);
+          Navigator.of(
+            context,
+          ).push(MaterialPageRoute(builder: (context) => const TerminalPage()));
         } else {
           final connected = await showSshConnectionDialog(
             context,
             defaultHost: settings.serverHost,
             workingDirectory: project?.worktree ?? '/',
           );
-          if (connected == true && context.mounted) {
-            showTerminalBottomSheet(context);
+          if (connected == true && context.mounted && sshState.isConnected) {
+            Navigator.of(context).push(
+              MaterialPageRoute(builder: (context) => const TerminalPage()),
+            );
           }
         }
       },
       onSftp: () async {
         if (sshState.isConnected) {
-          showSftpBottomSheet(context, project?.worktree ?? '/');
+          Navigator.of(context).push(
+            MaterialPageRoute(
+              builder: (context) =>
+                  SftpPage(workingDirectory: project?.worktree ?? '/'),
+            ),
+          );
         } else {
           final connected = await showSshConnectionDialog(
             context,
             defaultHost: settings.serverHost,
             workingDirectory: project?.worktree ?? '/',
           );
-          if (connected == true && context.mounted) {
-            showSftpBottomSheet(context, project?.worktree ?? '/');
+          if (connected == true && context.mounted && sshState.isConnected) {
+            Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (context) =>
+                    SftpPage(workingDirectory: project?.worktree ?? '/'),
+              ),
+            );
           }
         }
       },
@@ -2167,7 +2181,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     final sshState = ref.read(sshProvider);
 
     if (sshState.isConnected) {
-      showTerminalBottomSheet(context);
+      Navigator.of(
+        context,
+      ).push(MaterialPageRoute(builder: (context) => const TerminalPage()));
     } else {
       final connected = await showSshConnectionDialog(
         context,
@@ -2176,7 +2192,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
       );
       if (connected == true) {
         if (context.mounted) {
-          showTerminalBottomSheet(context);
+          Navigator.of(
+            context,
+          ).push(MaterialPageRoute(builder: (context) => const TerminalPage()));
         }
       }
     }

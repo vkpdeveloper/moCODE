@@ -129,7 +129,11 @@ class SshNotifier extends StateNotifier<SshState> {
       await _service.clearCredentials();
     }
 
-    final success = await _service.connect(credentials);
+    String? connectionError;
+    final success = await _service.connect(
+      credentials,
+      onError: (error) => connectionError = error,
+    );
 
     if (success) {
       state = SshState(
@@ -143,7 +147,7 @@ class SshNotifier extends StateNotifier<SshState> {
     } else {
       state = state.copyWith(
         isConnecting: false,
-        error: 'Failed to connect to SSH server',
+        error: connectionError ?? 'Failed to connect to SSH server',
       );
       return false;
     }
@@ -192,6 +196,10 @@ class SshNotifier extends StateNotifier<SshState> {
       state.credentials != null &&
       (state.connectionState == SshConnectionState.disconnected ||
           state.connectionState == SshConnectionState.reconnecting);
+
+  void clearError() {
+    state = state.copyWith(error: null);
+  }
 
   Future<bool> checkConnection() async {
     try {

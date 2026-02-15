@@ -1059,10 +1059,10 @@ class _ToolCallSetCardState extends State<_ToolCallSetCard> {
   @override
   void didUpdateWidget(covariant _ToolCallSetCard oldWidget) {
     super.didUpdateWidget(oldWidget);
-    
+
     final isSessionBusy = !widget.isSessionIdle;
     final wasSessionIdle = _wasSessionIdle;
-    
+
     if (isSessionBusy && !_expanded) {
       setState(() {
         _expanded = true;
@@ -1072,7 +1072,7 @@ class _ToolCallSetCardState extends State<_ToolCallSetCard> {
         _expanded = true;
       });
     }
-    
+
     _wasSessionIdle = widget.isSessionIdle;
   }
 
@@ -1097,11 +1097,7 @@ class _ToolCallSetCardState extends State<_ToolCallSetCard> {
               valueColor: AlwaysStoppedAnimation<Color>(AppTheme.warning),
             ),
           )
-        : Icon(
-            _iconForTool(widget.primaryTool),
-            size: 14,
-            color: headerColor,
-          );
+        : Icon(_iconForTool(widget.primaryTool), size: 14, color: headerColor);
 
     final title = widget.toolCount == 1 && widget.primaryTool != null
         ? toolDisplayLabel(widget.primaryTool!)

@@ -10,9 +10,9 @@ import '../providers/ssh_provider.dart';
 import '../theme/app_theme.dart';
 import '../widgets/session_busy_indicator.dart';
 import '../widgets/ssh_connection_dialog.dart';
-import '../widgets/terminal_bottom_sheet.dart';
+import 'terminal_page.dart';
 import '../widgets/connection_choice_sheet.dart';
-import '../widgets/sftp_bottom_sheet.dart';
+import 'sftp_page.dart';
 
 class SessionsScreen extends ConsumerWidget {
   const SessionsScreen({super.key});
@@ -483,7 +483,9 @@ class SessionsScreen extends ConsumerWidget {
       context,
       onTerminal: () async {
         if (sshState.isConnected) {
-          showTerminalBottomSheet(context);
+          Navigator.of(
+            context,
+          ).push(MaterialPageRoute(builder: (context) => const TerminalPage()));
         } else {
           final connected = await showSshConnectionDialog(
             context,
@@ -491,13 +493,20 @@ class SessionsScreen extends ConsumerWidget {
             workingDirectory: project.worktree,
           );
           if (connected == true && context.mounted) {
-            showTerminalBottomSheet(context);
+            Navigator.of(context).push(
+              MaterialPageRoute(builder: (context) => const TerminalPage()),
+            );
           }
         }
       },
       onSftp: () async {
         if (sshState.isConnected) {
-          showSftpBottomSheet(context, project.worktree);
+          Navigator.of(context).push(
+            MaterialPageRoute(
+              builder: (context) =>
+                  SftpPage(workingDirectory: project.worktree),
+            ),
+          );
         } else {
           final connected = await showSshConnectionDialog(
             context,
@@ -505,7 +514,12 @@ class SessionsScreen extends ConsumerWidget {
             workingDirectory: project.worktree,
           );
           if (connected == true && context.mounted) {
-            showSftpBottomSheet(context, project.worktree);
+            Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (context) =>
+                    SftpPage(workingDirectory: project.worktree),
+              ),
+            );
           }
         }
       },
@@ -521,7 +535,9 @@ class SessionsScreen extends ConsumerWidget {
     final sshState = ref.read(sshProvider);
 
     if (sshState.isConnected) {
-      showTerminalBottomSheet(context);
+      Navigator.of(
+        context,
+      ).push(MaterialPageRoute(builder: (context) => const TerminalPage()));
     } else {
       final connected = await showSshConnectionDialog(
         context,
@@ -530,7 +546,9 @@ class SessionsScreen extends ConsumerWidget {
       );
       if (connected == true) {
         if (context.mounted) {
-          showTerminalBottomSheet(context);
+          Navigator.of(
+            context,
+          ).push(MaterialPageRoute(builder: (context) => const TerminalPage()));
         }
       }
     }

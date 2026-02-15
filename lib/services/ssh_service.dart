@@ -26,12 +26,13 @@ class SshService {
   Stream<SshConnectionState> get connectionStateStream =>
       _connectionStateController.stream;
 
-  final _reconnectAttemptController = StreamController<ReconnectAttempt>.broadcast();
+  final _reconnectAttemptController =
+      StreamController<ReconnectAttempt>.broadcast();
   Stream<ReconnectAttempt> get reconnectAttemptStream =>
       _reconnectAttemptController.stream;
 
   SshService({FlutterSecureStorage? secureStorage})
-      : _secureStorage = secureStorage ?? const FlutterSecureStorage();
+    : _secureStorage = secureStorage ?? const FlutterSecureStorage();
 
   bool get isConnected =>
       _client != null &&
@@ -66,7 +67,11 @@ class SshService {
     await _secureStorage.delete(key: _storageKey);
   }
 
-  Future<bool> connect(SshCredentials credentials, {bool remember = false}) async {
+  Future<bool> connect(
+    SshCredentials credentials, {
+    bool remember = false,
+    void Function(String error)? onError,
+  }) async {
     _lastCredentials = credentials;
 
     _connectionStateMachine = ConnectionStateMachine(
@@ -74,18 +79,19 @@ class SshService {
         _connectionStateController.add(newState);
       },
       onRetry: (attempt, delay) {
-        _reconnectAttemptController.add(ReconnectAttempt(
-          attempt: attempt,
-          delay: delay,
-        ));
+        _reconnectAttemptController.add(
+          ReconnectAttempt(attempt: attempt, delay: delay),
+        );
       },
       onMaxRetriesReached: () {
-        _terminal?.write('\r\n[Connection failed: Maximum retries reached]\r\n');
+        _terminal?.write(
+          '\r\n[Connection failed: Maximum retries reached]\r\n',
+        );
       },
     );
 
     final success = await _connectionStateMachine!.connect(
-      () => _establishConnection(credentials),
+      () => _establishConnection(credentials, onError: onError),
     );
 
     if (success) {
@@ -95,7 +101,10 @@ class SshService {
     return success;
   }
 
-  Future<bool> _establishConnection(SshCredentials credentials) async {
+  Future<bool> _establishConnection(
+    SshCredentials credentials, {
+    void Function(String error)? onError,
+  }) async {
     try {
       _client = SSHClient(
         await SSHSocket.connect(credentials.host, credentials.port),
@@ -132,6 +141,7 @@ class SshService {
 
       unawaited(
         _session!.done.then((_) async {
+          if (_session == null) return;
           final code = await _session!.exitCode;
           _terminal?.write('\r\n[Process exited with code $code]\r\n');
           handleConnectionLost();
@@ -144,10 +154,28 @@ class SshService {
 
       return true;
     } catch (e) {
-      _terminal?.write('\r\n[Connection error: $e]\r\n');
+      final errorMsg = _formatConnectionError(e);
+      _terminal?.write('\r\n[Connection error: $errorMsg]\r\n');
+      onError?.call(errorMsg);
       _cleanupConnection();
       return false;
     }
+  }
+
+  String _formatConnectionError(dynamic e) {
+    final errorStr = e.toString();
+    if (errorStr.contains('Connection refused')) {
+      return 'Connection refused. Please check if the SSH server is running.';
+    } else if (errorStr.contains('Connection timed out') || errorStr.contains('Timeout')) {
+      return 'Connection timed out. Please check if the host is reachable.';
+    } else if (errorStr.contains('Host not found') || errorStr.contains('Name or service not known') || errorStr.contains('getAddressInfo')) {
+      return 'Host not found. Please check the hostname.';
+    } else if (errorStr.contains('Authentication failed') || errorStr.contains('Auth')) {
+      return 'Authentication failed. Please check your username and password.';
+    } else if (errorStr.contains('SocketException')) {
+      return 'Unable to connect. Please check the host and port.';
+    }
+    return errorStr;
   }
 
   Future<bool> reconnect() async {
@@ -161,21 +189,23 @@ class SshService {
           _connectionStateController.add(newState);
         },
         onRetry: (attempt, delay) {
-          _reconnectAttemptController.add(ReconnectAttempt(
-            attempt: attempt,
-            delay: delay,
-          ));
+          _reconnectAttemptController.add(
+            ReconnectAttempt(attempt: attempt, delay: delay),
+          );
         },
         onMaxRetriesReached: () {
-          _terminal?.write('\r\n[Reconnection failed: Maximum retries reached]\r\n');
+          _terminal?.write(
+            '\r\n[Reconnection failed: Maximum retries reached]\r\n',
+          );
         },
       );
     }
 
     _terminal?.write('\r\n[Attempting to reconnect...]\r\n');
 
+    String? lastError;
     final success = await _connectionStateMachine!.reconnect(
-      () => _reestablishConnection(_lastCredentials!),
+      () => _reestablishConnection(_lastCredentials!, onError: (e) => lastError = e),
     );
 
     if (success) {
@@ -186,7 +216,10 @@ class SshService {
     return success;
   }
 
-  Future<bool> _reestablishConnection(SshCredentials credentials) async {
+  Future<bool> _reestablishConnection(
+    SshCredentials credentials, {
+    void Function(String error)? onError,
+  }) async {
     try {
       _cleanupConnection();
 
@@ -223,6 +256,7 @@ class SshService {
 
       unawaited(
         _session!.done.then((_) async {
+          if (_session == null) return;
           final code = await _session!.exitCode;
           _terminal?.write('\r\n[Process exited with code $code]\r\n');
           handleConnectionLost();
@@ -237,7 +271,9 @@ class SshService {
 
       return true;
     } catch (e) {
-      _terminal?.write('\r\n[Reconnection error: $e]\r\n');
+      final errorMsg = _formatConnectionError(e);
+      _terminal?.write('\r\n[Reconnection error: $errorMsg]\r\n');
+      onError?.call(errorMsg);
       _cleanupConnection();
       return false;
     }
@@ -348,10 +384,10 @@ class SshService {
     final sftp = await getSftp();
     final stat = await sftp.stat(remotePath);
     final total = stat.size ?? 0;
-    
+
     int startOffset = 0;
     FileMode fileMode = FileMode.writeOnly;
-    
+
     if (resumeOffset != null && resumeOffset > 0) {
       final partFile = File('$localPath.part');
       if (await partFile.exists()) {
@@ -365,10 +401,13 @@ class SshService {
     final raf = await localFile.open(mode: fileMode);
 
     try {
-      final remoteFile = await sftp.open(remotePath, mode: SftpFileOpenMode.read);
-      
+      final remoteFile = await sftp.open(
+        remotePath,
+        mode: SftpFileOpenMode.read,
+      );
+
       final stream = remoteFile.read(offset: startOffset);
-      
+
       await for (final chunk in stream) {
         await raf.writeFrom(chunk);
 
@@ -377,10 +416,10 @@ class SshService {
         onProgress?.call(startOffset + chunk.length, total);
         startOffset += chunk.length;
       }
-      
+
       await raf.close();
       await remoteFile.close();
-      
+
       await localFile.rename(localPath);
     } catch (e) {
       await raf.close();
@@ -438,20 +477,14 @@ class RemoteFileInfo {
   final int size;
   final DateTime? modified;
 
-  RemoteFileInfo({
-    required this.size,
-    this.modified,
-  });
+  RemoteFileInfo({required this.size, this.modified});
 }
 
 class ReconnectAttempt {
   final int attempt;
   final Duration delay;
 
-  ReconnectAttempt({
-    required this.attempt,
-    required this.delay,
-  });
+  ReconnectAttempt({required this.attempt, required this.delay});
 }
 
 void unawaited(Future<void> future) {}

@@ -23,6 +23,7 @@ class _SshConnectionDialogState extends ConsumerState<SshConnectionDialog> {
   late final TextEditingController _usernameController;
   late final TextEditingController _passwordController;
   bool _rememberIdentity = false;
+  String? _validationError;
 
   @override
   void initState() {
@@ -30,9 +31,21 @@ class _SshConnectionDialogState extends ConsumerState<SshConnectionDialog> {
     _usernameController = TextEditingController();
     _passwordController = TextEditingController();
 
+    _usernameController.addListener(_clearErrors);
+    _passwordController.addListener(_clearErrors);
+
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _loadSavedCredentials();
     });
+  }
+
+  void _clearErrors() {
+    if (_validationError != null || ref.read(sshProvider).error != null) {
+      setState(() {
+        _validationError = null;
+      });
+      ref.read(sshProvider.notifier).clearError();
+    }
   }
 
   Future<void> _loadSavedCredentials() async {
@@ -60,7 +73,28 @@ class _SshConnectionDialogState extends ConsumerState<SshConnectionDialog> {
     final username = _usernameController.text.trim();
     final password = _passwordController.text;
 
-    if (host.isEmpty || username.isEmpty || password.isEmpty) {
+    setState(() {
+      _validationError = null;
+    });
+
+    if (host.isEmpty) {
+      setState(() {
+        _validationError = 'Host is required';
+      });
+      return;
+    }
+
+    if (username.isEmpty) {
+      setState(() {
+        _validationError = 'Username is required';
+      });
+      return;
+    }
+
+    if (password.isEmpty) {
+      setState(() {
+        _validationError = 'Password is required';
+      });
       return;
     }
 
@@ -79,6 +113,16 @@ class _SshConnectionDialogState extends ConsumerState<SshConnectionDialog> {
 
     if (success && mounted) {
       Navigator.of(context).pop(true);
+    } else if (!success && mounted) {
+      final error = ref.read(sshProvider).error;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(error ?? 'Connection failed'),
+          backgroundColor: AppTheme.error,
+          behavior: SnackBarBehavior.floating,
+          duration: const Duration(seconds: 4),
+        ),
+      );
     }
   }
 
@@ -141,7 +185,16 @@ class _SshConnectionDialogState extends ConsumerState<SshConnectionDialog> {
                 ),
               ],
             ),
-            if (sshState.error != null) ...[
+            if (_validationError != null) ...[
+              const SizedBox(height: 12),
+              Text(
+                _validationError!,
+                style: const TextStyle(
+                  color: AppTheme.error,
+                  fontSize: 12,
+                ),
+              ),
+            ] else if (sshState.error != null) ...[
               const SizedBox(height: 12),
               Text(
                 sshState.error!,

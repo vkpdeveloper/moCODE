@@ -7,15 +7,14 @@ import '../providers/ssh_provider.dart';
 import '../services/connection_manager.dart';
 import '../theme/app_theme.dart';
 
-class TerminalBottomSheet extends ConsumerStatefulWidget {
-  const TerminalBottomSheet({super.key});
+class TerminalPage extends ConsumerStatefulWidget {
+  const TerminalPage({super.key});
 
   @override
-  ConsumerState<TerminalBottomSheet> createState() =>
-      _TerminalBottomSheetState();
+  ConsumerState<TerminalPage> createState() => _TerminalPageState();
 }
 
-class _TerminalBottomSheetState extends ConsumerState<TerminalBottomSheet>
+class _TerminalPageState extends ConsumerState<TerminalPage>
     with WidgetsBindingObserver {
   final TerminalController _terminalController = TerminalController();
   final FocusNode _terminalFocusNode = FocusNode();
@@ -184,9 +183,6 @@ class _TerminalBottomSheetState extends ConsumerState<TerminalBottomSheet>
         _terminalKey.currentContext!.findRenderObject() as RenderBox;
     final terminalPosition = renderBox.localToGlobal(Offset.zero);
 
-    // Calculate Y position based on start row and scroll offset
-    // BufferRange uses 'begin', which might be int (line index) or BufferPosition (x,y)
-
     final dynamic begin = (selection as dynamic).begin;
     final int startRow;
     int startCol = 0;
@@ -194,7 +190,6 @@ class _TerminalBottomSheetState extends ConsumerState<TerminalBottomSheet>
     if (begin is int) {
       startRow = begin;
     } else {
-      // Assuming BufferPosition
       startRow = begin.y;
       startCol = begin.x;
     }
@@ -206,14 +201,11 @@ class _TerminalBottomSheetState extends ConsumerState<TerminalBottomSheet>
     final relativeRow = startRow - visibleStartRow;
 
     final double y =
-        terminalPosition.dy +
-        (relativeRow * _charSize!.height) -
-        45; // slightly more above
+        terminalPosition.dy + (relativeRow * _charSize!.height) - 45;
     final double x = terminalPosition.dx + (startCol * _charSize!.width);
 
-    // Clamp to screen bounds to keep it visible
     final screenWidth = MediaQuery.of(context).size.width;
-    final clampedX = x.clamp(16.0, screenWidth - 80.0); // Keep some margin
+    final clampedX = x.clamp(16.0, screenWidth - 80.0);
 
     return Offset(clampedX, y);
   }
@@ -365,18 +357,19 @@ class _TerminalBottomSheetState extends ConsumerState<TerminalBottomSheet>
     final bottomInset = MediaQuery.of(context).viewInsets.bottom;
     final paddingBottom = MediaQuery.of(context).padding.bottom;
     final isKeyboardVisible = bottomInset > 0;
-    final toolbarBottomOffset = isKeyboardVisible ? bottomInset : paddingBottom;
+    final keyboardInset = (bottomInset - paddingBottom).clamp(0.0, bottomInset);
+    final toolbarBottomOffset =
+        isKeyboardVisible ? keyboardInset : paddingBottom;
     final terminalBottomPadding = _toolbarHeight + toolbarBottomOffset;
 
-    return Container(
-      height: double.infinity,
-      decoration: const BoxDecoration(color: AppTheme.background),
-      child: SafeArea(
+    return Scaffold(
+      backgroundColor: AppTheme.background,
+      appBar: _buildAppBar(context, sshState),
+      body: SafeArea(
         top: true,
         bottom: false,
         child: Column(
           children: [
-            _buildHeader(sshState),
             Expanded(
               child: Stack(
                 children: [
@@ -448,6 +441,82 @@ class _TerminalBottomSheetState extends ConsumerState<TerminalBottomSheet>
     );
   }
 
+  PreferredSizeWidget _buildAppBar(BuildContext context, SshState sshState) {
+    final isConnected = sshState.isConnected;
+    final isReconnecting = sshState.isReconnecting;
+    final connectionState = sshState.connectionState;
+
+    return AppBar(
+      backgroundColor: AppTheme.surface,
+      elevation: 0,
+      bottom: PreferredSize(
+        preferredSize: const Size.fromHeight(1.0),
+        child: Container(color: AppTheme.border, height: 1.0),
+      ),
+      title: const Text(
+        'Terminal',
+        style: TextStyle(
+          color: AppTheme.textPrimary,
+          fontSize: 16,
+          fontWeight: FontWeight.w500,
+        ),
+      ),
+      actions: [
+        Center(
+          child: Container(
+            margin: const EdgeInsets.only(right: 8),
+            padding: EdgeInsets.all(isConnected ? 4 : 4),
+            decoration: BoxDecoration(
+              color: _getStatusColor(
+                isConnected,
+                isReconnecting,
+              ).withValues(alpha: 0.2),
+              borderRadius: BorderRadius.circular(isConnected ? 50 : 4),
+            ),
+            child: isConnected
+                ? Icon(
+                    Icons.check,
+                    size: 14,
+                    color: _getStatusColor(isConnected, isReconnecting),
+                  )
+                : Text(
+                    _getStatusText(
+                      isConnected,
+                      isReconnecting,
+                      connectionState,
+                    ),
+                    style: TextStyle(
+                      color: _getStatusColor(isConnected, isReconnecting),
+                      fontSize: 10,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+          ),
+        ),
+        if (!isConnected && !isReconnecting && sshState.credentials != null)
+          IconButton(
+            onPressed: () {
+              ref.read(sshProvider.notifier).reconnect();
+            },
+            icon: const Icon(Icons.refresh, size: 20, color: AppTheme.accent),
+            tooltip: 'Reconnect',
+          ),
+        IconButton(
+          onPressed: () {
+            ref.read(sshProvider.notifier).disconnect();
+            Navigator.of(context).pop();
+          },
+          icon: const Icon(
+            Icons.close,
+            size: 20,
+            color: AppTheme.textSecondary,
+          ),
+          tooltip: 'Disconnect',
+        ),
+      ],
+    );
+  }
+
   Widget _buildReconnectingOverlay(SshState sshState) {
     return Center(
       child: Column(
@@ -492,92 +561,6 @@ class _TerminalBottomSheetState extends ConsumerState<TerminalBottomSheet>
                 fontWeight: FontWeight.w500,
               ),
             ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildHeader(SshState sshState) {
-    final isConnected = sshState.isConnected;
-    final isReconnecting = sshState.isReconnecting;
-    final connectionState = sshState.connectionState;
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      decoration: const BoxDecoration(
-        color: AppTheme.surface,
-        border: Border(bottom: BorderSide(color: AppTheme.border)),
-      ),
-      child: Row(
-        children: [
-          const Text(
-            'Terminal',
-            style: TextStyle(
-              color: AppTheme.textPrimary,
-              fontSize: 14,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-          const Spacer(),
-          Container(
-            padding: EdgeInsets.all(isConnected ? 4 : 4),
-            decoration: BoxDecoration(
-              color: _getStatusColor(
-                isConnected,
-                isReconnecting,
-              ).withValues(alpha: 0.2),
-              borderRadius: BorderRadius.circular(isConnected ? 50 : 4),
-            ),
-            child: isConnected
-                ? Icon(
-                    Icons.check,
-                    size: 14,
-                    color: _getStatusColor(isConnected, isReconnecting),
-                  )
-                : Text(
-                    _getStatusText(
-                      isConnected,
-                      isReconnecting,
-                      connectionState,
-                    ),
-                    style: TextStyle(
-                      color: _getStatusColor(isConnected, isReconnecting),
-                      fontSize: 10,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-          ),
-          const SizedBox(width: 8),
-          const SizedBox(width: 8),
-          if (!isConnected && !isReconnecting && sshState.credentials != null)
-            IconButton(
-              onPressed: () {
-                ref.read(sshProvider.notifier).reconnect();
-              },
-              icon: const Icon(Icons.refresh, size: 18, color: AppTheme.accent),
-              tooltip: 'Reconnect',
-            ),
-          IconButton(
-            onPressed: () => Navigator.of(context).pop(),
-            icon: const Icon(
-              Icons.minimize,
-              size: 18,
-              color: AppTheme.textSecondary,
-            ),
-            tooltip: 'Minimize',
-          ),
-          IconButton(
-            onPressed: () {
-              ref.read(sshProvider.notifier).disconnect();
-              Navigator.of(context).pop();
-            },
-            icon: const Icon(
-              Icons.close,
-              size: 18,
-              color: AppTheme.textSecondary,
-            ),
-            tooltip: 'Disconnect',
           ),
         ],
       ),
@@ -803,54 +786,36 @@ class _KeyboardButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final hasIconAndLabel = icon != null && label.isNotEmpty;
-
-    return Material(
-      color: selected
-          ? AppTheme.accent.withValues(alpha: 0.2)
-          : AppTheme.surfaceVariant,
-      borderRadius: BorderRadius.circular(6),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(6),
-        child: Container(
-          padding: EdgeInsets.symmetric(
-            horizontal: hasIconAndLabel ? 6 : (label.isNotEmpty ? 8 : 10),
-            vertical: 6,
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(4),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        constraints: const BoxConstraints(minWidth: 32),
+        decoration: BoxDecoration(
+          color: selected ? AppTheme.accent : AppTheme.surfaceVariant,
+          borderRadius: BorderRadius.circular(4),
+          border: Border.all(
+            color: selected ? AppTheme.accent : AppTheme.border,
+            width: 0.5,
           ),
-          child: icon != null && label.isEmpty
+        ),
+        child: Center(
+          child: icon != null
               ? Icon(
                   icon,
                   size: 16,
-                  color: selected ? AppTheme.accent : AppTheme.textPrimary,
-                )
-              : hasIconAndLabel
-              ? Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      icon,
-                      size: 14,
-                      color: selected ? AppTheme.accent : AppTheme.textPrimary,
-                    ),
-                    const SizedBox(width: 2),
-                    Text(
-                      label,
-                      style: TextStyle(
-                        color: selected
-                            ? AppTheme.accent
-                            : AppTheme.textPrimary,
-                        fontSize: 10,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ],
+                  color: selected
+                      ? AppTheme.textPrimary
+                      : AppTheme.textSecondary,
                 )
               : Text(
                   label,
                   style: TextStyle(
-                    color: selected ? AppTheme.accent : AppTheme.textPrimary,
-                    fontSize: 11,
+                    color: selected
+                        ? AppTheme.textPrimary
+                        : AppTheme.textSecondary,
+                    fontSize: 12,
                     fontWeight: FontWeight.w500,
                   ),
                 ),
@@ -858,16 +823,4 @@ class _KeyboardButton extends StatelessWidget {
       ),
     );
   }
-}
-
-void showTerminalBottomSheet(BuildContext context) {
-  showModalBottomSheet(
-    context: context,
-    isScrollControlled: true,
-    useSafeArea: true,
-    backgroundColor: Colors.transparent,
-    isDismissible: false,
-    enableDrag: false,
-    builder: (context) => const TerminalBottomSheet(),
-  );
 }

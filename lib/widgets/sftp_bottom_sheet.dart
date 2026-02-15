@@ -110,22 +110,28 @@ class _SftpBottomSheetState extends ConsumerState<SftpBottomSheet>
           ),
           const Spacer(),
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            padding: EdgeInsets.all(isConnected ? 4 : 4),
             decoration: BoxDecoration(
               color: _getStatusColor(
                 isConnected,
                 isReconnecting,
               ).withValues(alpha: 0.2),
-              borderRadius: BorderRadius.circular(4),
+              borderRadius: BorderRadius.circular(isConnected ? 50 : 4),
             ),
-            child: Text(
-              _getStatusText(isConnected, isReconnecting),
-              style: TextStyle(
-                color: _getStatusColor(isConnected, isReconnecting),
-                fontSize: 10,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
+            child: isConnected
+                ? Icon(
+                    Icons.check,
+                    size: 14,
+                    color: _getStatusColor(isConnected, isReconnecting),
+                  )
+                : Text(
+                    _getStatusText(isConnected, isReconnecting),
+                    style: TextStyle(
+                      color: _getStatusColor(isConnected, isReconnecting),
+                      fontSize: 10,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
           ),
           const SizedBox(width: 8),
           if (sftpState.downloadProgress > 0 && sftpState.downloadProgress < 1)
@@ -205,176 +211,175 @@ class _SftpBottomSheetState extends ConsumerState<SftpBottomSheet>
         color: AppTheme.surface,
         border: Border(bottom: BorderSide(color: AppTheme.border)),
       ),
-        child: Column(
-          children: [
-            SizedBox(
-              height: 28,
-              child: Row(
-                children: [
-                  InkWell(
-                    onTap: () =>
-                        ref.read(sftpProvider.notifier).navigateToHome(),
-                    borderRadius: BorderRadius.circular(4),
-                    child: const Padding(
-                      padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                      child: Icon(
-                        Icons.home,
-                        size: 16,
-                        color: AppTheme.textSecondary,
-                      ),
-                    ),
-                  ),
-                  if (sftpState.currentPath.isNotEmpty &&
-                      sftpState.currentPath != '/')
-                    const Icon(
-                      Icons.chevron_right,
+      child: Column(
+        children: [
+          SizedBox(
+            height: 28,
+            child: Row(
+              children: [
+                InkWell(
+                  onTap: () => ref.read(sftpProvider.notifier).navigateToHome(),
+                  borderRadius: BorderRadius.circular(4),
+                  child: const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    child: Icon(
+                      Icons.home,
                       size: 16,
-                      color: AppTheme.textTertiary,
-                    ),
-                  Expanded(
-                    child: ListView.builder(
-                      scrollDirection: Axis.horizontal,
-                      itemCount: sftpState.pathSegments.length + 1,
-                      itemBuilder: (context, index) {
-                        if (index == 0) return const SizedBox.shrink();
-                        final isLast = index == sftpState.pathSegments.length;
-                        return Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            InkWell(
-                              onTap: isLast
-                                  ? null
-                                  : () => ref
-                                        .read(sftpProvider.notifier)
-                                        .navigateToSegment(index - 1),
-                              borderRadius: BorderRadius.circular(4),
-                              child: Padding(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 6,
-                                  vertical: 4,
-                                ),
-                                child: Text(
-                                  sftpState.pathSegments[index - 1],
-                                  style: TextStyle(
-                                    color: isLast
-                                        ? AppTheme.accent
-                                        : AppTheme.textSecondary,
-                                    fontSize: 12,
-                                    fontWeight: isLast
-                                        ? FontWeight.w500
-                                        : FontWeight.normal,
-                                  ),
-                                ),
-                              ),
-                            ),
-                            if (!isLast)
-                              const Icon(
-                                Icons.chevron_right,
-                                size: 14,
-                                color: AppTheme.textTertiary,
-                              ),
-                          ],
-                        );
-                      },
+                      color: AppTheme.textSecondary,
                     ),
                   ),
-                  const SizedBox(width: 8),
-                  InkWell(
-                    onTap: () {
-                      HapticFeedback.lightImpact();
-                      ref.read(sftpProvider.notifier).toggleShowHiddenFiles();
-                    },
-                    borderRadius: BorderRadius.circular(4),
-                    child: Padding(
-                      padding: const EdgeInsets.all(4),
-                      child: Icon(
-                        sftpState.showHiddenFiles
-                            ? Icons.visibility
-                            : Icons.visibility_off,
-                        size: 16,
-                        color: sftpState.showHiddenFiles
-                            ? AppTheme.accent
-                            : AppTheme.textTertiary,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 4),
-                  InkWell(
-                    onTap: () {
-                      HapticFeedback.lightImpact();
-                      _showBookmarks(context, sftpState);
-                    },
-                    borderRadius: BorderRadius.circular(4),
-                    child: Padding(
-                      padding: const EdgeInsets.all(4),
-                      child: Icon(
-                        sftpState.bookmarks.isNotEmpty
-                            ? Icons.bookmark
-                            : Icons.bookmark_border,
-                        size: 16,
-                        color: sftpState.bookmarks.isNotEmpty
-                            ? AppTheme.accent
-                            : AppTheme.textSecondary,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 4),
-                  InkWell(
-                    onTap: () {
-                      HapticFeedback.lightImpact();
-                      _showSortOptions(context, sftpState);
-                    },
-                    borderRadius: BorderRadius.circular(4),
-                    child: const Padding(
-                      padding: EdgeInsets.all(4),
-                      child: Icon(
-                        Icons.sort,
-                        size: 16,
-                        color: AppTheme.textSecondary,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 6),
-            Container(
-              height: 32,
-              decoration: BoxDecoration(
-                color: AppTheme.surfaceVariant,
-                borderRadius: BorderRadius.circular(4),
-                border: Border.all(color: AppTheme.border),
-              ),
-              child: TextField(
-                onChanged: (value) =>
-                    ref.read(sftpProvider.notifier).setSearchQuery(value),
-                style: const TextStyle(color: AppTheme.textPrimary, fontSize: 12),
-                decoration: const InputDecoration(
-                  hintText: 'Search files...',
-                  hintStyle: TextStyle(
-                    color: AppTheme.textTertiary,
-                    fontSize: 12,
-                  ),
-                  prefixIcon: Icon(
-                    Icons.search,
+                ),
+                if (sftpState.currentPath.isNotEmpty &&
+                    sftpState.currentPath != '/')
+                  const Icon(
+                    Icons.chevron_right,
                     size: 16,
                     color: AppTheme.textTertiary,
                   ),
-                  prefixIconConstraints: BoxConstraints(
-                    minWidth: 32,
-                    minHeight: 32,
+                Expanded(
+                  child: ListView.builder(
+                    scrollDirection: Axis.horizontal,
+                    itemCount: sftpState.pathSegments.length + 1,
+                    itemBuilder: (context, index) {
+                      if (index == 0) return const SizedBox.shrink();
+                      final isLast = index == sftpState.pathSegments.length;
+                      return Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          InkWell(
+                            onTap: isLast
+                                ? null
+                                : () => ref
+                                      .read(sftpProvider.notifier)
+                                      .navigateToSegment(index - 1),
+                            borderRadius: BorderRadius.circular(4),
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 6,
+                                vertical: 4,
+                              ),
+                              child: Text(
+                                sftpState.pathSegments[index - 1],
+                                style: TextStyle(
+                                  color: isLast
+                                      ? AppTheme.accent
+                                      : AppTheme.textSecondary,
+                                  fontSize: 12,
+                                  fontWeight: isLast
+                                      ? FontWeight.w500
+                                      : FontWeight.normal,
+                                ),
+                              ),
+                            ),
+                          ),
+                          if (!isLast)
+                            const Icon(
+                              Icons.chevron_right,
+                              size: 14,
+                              color: AppTheme.textTertiary,
+                            ),
+                        ],
+                      );
+                    },
                   ),
-                  border: InputBorder.none,
-                  contentPadding: EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 8,
-                  ),
-                  isDense: true,
                 ),
+                const SizedBox(width: 8),
+                InkWell(
+                  onTap: () {
+                    HapticFeedback.lightImpact();
+                    ref.read(sftpProvider.notifier).toggleShowHiddenFiles();
+                  },
+                  borderRadius: BorderRadius.circular(4),
+                  child: Padding(
+                    padding: const EdgeInsets.all(4),
+                    child: Icon(
+                      sftpState.showHiddenFiles
+                          ? Icons.visibility
+                          : Icons.visibility_off,
+                      size: 16,
+                      color: sftpState.showHiddenFiles
+                          ? AppTheme.accent
+                          : AppTheme.textTertiary,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 4),
+                InkWell(
+                  onTap: () {
+                    HapticFeedback.lightImpact();
+                    _showBookmarks(context, sftpState);
+                  },
+                  borderRadius: BorderRadius.circular(4),
+                  child: Padding(
+                    padding: const EdgeInsets.all(4),
+                    child: Icon(
+                      sftpState.bookmarks.isNotEmpty
+                          ? Icons.bookmark
+                          : Icons.bookmark_border,
+                      size: 16,
+                      color: sftpState.bookmarks.isNotEmpty
+                          ? AppTheme.accent
+                          : AppTheme.textSecondary,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 4),
+                InkWell(
+                  onTap: () {
+                    HapticFeedback.lightImpact();
+                    _showSortOptions(context, sftpState);
+                  },
+                  borderRadius: BorderRadius.circular(4),
+                  child: const Padding(
+                    padding: EdgeInsets.all(4),
+                    child: Icon(
+                      Icons.sort,
+                      size: 16,
+                      color: AppTheme.textSecondary,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 6),
+          Container(
+            height: 32,
+            decoration: BoxDecoration(
+              color: AppTheme.surfaceVariant,
+              borderRadius: BorderRadius.circular(4),
+              border: Border.all(color: AppTheme.border),
+            ),
+            child: TextField(
+              onChanged: (value) =>
+                  ref.read(sftpProvider.notifier).setSearchQuery(value),
+              style: const TextStyle(color: AppTheme.textPrimary, fontSize: 12),
+              decoration: const InputDecoration(
+                hintText: 'Search files...',
+                hintStyle: TextStyle(
+                  color: AppTheme.textTertiary,
+                  fontSize: 12,
+                ),
+                prefixIcon: Icon(
+                  Icons.search,
+                  size: 16,
+                  color: AppTheme.textTertiary,
+                ),
+                prefixIconConstraints: BoxConstraints(
+                  minWidth: 32,
+                  minHeight: 32,
+                ),
+                border: InputBorder.none,
+                contentPadding: EdgeInsets.symmetric(
+                  horizontal: 8,
+                  vertical: 8,
+                ),
+                isDense: true,
               ),
             ),
-          ],
-        ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -930,6 +935,23 @@ class _SftpBottomSheetState extends ConsumerState<SftpBottomSheet>
             ),
             tooltip: 'Delete selected',
           ),
+          const SizedBox(width: 8),
+          IconButton(
+            onPressed: hasSelection
+                ? () {
+                    HapticFeedback.lightImpact();
+                    _downloadSelected(context);
+                  }
+                : null,
+            icon: Icon(
+              Icons.download,
+              size: 20,
+              color: hasSelection
+                  ? AppTheme.textPrimary
+                  : AppTheme.textTertiary,
+            ),
+            tooltip: 'Download selected',
+          ),
         ],
       ),
     );
@@ -1186,7 +1208,7 @@ class _SftpBottomSheetState extends ConsumerState<SftpBottomSheet>
     );
   }
 
-  Future<void> _downloadFile(SftpItem item) async {
+  Future<bool> _downloadFile(SftpItem item, {bool showSnackBars = true}) async {
     try {
       bool hasPermission =
           await StoragePermissionService.checkStoragePermission();
@@ -1217,13 +1239,13 @@ class _SftpBottomSheetState extends ConsumerState<SftpBottomSheet>
         final action = await _showFileConflictDialog(context, item.name);
 
         if (action == _FileConflictAction.cancel) {
-          return;
+          return false;
         } else if (action == _FileConflictAction.keepBoth) {
           localPath = await _generateUniqueFilePath(directory.path, item.name);
         }
       }
 
-      if (mounted) {
+      if (mounted && showSnackBars) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('Downloading...'),
@@ -1234,7 +1256,7 @@ class _SftpBottomSheetState extends ConsumerState<SftpBottomSheet>
 
       await ref.read(sftpProvider.notifier).downloadFile(item, localPath);
 
-      if (mounted) {
+      if (mounted && showSnackBars) {
         final displayPath = hasPermission && Platform.isAndroid
             ? 'Downloads folder'
             : 'App documents';
@@ -1246,12 +1268,15 @@ class _SftpBottomSheetState extends ConsumerState<SftpBottomSheet>
           ),
         );
       }
+      return true;
     } catch (e) {
       if (mounted) {
+        // Always show error snackbar even if showSnackBars is false
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text('Failed to download: $e')));
       }
+      return false;
     }
   }
 
@@ -1437,6 +1462,46 @@ class _SftpBottomSheetState extends ConsumerState<SftpBottomSheet>
         ],
       ),
     );
+  }
+
+  Future<void> _downloadSelected(BuildContext context) async {
+    final sftpState = ref.read(sftpProvider);
+    final selectedItems = sftpState.items
+        .where((i) => sftpState.selectedPaths.contains(i.path))
+        .toList();
+
+    final filesToDownload = selectedItems.where((i) => !i.isDirectory).toList();
+    final skippedCount = selectedItems.length - filesToDownload.length;
+
+    if (filesToDownload.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'No files selected to download (directories skipped)',
+            ),
+          ),
+        );
+      }
+      return;
+    }
+
+    int successCount = 0;
+    for (final item in filesToDownload) {
+      final success = await _downloadFile(item, showSnackBars: false);
+      if (success) successCount++;
+    }
+
+    if (mounted) {
+      ref.read(sftpProvider.notifier).toggleSelectionMode();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Downloaded $successCount files${skippedCount > 0 ? ' ($skippedCount directories skipped)' : ''}',
+          ),
+        ),
+      );
+    }
   }
 }
 
