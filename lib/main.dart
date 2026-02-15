@@ -6,6 +6,7 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'router/app_router.dart';
+import 'services/download_notification_service.dart';
 import 'theme/app_theme.dart';
 import 'widgets/active_session_manager.dart';
 import 'widgets/path_bootstrap.dart';
@@ -16,6 +17,10 @@ Future<void> main() async {
   final envFile = kReleaseMode ? '.prod.env' : '.dev.env';
   await dotenv.load(fileName: envFile);
   await Firebase.initializeApp();
+  
+  // Initialize download notifications
+  await DownloadNotificationService().initialize();
+  
   SystemChrome.setSystemUIOverlayStyle(
     const SystemUiOverlayStyle(
       statusBarColor: Colors.transparent,

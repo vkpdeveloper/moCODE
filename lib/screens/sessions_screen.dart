@@ -11,6 +11,8 @@ import '../theme/app_theme.dart';
 import '../widgets/session_busy_indicator.dart';
 import '../widgets/ssh_connection_dialog.dart';
 import '../widgets/terminal_bottom_sheet.dart';
+import '../widgets/connection_choice_sheet.dart';
+import '../widgets/sftp_bottom_sheet.dart';
 
 class SessionsScreen extends ConsumerWidget {
   const SessionsScreen({super.key});
@@ -71,9 +73,9 @@ class SessionsScreen extends ConsumerWidget {
         ),
         actions: [
           IconButton(
-            icon: const Icon(Icons.terminal, size: 20),
-            tooltip: 'Terminal',
-            onPressed: () => _openTerminal(context, ref, project),
+            icon: const Icon(Icons.build_circle_outlined, size: 20),
+            tooltip: 'Tools',
+            onPressed: () => _showToolsMenu(context, ref, project),
           ),
           IconButton(
             icon: const Icon(Icons.swap_horiz, size: 20),
@@ -470,6 +472,43 @@ class SessionsScreen extends ConsumerWidget {
           ],
         ),
       ),
+    );
+  }
+
+  void _showToolsMenu(BuildContext context, WidgetRef ref, Project project) {
+    final settings = ref.read(settingsProvider);
+    final sshState = ref.read(sshProvider);
+
+    showConnectionChoiceSheet(
+      context,
+      onTerminal: () async {
+        if (sshState.isConnected) {
+          showTerminalBottomSheet(context);
+        } else {
+          final connected = await showSshConnectionDialog(
+            context,
+            defaultHost: settings.serverHost,
+            workingDirectory: project.worktree,
+          );
+          if (connected == true && context.mounted) {
+            showTerminalBottomSheet(context);
+          }
+        }
+      },
+      onSftp: () async {
+        if (sshState.isConnected) {
+          showSftpBottomSheet(context, project.worktree);
+        } else {
+          final connected = await showSshConnectionDialog(
+            context,
+            defaultHost: settings.serverHost,
+            workingDirectory: project.worktree,
+          );
+          if (connected == true && context.mounted) {
+            showSftpBottomSheet(context, project.worktree);
+          }
+        }
+      },
     );
   }
 

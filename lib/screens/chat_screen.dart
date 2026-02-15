@@ -25,6 +25,8 @@ import '../widgets/message_widgets.dart';
 import '../widgets/session_busy_indicator.dart';
 import '../widgets/ssh_connection_dialog.dart';
 import '../widgets/terminal_bottom_sheet.dart';
+import '../widgets/connection_choice_sheet.dart';
+import '../widgets/sftp_bottom_sheet.dart';
 
 class ChatScreen extends ConsumerStatefulWidget {
   final String? sessionId;
@@ -2121,6 +2123,44 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     );
   }
 
+  void _showToolsMenu(BuildContext context) {
+    final settings = ref.read(settingsProvider);
+    final project = ref.read(selectedProjectProvider);
+    final sshState = ref.read(sshProvider);
+
+    showConnectionChoiceSheet(
+      context,
+      onTerminal: () async {
+        if (sshState.isConnected) {
+          showTerminalBottomSheet(context);
+        } else {
+          final connected = await showSshConnectionDialog(
+            context,
+            defaultHost: settings.serverHost,
+            workingDirectory: project?.worktree ?? '/',
+          );
+          if (connected == true && context.mounted) {
+            showTerminalBottomSheet(context);
+          }
+        }
+      },
+      onSftp: () async {
+        if (sshState.isConnected) {
+          showSftpBottomSheet(context, project?.worktree ?? '/');
+        } else {
+          final connected = await showSshConnectionDialog(
+            context,
+            defaultHost: settings.serverHost,
+            workingDirectory: project?.worktree ?? '/',
+          );
+          if (connected == true && context.mounted) {
+            showSftpBottomSheet(context, project?.worktree ?? '/');
+          }
+        }
+      },
+    );
+  }
+
   Future<void> _openTerminal(BuildContext context) async {
     final settings = ref.read(settingsProvider);
     final project = ref.read(selectedProjectProvider);
@@ -2288,9 +2328,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
           ),
           _buildSidebarToggle(),
           IconButton(
-            icon: const Icon(Icons.terminal, size: 20),
-            onPressed: () => _openTerminal(context),
-            tooltip: 'Terminal',
+            icon: const Icon(Icons.build_circle_outlined, size: 20),
+            onPressed: () => _showToolsMenu(context),
+            tooltip: 'Tools',
           ),
           IconButton(
             icon: const Icon(Icons.swap_horiz, size: 20),
@@ -2439,16 +2479,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
                       ),
                     ),
                   ),
-                if (!isUser && msg.info is AssistantMessageInfo)
-                  Text(
-                    (msg.info as AssistantMessageInfo).modelID,
-                    style: const TextStyle(
-                      color: AppTheme.textTertiary,
-                      fontSize: 9,
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
                 if (isAssistant)
                   _buildMessageActions(
                     canUndo: canUndo,
@@ -2499,20 +2529,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
                 spacing: 8,
                 runSpacing: 4,
                 children: [
-                  Text(
-                    '\$${(msg.info as AssistantMessageInfo).cost.toStringAsFixed(4)}',
-                    style: const TextStyle(
-                      color: AppTheme.textTertiary,
-                      fontSize: 9,
-                    ),
-                  ),
-                  Text(
-                    '${(msg.info as AssistantMessageInfo).tokens.input + (msg.info as AssistantMessageInfo).tokens.output} tokens',
-                    style: const TextStyle(
-                      color: AppTheme.textTertiary,
-                      fontSize: 9,
-                    ),
-                  ),
                   if ((msg.info as AssistantMessageInfo).mode.isNotEmpty)
                     Text(
                       (msg.info as AssistantMessageInfo).mode.toUpperCase(),
@@ -2520,6 +2536,16 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
                         color: AppTheme.textTertiary,
                         fontSize: 9,
                       ),
+                    ),
+                  if (!isUser && msg.info is AssistantMessageInfo)
+                    Text(
+                      (msg.info as AssistantMessageInfo).modelID,
+                      style: const TextStyle(
+                        color: AppTheme.textTertiary,
+                        fontSize: 9,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
                 ],
               ),

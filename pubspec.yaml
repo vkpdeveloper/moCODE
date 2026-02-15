@@ -36,8 +36,13 @@ dependencies:
   lucide_icons_flutter: ^3.1.9
   markdown: ^7.2.2
   xterm: ^4.0.0
-  dartssh2: ^2.10.0
+  dartssh2: ^2.13.0
   flutter_secure_storage: ^9.2.4
+  path: ^1.9.0
+  path_provider: ^2.1.5
+  file_picker: ^8.1.7
+  permission_handler: ^11.3.1
+  flutter_local_notifications: ^17.2.3
 
 dev_dependencies:
   flutter_test:

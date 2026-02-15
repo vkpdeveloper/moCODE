@@ -36,7 +36,7 @@ class UserMessageWidget extends StatelessWidget {
 
     if (displayParts.isEmpty) {
       return const Text(
-        '',
+        '  ',
         style: TextStyle(
           color: AppTheme.textTertiary,
           fontSize: 12,

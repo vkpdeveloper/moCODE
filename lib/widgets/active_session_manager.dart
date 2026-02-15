@@ -4,6 +4,8 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../providers/providers.dart';
+import '../providers/ssh_provider.dart';
+import '../services/connection_manager.dart';
 
 class ActiveSessionManager extends ConsumerStatefulWidget {
   final Widget child;
@@ -15,16 +17,19 @@ class ActiveSessionManager extends ConsumerStatefulWidget {
       _ActiveSessionManagerState();
 }
 
-class _ActiveSessionManagerState extends ConsumerState<ActiveSessionManager> {
+class _ActiveSessionManagerState extends ConsumerState<ActiveSessionManager>
+    with WidgetsBindingObserver {
   static const Duration _releaseGrace = Duration(seconds: 6);
   final Set<String> _retainedDirectories = {};
   ProviderSubscription<Map<String, String>>? _subscription;
   Timer? _pollTimer;
   bool _isValidating = false;
+  AppLifecycleState? _lastLifecycleState;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _syncDirectories(ref.read(activeSessionsProvider));
     _subscription = ref.listenManual<Map<String, String>>(
       activeSessionsProvider,
@@ -34,6 +39,7 @@ class _ActiveSessionManagerState extends ConsumerState<ActiveSessionManager> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _subscription?.close();
     _pollTimer?.cancel();
     final eventService = ref.read(eventServiceProvider);
@@ -42,6 +48,59 @@ class _ActiveSessionManagerState extends ConsumerState<ActiveSessionManager> {
     }
     _retainedDirectories.clear();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+
+    if (_lastLifecycleState == state) return;
+    _lastLifecycleState = state;
+
+    switch (state) {
+      case AppLifecycleState.resumed:
+        _handleAppResumed();
+        break;
+      case AppLifecycleState.paused:
+        _handleAppPaused();
+        break;
+      case AppLifecycleState.inactive:
+      case AppLifecycleState.detached:
+      case AppLifecycleState.hidden:
+        break;
+    }
+  }
+
+  void _handleAppResumed() {
+    final sshState = ref.read(sshProvider);
+    if (sshState.isConnected) {
+      _triggerConnectionHealthCheck();
+    }
+  }
+
+  void _handleAppPaused() {
+  }
+
+  Future<void> _triggerConnectionHealthCheck() async {
+    final sshNotifier = ref.read(sshProvider.notifier);
+    final sshState = ref.read(sshProvider);
+
+    if (sshState.credentials == null) return;
+
+    final isConnected = await sshNotifier.checkConnection();
+    if (!isConnected && sshState.isConnected) {
+      _triggerAutoReconnect(sshState);
+    }
+  }
+
+  void _triggerAutoReconnect(sshState) {
+    Future.delayed(const Duration(seconds: 2), () {
+      if (!mounted) return;
+      final currentState = ref.read(sshProvider);
+      if (currentState.connectionState == SshConnectionState.disconnected) {
+        ref.read(sshProvider.notifier).reconnect();
+      }
+    });
   }
 
   void _syncDirectories(Map<String, String> activeSessions) {
@@ -108,7 +167,6 @@ class _ActiveSessionManagerState extends ConsumerState<ActiveSessionManager> {
             }
           }
         } catch (_) {
-          // ignore validation errors
         }
       }
     } finally {
