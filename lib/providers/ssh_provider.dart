@@ -65,7 +65,9 @@ class SshNotifier extends StateNotifier<SshState> {
   }
 
   void _setupSshConnectionStateListener() {
-    _connectionStateSubscription = _service.connectionStateStream.listen((connState) {
+    _connectionStateSubscription = _service.connectionStateStream.listen((
+      connState,
+    ) {
       switch (connState) {
         case SshConnectionState.connected:
           state = state.copyWith(
@@ -99,8 +101,9 @@ class SshNotifier extends StateNotifier<SshState> {
       }
     });
 
-    _reconnectAttemptSubscription =
-        _service.reconnectAttemptStream.listen((attempt) {
+    _reconnectAttemptSubscription = _service.reconnectAttemptStream.listen((
+      attempt,
+    ) {
       state = state.copyWith(
         retryAttempt: attempt.attempt,
         nextRetryDelay: attempt.delay,
@@ -115,7 +118,10 @@ class SshNotifier extends StateNotifier<SshState> {
     }
   }
 
-  Future<bool> connect(SshCredentials credentials, {bool remember = false}) async {
+  Future<bool> connect(
+    SshCredentials credentials, {
+    bool remember = false,
+  }) async {
     state = state.copyWith(
       isConnecting: true,
       error: null,
@@ -155,15 +161,13 @@ class SshNotifier extends StateNotifier<SshState> {
 
   Future<bool> reconnect() async {
     if (state.credentials == null) {
-      state = state.copyWith(error: 'No credentials available for reconnection');
+      state = state.copyWith(
+        error: 'No credentials available for reconnection',
+      );
       return false;
     }
 
-    state = state.copyWith(
-      isReconnecting: true,
-      error: null,
-      retryAttempt: 0,
-    );
+    state = state.copyWith(isReconnecting: true, error: null, retryAttempt: 0);
 
     final success = await _service.reconnect();
 
@@ -204,6 +208,14 @@ class SshNotifier extends StateNotifier<SshState> {
   Future<bool> checkConnection() async {
     try {
       return await _service.checkSftpConnection();
+    } catch (e) {
+      return false;
+    }
+  }
+
+  Future<bool> checkSshConnection() async {
+    try {
+      return await _service.checkSshConnection();
     } catch (e) {
       return false;
     }

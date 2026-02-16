@@ -64,8 +64,8 @@ class _SftpPageState extends ConsumerState<SftpPage>
   }
 
   Future<void> _handleAppResume() async {
-    final sshState = ref.read(sshProvider);
-    if (sshState.isConnected) {
+    final isAlive = await ref.read(sftpProvider.notifier).isConnectionAlive();
+    if (!isAlive) {
       await ref
           .read(sftpProvider.notifier)
           .reconnectIfNeeded(widget.workingDirectory);
@@ -1148,8 +1148,13 @@ class _SftpPageState extends ConsumerState<SftpPage>
       return false;
     }
 
-    // Get downloads directory
-    final downloadsDir = await getDownloadsDirectory();
+    Directory? downloadsDir;
+    if (Platform.isAndroid) {
+      downloadsDir = Directory('/storage/emulated/0/Download');
+    } else {
+      downloadsDir = await getDownloadsDirectory();
+    }
+
     if (downloadsDir == null) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

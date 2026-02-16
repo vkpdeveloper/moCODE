@@ -8,9 +8,18 @@ import 'package:xterm/xterm.dart';
 
 import '../models/ssh_credentials.dart';
 import 'connection_manager.dart';
+import 'foreground_service.dart';
 
 class SshService {
   static const _storageKey = 'ssh_credentials';
+
+  String _safeUtf8Decode(List<int> data) {
+    try {
+      return utf8.decode(data, allowMalformed: true);
+    } catch (e) {
+      return String.fromCharCodes(data);
+    }
+  }
 
   final FlutterSecureStorage _secureStorage;
   SSHClient? _client;
@@ -96,6 +105,7 @@ class SshService {
 
     if (success) {
       _startKeepalive();
+      _startForegroundService();
     }
 
     return success;
@@ -132,11 +142,11 @@ class SshService {
       }
 
       _session!.stdout.listen((data) {
-        _terminal?.write(utf8.decode(data));
+        _terminal?.write(_safeUtf8Decode(data));
       });
 
       _session!.stderr.listen((data) {
-        _terminal?.write(utf8.decode(data));
+        _terminal?.write(_safeUtf8Decode(data));
       });
 
       unawaited(
@@ -166,11 +176,15 @@ class SshService {
     final errorStr = e.toString();
     if (errorStr.contains('Connection refused')) {
       return 'Connection refused. Please check if the SSH server is running.';
-    } else if (errorStr.contains('Connection timed out') || errorStr.contains('Timeout')) {
+    } else if (errorStr.contains('Connection timed out') ||
+        errorStr.contains('Timeout')) {
       return 'Connection timed out. Please check if the host is reachable.';
-    } else if (errorStr.contains('Host not found') || errorStr.contains('Name or service not known') || errorStr.contains('getAddressInfo')) {
+    } else if (errorStr.contains('Host not found') ||
+        errorStr.contains('Name or service not known') ||
+        errorStr.contains('getAddressInfo')) {
       return 'Host not found. Please check the hostname.';
-    } else if (errorStr.contains('Authentication failed') || errorStr.contains('Auth')) {
+    } else if (errorStr.contains('Authentication failed') ||
+        errorStr.contains('Auth')) {
       return 'Authentication failed. Please check your username and password.';
     } else if (errorStr.contains('SocketException')) {
       return 'Unable to connect. Please check the host and port.';
@@ -205,7 +219,10 @@ class SshService {
 
     String? lastError;
     final success = await _connectionStateMachine!.reconnect(
-      () => _reestablishConnection(_lastCredentials!, onError: (e) => lastError = e),
+      () => _reestablishConnection(
+        _lastCredentials!,
+        onError: (e) => lastError = e,
+      ),
     );
 
     if (success) {
@@ -247,11 +264,11 @@ class SshService {
       }
 
       _session!.stdout.listen((data) {
-        _terminal?.write(utf8.decode(data));
+        _terminal?.write(_safeUtf8Decode(data));
       });
 
       _session!.stderr.listen((data) {
-        _terminal?.write(utf8.decode(data));
+        _terminal?.write(_safeUtf8Decode(data));
       });
 
       unawaited(
@@ -295,8 +312,20 @@ class SshService {
           return false;
         }
       },
-      interval: const Duration(seconds: 30),
+      interval: const Duration(seconds: 15),
     );
+  }
+
+  void _startForegroundService() {
+    if (Platform.isAndroid) {
+      ForegroundServiceManager().startService();
+    }
+  }
+
+  void _stopForegroundService() {
+    if (Platform.isAndroid) {
+      ForegroundServiceManager().stopService();
+    }
   }
 
   Terminal? get terminal => _terminal;
@@ -312,6 +341,7 @@ class SshService {
     _connectionStateMachine?.disconnect();
     _cleanupConnection();
     _connectionStateController.add(SshConnectionState.disconnected);
+    _stopForegroundService();
   }
 
   void _cleanupConnection() {
@@ -336,6 +366,16 @@ class SshService {
     try {
       final sftp = await getSftp();
       await sftp.listdir('.');
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  Future<bool> checkSshConnection() async {
+    try {
+      if (_client == null || _session == null) return false;
+      await _client!.authenticated;
       return true;
     } catch (e) {
       return false;

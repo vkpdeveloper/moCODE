@@ -191,6 +191,55 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               ),
 
               const SizedBox(height: 24),
+              _sectionHeader('TERMINAL'),
+              const SizedBox(height: 8),
+              Container(
+                decoration: BoxDecoration(
+                  color: AppTheme.surface,
+                  border: Border.all(color: AppTheme.border),
+                ),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 8,
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Nerd Fonts',
+                            style: TextStyle(
+                              color: AppTheme.textPrimary,
+                              fontSize: 14,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            'Show icons and glyphs in terminal',
+                            style: TextStyle(
+                              color: AppTheme.textTertiary,
+                              fontSize: 11,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Switch(
+                      value: settings.useNerdFont,
+                      activeColor: AppTheme.accent,
+                      onChanged: (value) {
+                        ref
+                            .read(settingsProvider.notifier)
+                            .updateNerdFont(value);
+                      },
+                    ),
+                  ],
+                ),
+              ),
+
+              const SizedBox(height: 24),
               _sectionHeader('STATUS'),
               const SizedBox(height: 8),
               Container(

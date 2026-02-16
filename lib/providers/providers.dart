@@ -38,12 +38,14 @@ class SettingsState {
   final String serverHost;
   final int serverPort;
   final bool isLoaded;
+  final bool useNerdFont;
 
   const SettingsState({
     this.serverUrl = 'http://127.0.0.1:4096',
     this.serverHost = '127.0.0.1',
     this.serverPort = 4096,
     this.isLoaded = false,
+    this.useNerdFont = true,
   });
 
   SettingsState copyWith({
@@ -51,12 +53,14 @@ class SettingsState {
     String? serverHost,
     int? serverPort,
     bool? isLoaded,
+    bool? useNerdFont,
   }) {
     return SettingsState(
       serverUrl: serverUrl ?? this.serverUrl,
       serverHost: serverHost ?? this.serverHost,
       serverPort: serverPort ?? this.serverPort,
       isLoaded: isLoaded ?? this.isLoaded,
+      useNerdFont: useNerdFont ?? this.useNerdFont,
     );
   }
 }
@@ -85,11 +89,13 @@ class SettingsNotifier extends StateNotifier<SettingsState> {
     final prefs = await SharedPreferences.getInstance();
     final host = prefs.getString('server_host') ?? '127.0.0.1';
     final port = prefs.getInt('server_port') ?? 4096;
+    final useNerdFont = prefs.getBool('use_nerd_font') ?? true;
     state = SettingsState(
       serverHost: host,
       serverPort: port,
       serverUrl: 'http://$host:$port',
       isLoaded: true,
+      useNerdFont: useNerdFont,
     );
   }
 
@@ -102,7 +108,14 @@ class SettingsNotifier extends StateNotifier<SettingsState> {
       serverPort: port,
       serverUrl: 'http://$host:$port',
       isLoaded: true,
+      useNerdFont: state.useNerdFont,
     );
+  }
+
+  Future<void> updateNerdFont(bool useNerdFont) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('use_nerd_font', useNerdFont);
+    state = state.copyWith(useNerdFont: useNerdFont);
   }
 }
 
@@ -240,10 +253,7 @@ class _NormalizedEvent {
   final String type;
   final Map<String, dynamic> properties;
 
-  const _NormalizedEvent({
-    required this.type,
-    required this.properties,
-  });
+  const _NormalizedEvent({required this.type, required this.properties});
 }
 
 class GlobalEventCoordinator {
@@ -264,9 +274,12 @@ class GlobalEventCoordinator {
       if (_subscriptions.containsKey(directory)) continue;
       _subscriptions[directory] = eventService
           .subscribe(directory: directory)
-          .listen(_handleRawEvent, onError: (Object error) {
-            debugPrint('[GlobalEventCoordinator] stream error: $error');
-          });
+          .listen(
+            _handleRawEvent,
+            onError: (Object error) {
+              debugPrint('[GlobalEventCoordinator] stream error: $error');
+            },
+          );
     }
 
     final toRemove = _subscriptions.keys
@@ -379,10 +392,7 @@ class GlobalEventCoordinator {
         ? Map<String, dynamic>.from(propertiesRaw)
         : <String, dynamic>{};
 
-    return _NormalizedEvent(
-      type: type,
-      properties: properties,
-    );
+    return _NormalizedEvent(type: type, properties: properties);
   }
 
   void _onReconnected() {
@@ -417,7 +427,9 @@ class GlobalEventCoordinator {
       _ref.read(selectedSessionProvider.notifier).state = null;
       unawaited(_ref.read(messagesProvider.notifier).loadForSession(null));
     }
-    unawaited(_ref.read(activeSessionsProvider.notifier).clearActive(deletedId));
+    unawaited(
+      _ref.read(activeSessionsProvider.notifier).clearActive(deletedId),
+    );
     _scheduleSessionsRefresh();
   }
 
@@ -523,7 +535,8 @@ class GlobalEventCoordinator {
   void _handleSessionError(Map<String, dynamic> properties) {
     final sessionID = properties['sessionID']?.toString();
     final selected = _ref.read(selectedSessionProvider);
-    if (selected != null && sessionID != null && selected.id != sessionID) return;
+    if (selected != null && sessionID != null && selected.id != sessionID)
+      return;
     final error = properties['error'];
     String? message;
     String? name;
@@ -703,7 +716,8 @@ class SessionStatusNotifier
   final SessionService _sessionService;
   String? _directory;
 
-  SessionStatusNotifier(this._sessionService) : super(const AsyncValue.loading());
+  SessionStatusNotifier(this._sessionService)
+    : super(const AsyncValue.loading());
 
   Future<void> loadForDirectory(String? directory) async {
     _directory = directory;
@@ -721,7 +735,9 @@ class SessionStatusNotifier
       return;
     }
     try {
-      final status = await _sessionService.getSessionStatus(directory: directory);
+      final status = await _sessionService.getSessionStatus(
+        directory: directory,
+      );
       if (!mounted || directory != _directory) return;
       state = AsyncValue.data(status);
     } catch (e, st) {
@@ -755,20 +771,21 @@ class SessionStatusNotifier
 }
 
 final sessionStatusProvider =
-    StateNotifierProvider<SessionStatusNotifier, AsyncValue<Map<String, dynamic>>>(
-      (ref) {
-        final notifier = SessionStatusNotifier(ref.watch(sessionServiceProvider));
-        ref.listen<Project?>(selectedProjectProvider, (previous, next) {
-          unawaited(notifier.loadForDirectory(next?.worktree));
-        }, fireImmediately: true);
+    StateNotifierProvider<
+      SessionStatusNotifier,
+      AsyncValue<Map<String, dynamic>>
+    >((ref) {
+      final notifier = SessionStatusNotifier(ref.watch(sessionServiceProvider));
+      ref.listen<Project?>(selectedProjectProvider, (previous, next) {
+        unawaited(notifier.loadForDirectory(next?.worktree));
+      }, fireImmediately: true);
 
-        final timer = Timer.periodic(const Duration(seconds: 4), (_) {
-          unawaited(notifier.refresh());
-        });
-        ref.onDispose(timer.cancel);
-        return notifier;
-      },
-    );
+      final timer = Timer.periodic(const Duration(seconds: 4), (_) {
+        unawaited(notifier.refresh());
+      });
+      ref.onDispose(timer.cancel);
+      return notifier;
+    });
 
 // ---------------------------------------------------------------------------
 // Session Diff
@@ -1141,7 +1158,9 @@ class MessagesState {
     return MessagesState(
       messages: messages ?? this.messages,
       isLoading: isLoading ?? this.isLoading,
-      error: identical(error, _messagesNoChange) ? this.error : error as String?,
+      error: identical(error, _messagesNoChange)
+          ? this.error
+          : error as String?,
     );
   }
 }
@@ -1183,7 +1202,10 @@ class MessagesNotifier extends StateNotifier<MessagesState> {
       current[index] = MessageWrapper(info: info, parts: current[index].parts);
     } else {
       current.add(MessageWrapper(info: info, parts: const []));
-      current.sort((a, b) => _messageCreatedAt(a.info).compareTo(_messageCreatedAt(b.info)));
+      current.sort(
+        (a, b) =>
+            _messageCreatedAt(a.info).compareTo(_messageCreatedAt(b.info)),
+      );
     }
     _applyPendingParts(current, info.id);
     state = state.copyWith(messages: current, error: null);
@@ -1195,9 +1217,9 @@ class MessagesNotifier extends StateNotifier<MessagesState> {
       (message) => message.info.id == part.messageID,
     );
     if (messageIndex < 0) {
-      _pendingPartsByMessage.putIfAbsent(part.messageID, () => []).add(
-        _PendingPartUpdate(part: part, delta: delta),
-      );
+      _pendingPartsByMessage
+          .putIfAbsent(part.messageID, () => [])
+          .add(_PendingPartUpdate(part: part, delta: delta));
       return;
     }
 
@@ -1295,7 +1317,11 @@ class MessagesNotifier extends StateNotifier<MessagesState> {
       if (partIndex < 0) {
         parts.add(_applyDelta(update.part, update.delta));
       } else {
-        parts[partIndex] = _mergePart(parts[partIndex], update.part, update.delta);
+        parts[partIndex] = _mergePart(
+          parts[partIndex],
+          update.part,
+          update.delta,
+        );
       }
       existing = MessageWrapper(info: existing.info, parts: parts);
     }
@@ -1311,18 +1337,18 @@ class _PendingPartUpdate {
   const _PendingPartUpdate({required this.part, required this.delta});
 }
 
-final messagesProvider = StateNotifierProvider<MessagesNotifier, MessagesState>((
-  ref,
-) {
-  final notifier = MessagesNotifier(ref.watch(messageServiceProvider));
-  ref.listen<Session?>(selectedSessionProvider, (previous, next) {
-    final previousId = previous?.id;
-    final nextId = next?.id;
-    if (previousId == nextId) return;
-    unawaited(notifier.loadForSession(next));
-  }, fireImmediately: true);
-  return notifier;
-});
+final messagesProvider = StateNotifierProvider<MessagesNotifier, MessagesState>(
+  (ref) {
+    final notifier = MessagesNotifier(ref.watch(messageServiceProvider));
+    ref.listen<Session?>(selectedSessionProvider, (previous, next) {
+      final previousId = previous?.id;
+      final nextId = next?.id;
+      if (previousId == nextId) return;
+      unawaited(notifier.loadForSession(next));
+    }, fireImmediately: true);
+    return notifier;
+  },
+);
 
 class ActiveSessionsNotifier extends StateNotifier<Map<String, String>> {
   final PreferencesService _preferencesService;
@@ -1561,17 +1587,18 @@ class SessionModeNotifier extends StateNotifier<String> {
   }
 }
 
-final sessionModeProvider =
-    StateNotifierProvider<SessionModeNotifier, String>((ref) {
-      final notifier = SessionModeNotifier(ref.watch(preferencesServiceProvider));
-      ref.listen<Session?>(selectedSessionProvider, (previous, next) {
-        final previousId = previous?.id;
-        final nextId = next?.id;
-        if (previousId == nextId) return;
-        notifier.setActiveSession(nextId);
-      }, fireImmediately: true);
-      return notifier;
-    });
+final sessionModeProvider = StateNotifierProvider<SessionModeNotifier, String>((
+  ref,
+) {
+  final notifier = SessionModeNotifier(ref.watch(preferencesServiceProvider));
+  ref.listen<Session?>(selectedSessionProvider, (previous, next) {
+    final previousId = previous?.id;
+    final nextId = next?.id;
+    if (previousId == nextId) return;
+    notifier.setActiveSession(nextId);
+  }, fireImmediately: true);
+  return notifier;
+});
 
 class DefaultModelNotifier extends StateNotifier<Map<String, String>?> {
   final PreferencesService _preferencesService;

@@ -43,6 +43,7 @@ dependencies:
   file_picker: ^8.1.7
   permission_handler: ^11.3.1
   flutter_local_notifications: ^17.2.3
+  flutter_foreground_task: ^8.15.0
 
 dev_dependencies:
   flutter_test:
@@ -64,6 +65,12 @@ flutter:
   assets:
     - .dev.env
     - .prod.env
+  fonts:
+    - family: JetBrainsMono-Nerd-Font
+      fonts:
+        - asset: assets/fonts/JetBrainsMonoNerdFont-Regular.ttf
+        - asset: assets/fonts/JetBrainsMonoNerdFont-Bold.ttf
+          weight: 700
 
 flutter_launcher_icons:
   android: "launcher_icon"

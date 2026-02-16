@@ -7,6 +7,7 @@ class PreferencesService {
   static const String _kSessionModePrefix = 'session_mode_';
   static const String _kProjectModelPrefix = 'project_model_';
   static const String _kActiveSessionPrefix = 'active_session_';
+  static const String _kUseNerdFont = 'use_nerd_font';
 
   Future<void> saveDefaultModel(String providerId, String modelId) async {
     final prefs = await SharedPreferences.getInstance();
@@ -190,6 +191,16 @@ class PreferencesService {
     return favourites.any(
       (f) => f['providerId'] == providerId && f['modelId'] == modelId,
     );
+  }
+
+  Future<void> setUseNerdFont(bool useNerdFont) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_kUseNerdFont, useNerdFont);
+  }
+
+  Future<bool> getUseNerdFont() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(_kUseNerdFont) ?? true;
   }
 
   String _encodeJson(Map<String, dynamic> json) {

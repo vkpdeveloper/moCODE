@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'router/app_router.dart';
@@ -14,13 +15,14 @@ import 'providers/providers.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  FlutterForegroundTask.initCommunicationPort();
   final envFile = kReleaseMode ? '.prod.env' : '.dev.env';
   await dotenv.load(fileName: envFile);
   await Firebase.initializeApp();
-  
+
   // Initialize download notifications
   await DownloadNotificationService().initialize();
-  
+
   SystemChrome.setSystemUIOverlayStyle(
     const SystemUiOverlayStyle(
       statusBarColor: Colors.transparent,

@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:xterm/xterm.dart';
 
 import '../providers/ssh_provider.dart';
+import '../providers/providers.dart';
 import '../services/connection_manager.dart';
 import '../theme/app_theme.dart';
 
@@ -88,11 +89,16 @@ class _TerminalPageState extends ConsumerState<TerminalPage>
     _measureCharSize();
   }
 
+  String _getTerminalFontFamily() {
+    final settings = ref.watch(settingsProvider);
+    return settings.useNerdFont ? 'JetBrainsMono-Nerd-Font' : 'JetBrains Mono';
+  }
+
   void _measureCharSize() {
     final textPainter = TextPainter(
-      text: const TextSpan(
+      text: TextSpan(
         text: 'M',
-        style: TextStyle(fontFamily: 'JetBrains Mono', fontSize: 13),
+        style: TextStyle(fontFamily: _getTerminalFontFamily(), fontSize: 13),
       ),
       textDirection: TextDirection.ltr,
     );
@@ -218,6 +224,23 @@ class _TerminalPageState extends ConsumerState<TerminalPage>
   @override
   void didChangeMetrics() {
     setState(() {});
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _checkAndReconnect();
+    }
+  }
+
+  Future<void> _checkAndReconnect() async {
+    final sshState = ref.read(sshProvider);
+    if (sshState.isConnected) {
+      final isAlive = await ref.read(sshProvider.notifier).checkSshConnection();
+      if (!isAlive) {
+        ref.read(sshProvider.notifier).reconnect();
+      }
+    }
   }
 
   @override
@@ -394,9 +417,9 @@ class _TerminalPageState extends ConsumerState<TerminalPage>
                               theme: _terminalTheme,
                               padding: const EdgeInsets.all(8),
                               scrollController: _scrollController,
-                              textStyle: const TerminalStyle(
+                              textStyle: TerminalStyle(
                                 fontSize: 13,
-                                fontFamily: 'JetBrains Mono',
+                                fontFamily: _getTerminalFontFamily(),
                               ),
                               cursorType: TerminalCursorType.block,
                               alwaysShowCursor: true,
@@ -629,10 +652,10 @@ class _TerminalPageState extends ConsumerState<TerminalPage>
                       ),
                       child: Text(
                         cmd,
-                        style: const TextStyle(
+                        style: TextStyle(
                           color: AppTheme.textSecondary,
                           fontSize: 11,
-                          fontFamily: 'JetBrains Mono',
+                          fontFamily: _getTerminalFontFamily(),
                         ),
                       ),
                     ),
