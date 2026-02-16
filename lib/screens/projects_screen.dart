@@ -3,9 +3,14 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../providers/providers.dart';
+import '../providers/ssh_provider.dart';
 import '../services/error_handler.dart';
 import '../theme/app_theme.dart';
+import '../widgets/connection_choice_sheet.dart';
 import '../widgets/connection_error_view.dart';
+import '../widgets/ssh_connection_dialog.dart';
+import 'sftp_page.dart';
+import 'terminal_page.dart';
 
 class ProjectsScreen extends ConsumerWidget {
   const ProjectsScreen({super.key});
@@ -93,11 +98,17 @@ class ProjectsScreen extends ConsumerWidget {
         ),
         actions: [
           IconButton(
+            icon: const Icon(Icons.build_circle_outlined, size: 20),
+            tooltip: 'Tools',
+            onPressed: () => _showToolsMenu(context, ref),
+          ),
+          IconButton(
             icon: const Icon(Icons.settings_outlined),
             onPressed: () => context.push('/settings'),
           ),
         ],
       ),
+
       body: Column(
         children: [
           // Developer Greeting Header
@@ -374,5 +385,58 @@ class ProjectsScreen extends ConsumerWidget {
     if (diff < 3600) return '${diff ~/ 60}m ago';
     if (diff < 86400) return '${diff ~/ 3600}h ago';
     return '${diff ~/ 86400}d ago';
+  }
+
+  void _showToolsMenu(BuildContext context, WidgetRef ref) {
+    final pathInfo = ref.read(pathInfoProvider).valueOrNull;
+    final settings = ref.read(settingsProvider);
+    final sshState = ref.read(sshProvider);
+    final home = pathInfo?.home ?? '/';
+
+    showConnectionChoiceSheet(
+      context,
+      onTerminal: () async {
+        Navigator.pop(context);
+        if (sshState.isConnected) {
+          Navigator.of(
+            context,
+          ).push(MaterialPageRoute(builder: (context) => const TerminalPage()));
+        } else {
+          final connected = await showSshConnectionDialog(
+            context,
+            defaultHost: settings.serverHost,
+            workingDirectory: home,
+          );
+          if (connected == true && context.mounted) {
+            Navigator.of(context).push(
+              MaterialPageRoute(builder: (context) => const TerminalPage()),
+            );
+          }
+        }
+      },
+      onSftp: () async {
+        Navigator.pop(context);
+        if (sshState.isConnected) {
+          Navigator.of(context).push(
+            MaterialPageRoute(
+              builder: (context) => SftpPage(workingDirectory: home),
+            ),
+          );
+        } else {
+          final connected = await showSshConnectionDialog(
+            context,
+            defaultHost: settings.serverHost,
+            workingDirectory: home,
+          );
+          if (connected == true && context.mounted) {
+            Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (context) => SftpPage(workingDirectory: home),
+              ),
+            );
+          }
+        }
+      },
+    );
   }
 }
