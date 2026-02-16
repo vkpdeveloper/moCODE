@@ -91,6 +91,7 @@ body {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 20px;
 }
 
 .logo {
@@ -111,6 +112,44 @@ body {
   display: flex;
   align-items: center;
   gap: 32px;
+}
+
+.nav-toggle {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.nav-toggle-label {
+  display: none;
+  width: 42px;
+  height: 42px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-tertiary);
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  cursor: pointer;
+  transition: border-color 0.2s ease, background 0.2s ease;
+}
+
+.nav-toggle-label span {
+  display: block;
+  width: 18px;
+  height: 2px;
+  background: var(--text-primary);
+  border-radius: 999px;
+  transition: transform 0.2s ease, opacity 0.2s ease;
+}
+
+.nav-toggle-label:hover {
+  border-color: var(--text-muted);
+}
+
+.nav-toggle:focus-visible + .nav-toggle-label {
+  outline: 2px solid rgba(255, 107, 53, 0.6);
+  outline-offset: 2px;
 }
 
 .nav-link {
@@ -692,6 +731,65 @@ body {
 
 /* Responsive */
 @media (max-width: 968px) {
+  .header {
+    padding: 14px 0;
+  }
+
+  .logo {
+    font-size: 20px;
+  }
+
+  .nav-toggle-label {
+    display: inline-flex;
+  }
+
+  .nav {
+    position: absolute;
+    top: calc(100% + 12px);
+    right: 24px;
+    left: 24px;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+    padding: 18px;
+    background: rgba(26, 22, 22, 0.95);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
+    opacity: 0;
+    visibility: hidden;
+    transform: translateY(-6px);
+    transition: opacity 0.2s ease, transform 0.2s ease, visibility 0.2s ease;
+  }
+
+  .nav-link {
+    font-size: 15px;
+    padding: 8px 4px;
+  }
+
+  .nav .btn {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .nav-toggle:checked + .nav-toggle-label span:nth-child(1) {
+    transform: translateY(6px) rotate(45deg);
+  }
+
+  .nav-toggle:checked + .nav-toggle-label span:nth-child(2) {
+    opacity: 0;
+  }
+
+  .nav-toggle:checked + .nav-toggle-label span:nth-child(3) {
+    transform: translateY(-6px) rotate(-45deg);
+  }
+
+  .nav-toggle:checked + .nav-toggle-label + .nav {
+    opacity: 1;
+    visibility: visible;
+    transform: translateY(0);
+  }
+
   .hero-content {
     grid-template-columns: 1fr;
     text-align: center;
@@ -739,6 +837,19 @@ body {
 }
 
 @media (max-width: 640px) {
+  .container {
+    padding: 0 18px;
+  }
+
+  .nav {
+    right: 18px;
+    left: 18px;
+  }
+
+  .header-content {
+    gap: 12px;
+  }
+
   .hero-actions {
     flex-wrap: wrap;
   }

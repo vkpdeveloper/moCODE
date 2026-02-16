@@ -56,3 +56,9 @@ export const checkoutSessions = pgTable(
   },
   (table) => [uniqueIndex('checkout_sessions_dodo_session_id_key').on(table.dodoSessionId)],
 );
+
+export const accountDeletionRequests = pgTable('account_deletion_requests', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  email: text('email').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+});

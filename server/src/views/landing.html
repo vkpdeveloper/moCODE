@@ -39,7 +39,18 @@
     <header class="header">
       <div class="container header-content">
         <a href="/" class="logo">moCODE</a>
-        <nav class="nav">
+        <input
+          type="checkbox"
+          id="nav-toggle"
+          class="nav-toggle"
+          aria-controls="primary-nav"
+        />
+        <label class="nav-toggle-label" for="nav-toggle" aria-label="Toggle navigation">
+          <span></span>
+          <span></span>
+          <span></span>
+        </label>
+        <nav class="nav" id="primary-nav">
           <a href="#features" class="nav-link">Features</a>
           <a href="#screenshots" class="nav-link">Screenshots</a>
           <a href="#setup" class="nav-link">Setup</a>

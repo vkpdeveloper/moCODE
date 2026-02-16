@@ -9,7 +9,7 @@ import { Webhook } from "standardwebhooks";
 import { z } from "zod";
 
 import { db } from "./db/client";
-import { checkoutSessions, entitlements } from "./db/schema";
+import { accountDeletionRequests, checkoutSessions, entitlements } from "./db/schema";
 import { corsOrigins, env } from "./lib/env";
 import { createDodoCheckoutSession } from "./lib/dodo";
 import { firebaseAuthMiddleware } from "./middleware/firebase-auth";
@@ -35,6 +35,10 @@ const termsHtml = readFileSync(join(viewsDir, "terms.html"), "utf8");
 
 const createCheckoutSchema = z.object({
   quantity: z.number().int().min(1).max(10).default(1),
+});
+
+const accountDeletionSchema = z.object({
+  email: z.string().trim().email(),
 });
 
 const app = new Hono<{ Variables: Variables }>();
@@ -71,6 +75,135 @@ app.get("/", async (c) => c.html(landingHtml));
 app.get("/privacy", async (c) => c.html(privacyHtml));
 
 app.get("/terms", async (c) => c.html(termsHtml));
+
+app.get("/account-deletion-request", async (c) => {
+  return c.html(
+    `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>moCODE - Account Deletion Request</title>
+    <meta
+      name="description"
+      content="Request account deletion for moCODE."
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="moCODE - Account Deletion Request" />
+    <meta
+      property="og:description"
+      content="Request account deletion for moCODE."
+    />
+    <meta property="og:image" content="/images/feature-cover-optimized.jpg" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="moCODE - Account Deletion Request" />
+    <meta
+      name="twitter:description"
+      content="Request account deletion for moCODE."
+    />
+    <meta name="twitter:image" content="/images/feature-cover-optimized.jpg" />
+    <link rel="icon" type="image/png" href="/app-icon.png" />
+    <link rel="apple-touch-icon" href="/app-icon.png" />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="bg-pattern"></div>
+    <div class="bg-grid"></div>
+
+    <header class="header">
+      <div class="container header-content">
+        <a href="/" class="logo">moCODE</a>
+        <nav class="nav">
+          <a href="/" class="nav-link">Home</a>
+          <a href="/privacy" class="nav-link">Privacy</a>
+          <a href="/terms" class="nav-link">Terms</a>
+        </nav>
+      </div>
+    </header>
+
+    <main class="policy">
+      <div class="container policy-content">
+        <div class="section-header policy-header">
+          <span class="section-label">Account</span>
+          <h1 class="section-title policy-title">Account Deletion Request</h1>
+          <p class="section-description">
+            Enter the email address tied to your account. We'll store your
+            request and follow up shortly.
+          </p>
+        </div>
+
+        <section class="policy-section" style="max-width: 520px;">
+          <form id="deletion-form" class="deletion-form">
+            <label class="policy-section" style="padding: 0; border-top: none;">
+              <span style="display:block; font-size: 12px; color: var(--text-secondary); margin-bottom: 8px;">Email address</span>
+              <input
+                type="email"
+                name="email"
+                placeholder="name@example.com"
+                required
+                autocomplete="email"
+                style="width: 100%; padding: 12px 14px; border-radius: 4px; border: 1px solid var(--border); background: var(--bg-card); color: var(--text-primary); font-family: inherit;"
+              />
+            </label>
+            <button
+              type="submit"
+              class="btn btn-primary"
+              style="margin-top: 16px; width: 100%; justify-content: center;"
+            >
+              Submit request
+            </button>
+            <p id="deletion-message" style="margin-top: 12px; font-size: 13px; color: var(--text-secondary);"></p>
+          </form>
+        </section>
+      </div>
+    </main>
+
+    <footer class="footer">
+      <div class="container footer-content">
+        <p class="footer-text">© 2024 moCODE. Built for developers.</p>
+        <div class="footer-links">
+          <a href="/privacy" class="footer-link">Privacy</a>
+          <a href="/terms" class="footer-link">Terms</a>
+        </div>
+      </div>
+    </footer>
+
+    <script>
+      const form = document.getElementById('deletion-form');
+      const message = document.getElementById('deletion-message');
+
+      form.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        message.textContent = '';
+        const formData = new FormData(form);
+        const email = String(formData.get('email') || '').trim();
+        if (!email) {
+          message.textContent = 'Please enter a valid email address.';
+          return;
+        }
+
+        try {
+          const response = await fetch('/api/v1/account-deletion-request', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email }),
+          });
+          if (!response.ok) {
+            const data = await response.json().catch(() => ({}));
+            message.textContent = data.error || 'Failed to submit request.';
+            return;
+          }
+          form.reset();
+          message.textContent = 'Request submitted. We will follow up shortly.';
+        } catch (error) {
+          message.textContent = 'Network error. Please try again.';
+        }
+      });
+    </script>
+  </body>
+</html>`,
+  );
+});
 
 
 app.get("/api/health", (c) => c.json({ ok: true, service: "mecode-server" }));
@@ -308,6 +441,24 @@ app.post("/api/v1/billing/create-checkout-session", async (c) => {
     checkoutUrl: session.checkout_url,
     reused: false,
   });
+});
+
+app.post("/api/v1/account-deletion-request", async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  const input = accountDeletionSchema.safeParse(body);
+
+  if (!input.success) {
+    return c.json(
+      { error: "Invalid payload", details: input.error.flatten() },
+      400,
+    );
+  }
+
+  await db.insert(accountDeletionRequests).values({
+    email: input.data.email,
+  });
+
+  return c.json({ ok: true });
 });
 
 export default app;
