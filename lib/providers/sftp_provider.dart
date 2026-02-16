@@ -102,7 +102,7 @@ class SftpState {
     this.searchQuery = '',
     this.sortBy = SftpSortBy.name,
     this.sortOrder = SftpSortOrder.asc,
-    this.showHiddenFiles = true,
+    this.showHiddenFiles = false,
     this.isSelectionMode = false,
     this.selectedPaths = const {},
     this.bookmarks = const [],

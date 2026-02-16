@@ -227,7 +227,7 @@ class _SftpPageState extends ConsumerState<SftpPage>
                     ),
                   ),
                 ),
-                
+
                 // Path breadcrumb - macOS Finder style
                 Expanded(
                   child: Row(
@@ -338,13 +338,13 @@ class _SftpPageState extends ConsumerState<SftpPage>
   List<Widget> _buildPathBreadcrumbItems(SftpState sftpState) {
     final segments = sftpState.pathSegments;
     final widgets = <Widget>[];
-    
+
     if (segments.isEmpty) return widgets;
-    
+
     // If we have more than 2 segments, show "..." dropdown with hidden segments
     if (segments.length > 2) {
       final hiddenSegments = segments.sublist(0, segments.length - 2);
-      
+
       widgets.add(
         InkWell(
           onTap: () => _showPathDropdown(context, hiddenSegments, sftpState),
@@ -354,11 +354,7 @@ class _SftpPageState extends ConsumerState<SftpPage>
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(
-                  Icons.more_horiz,
-                  size: 16,
-                  color: AppTheme.textSecondary,
-                ),
+                Icon(Icons.more_horiz, size: 16, color: AppTheme.textSecondary),
                 const Icon(
                   Icons.keyboard_arrow_down,
                   size: 12,
@@ -369,20 +365,17 @@ class _SftpPageState extends ConsumerState<SftpPage>
           ),
         ),
       );
-      
+
       widgets.add(
-        const Icon(
-          Icons.chevron_right,
-          size: 14,
-          color: AppTheme.textTertiary,
-        ),
+        const Icon(Icons.chevron_right, size: 14, color: AppTheme.textTertiary),
       );
-      
+
       // Show the second-to-last segment (previous)
       final prevIndex = segments.length - 2;
       widgets.add(
         InkWell(
-          onTap: () => ref.read(sftpProvider.notifier).navigateToSegment(prevIndex),
+          onTap: () =>
+              ref.read(sftpProvider.notifier).navigateToSegment(prevIndex),
           borderRadius: BorderRadius.circular(4),
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
@@ -397,15 +390,11 @@ class _SftpPageState extends ConsumerState<SftpPage>
           ),
         ),
       );
-      
+
       widgets.add(
-        const Icon(
-          Icons.chevron_right,
-          size: 14,
-          color: AppTheme.textTertiary,
-        ),
+        const Icon(Icons.chevron_right, size: 14, color: AppTheme.textTertiary),
       );
-      
+
       // Show the last segment (current) - highlighted
       widgets.add(
         Container(
@@ -428,7 +417,7 @@ class _SftpPageState extends ConsumerState<SftpPage>
       // 2 or fewer segments - show all
       for (int i = 0; i < segments.length; i++) {
         final isLast = i == segments.length - 1;
-        
+
         if (i > 0) {
           widgets.add(
             const Icon(
@@ -438,7 +427,7 @@ class _SftpPageState extends ConsumerState<SftpPage>
             ),
           );
         }
-        
+
         if (isLast) {
           // Current directory - highlighted
           widgets.add(
@@ -480,17 +469,25 @@ class _SftpPageState extends ConsumerState<SftpPage>
         }
       }
     }
-    
+
     return widgets;
   }
 
-  void _showPathDropdown(BuildContext context, List<String> hiddenSegments, SftpState sftpState) {
+  void _showPathDropdown(
+    BuildContext context,
+    List<String> hiddenSegments,
+    SftpState sftpState,
+  ) {
     final RenderBox button = context.findRenderObject() as RenderBox;
-    final RenderBox overlay = Navigator.of(context).overlay!.context.findRenderObject() as RenderBox;
+    final RenderBox overlay =
+        Navigator.of(context).overlay!.context.findRenderObject() as RenderBox;
     final RelativeRect position = RelativeRect.fromRect(
       Rect.fromPoints(
         button.localToGlobal(const Offset(0, 30), ancestor: overlay),
-        button.localToGlobal(button.size.bottomRight(Offset.zero), ancestor: overlay),
+        button.localToGlobal(
+          button.size.bottomRight(Offset.zero),
+          ancestor: overlay,
+        ),
       ),
       Offset.zero & overlay.size,
     );
@@ -507,10 +504,10 @@ class _SftpPageState extends ConsumerState<SftpPage>
       items: hiddenSegments.asMap().entries.map((entry) {
         final index = entry.key;
         final segment = entry.value;
-        
+
         // Build full path up to this segment
         final fullPath = sftpState.pathSegments.sublist(0, index + 1).join('/');
-        
+
         return PopupMenuItem<String>(
           value: fullPath,
           height: 36,
@@ -1233,7 +1230,7 @@ class _SftpPageState extends ConsumerState<SftpPage>
     if (mounted && showSnackBars) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Downloaded to ${p.basename(localPath)}'),
+          content: Text('Downloaded to $localPath'),
           backgroundColor: AppTheme.success,
         ),
       );
