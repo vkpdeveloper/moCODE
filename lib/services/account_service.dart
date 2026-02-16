@@ -56,4 +56,16 @@ class AccountService {
       rethrow;
     }
   }
+
+  Future<void> requestAccountDeletion({required String email}) async {
+    final payload = <String, dynamic>{'email': email};
+    try {
+      await _apiClient.dio.post(
+        '/api/v1/account-deletion-request',
+        data: payload,
+      );
+    } on DioException {
+      rethrow;
+    }
+  }
 }

@@ -10,6 +10,7 @@ import '../screens/settings_screen.dart';
 import '../screens/payment_checkout_screen.dart';
 import '../screens/model_picker_screen.dart';
 import '../screens/splash_screen.dart';
+import '../screens/account_deletion_request_screen.dart';
 
 final routerProvider = Provider<GoRouter>((ref) {
   final accessGateStatus = ref.watch(accessGateStatusProvider);
@@ -21,7 +22,9 @@ final routerProvider = Provider<GoRouter>((ref) {
       final isSettings = path == '/settings';
       final isPaymentCheckout = path == '/payment/checkout';
       final isSplash = path == '/splash';
-      final isGateRoute = isSettings || isPaymentCheckout || isSplash;
+      final isAccountDeletion = path == '/account-deletion-request';
+      final isGateRoute =
+          isSettings || isPaymentCheckout || isSplash || isAccountDeletion;
 
       if (accessGateStatus == AccessGateStatus.loading) {
         return isGateRoute ? null : '/settings';
@@ -41,6 +44,10 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/splash',
         builder: (context, state) => const SplashScreen(),
+      ),
+      GoRoute(
+        path: '/account-deletion-request',
+        builder: (context, state) => const AccountDeletionRequestScreen(),
       ),
       GoRoute(
         path: '/projects',
