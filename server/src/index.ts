@@ -9,7 +9,11 @@ import { Webhook } from "standardwebhooks";
 import { z } from "zod";
 
 import { db } from "./db/client";
-import { accountDeletionRequests, checkoutSessions, entitlements } from "./db/schema";
+import {
+  accountDeletionRequests,
+  checkoutSessions,
+  entitlements,
+} from "./db/schema";
 import { corsOrigins, env } from "./lib/env";
 import { createDodoCheckoutSession } from "./lib/dodo";
 import { firebaseAuthMiddleware } from "./middleware/firebase-auth";
@@ -205,7 +209,6 @@ app.get("/account-deletion-request", async (c) => {
   );
 });
 
-
 app.get("/api/health", (c) => c.json({ ok: true, service: "mecode-server" }));
 
 app.get("/billing/complete", (c) => c.html(billingCompleteHtml));
@@ -322,13 +325,9 @@ app.get("/api/v1/auth/me", async (c) => {
 
   return c.json({
     user,
-    // access: {
-    //   oneTimeUnlocked: entitlement[0]?.oneTimeUnlocked ?? false,
-    //   paidAt: entitlement[0]?.paidAt ?? null,
-    // },
     access: {
-      oneTimeUnlocked: true,
-      paidAt: new Date(),
+      oneTimeUnlocked: entitlement[0]?.oneTimeUnlocked ?? false,
+      paidAt: entitlement[0]?.paidAt ?? null,
     },
   });
 });
@@ -347,18 +346,11 @@ app.get("/api/v1/billing/status", async (c) => {
     .where(eq(entitlements.userId, user.id))
     .limit(1);
 
-  // return c.json({
-  //   oneTimeUnlocked: entitlement[0]?.oneTimeUnlocked ?? false,
-  //   provider: entitlement[0]?.provider ?? null,
-  //   paymentId: entitlement[0]?.paymentId ?? null,
-  //   paidAt: entitlement[0]?.paidAt ?? null,
-  // });
-
   return c.json({
-    oneTimeUnlocked: true,
-    provider: "dodopayments",
-    paymentId: "wieuriw",
-    paidAt: new Date(),
+    oneTimeUnlocked: entitlement[0]?.oneTimeUnlocked ?? false,
+    provider: entitlement[0]?.provider ?? null,
+    paymentId: entitlement[0]?.paymentId ?? null,
+    paidAt: entitlement[0]?.paidAt ?? null,
   });
 });
 
