@@ -354,12 +354,8 @@ class _TerminalPageState extends ConsumerState<TerminalPage>
     final sshState = ref.watch(sshProvider);
     final terminal = sshState.terminal;
     _ensureTerminalProxy(terminal);
-    final bottomInset = MediaQuery.of(context).viewInsets.bottom;
     final paddingBottom = MediaQuery.of(context).padding.bottom;
-    final isKeyboardVisible = bottomInset > 0;
-    final keyboardInset = (bottomInset - paddingBottom).clamp(0.0, bottomInset);
-    final toolbarBottomOffset =
-        isKeyboardVisible ? keyboardInset : paddingBottom;
+    final toolbarBottomOffset = paddingBottom;
     final terminalBottomPadding = _toolbarHeight + toolbarBottomOffset;
 
     return Scaffold(
