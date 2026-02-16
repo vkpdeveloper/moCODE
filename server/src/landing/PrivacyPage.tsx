@@ -13,6 +13,20 @@ export function PrivacyPage() {
           name="description"
           content="Privacy policy for the moCODE mobile application."
         />
+        <meta property="og:type" content="website" />
+        <meta property="og:title" content="moCODE - Privacy Policy" />
+        <meta
+          property="og:description"
+          content="Privacy policy for the moCODE mobile application."
+        />
+        <meta property="og:image" content="/images/feature-cover.png" />
+        <meta name="twitter:card" content="summary_large_image" />
+        <meta name="twitter:title" content="moCODE - Privacy Policy" />
+        <meta
+          name="twitter:description"
+          content="Privacy policy for the moCODE mobile application."
+        />
+        <meta name="twitter:image" content="/images/feature-cover.png" />
         <link rel="icon" type="image/png" href="/app-icon.png" />
         <link rel="apple-touch-icon" href="/app-icon.png" />
         <style dangerouslySetInnerHTML={{ __html: styles }} />

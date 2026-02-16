@@ -13,6 +13,20 @@ export function LandingPage() {
           name="description"
           content="The mobile companion for OpenCode/KiloCode Server. Connect to your server and bring AI-assisted coding to your mobile device."
         />
+        <meta property="og:type" content="website" />
+        <meta property="og:title" content="moCODE - AI-Assisted Coding on Your Mobile Device" />
+        <meta
+          property="og:description"
+          content="The mobile companion for OpenCode/KiloCode Server. Connect to your server and bring AI-assisted coding to your mobile device."
+        />
+        <meta property="og:image" content="/images/feature-cover.png" />
+        <meta name="twitter:card" content="summary_large_image" />
+        <meta name="twitter:title" content="moCODE - AI-Assisted Coding on Your Mobile Device" />
+        <meta
+          name="twitter:description"
+          content="The mobile companion for OpenCode/KiloCode Server. Connect to your server and bring AI-assisted coding to your mobile device."
+        />
+        <meta name="twitter:image" content="/images/feature-cover.png" />
         <link rel="icon" type="image/png" href="/app-icon.png" />
         <link rel="apple-touch-icon" href="/app-icon.png" />
         <style dangerouslySetInnerHTML={{ __html: styles }} />

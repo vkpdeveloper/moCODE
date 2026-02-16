@@ -13,6 +13,20 @@ export function TermsPage() {
           name="description"
           content="Terms and conditions for the moCODE mobile application."
         />
+        <meta property="og:type" content="website" />
+        <meta property="og:title" content="moCODE - Terms &amp; Conditions" />
+        <meta
+          property="og:description"
+          content="Terms and conditions for the moCODE mobile application."
+        />
+        <meta property="og:image" content="/images/feature-cover.png" />
+        <meta name="twitter:card" content="summary_large_image" />
+        <meta name="twitter:title" content="moCODE - Terms &amp; Conditions" />
+        <meta
+          name="twitter:description"
+          content="Terms and conditions for the moCODE mobile application."
+        />
+        <meta name="twitter:image" content="/images/feature-cover.png" />
         <link rel="icon" type="image/png" href="/app-icon.png" />
         <link rel="apple-touch-icon" href="/app-icon.png" />
         <style dangerouslySetInnerHTML={{ __html: styles }} />
