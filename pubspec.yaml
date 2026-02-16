@@ -3,7 +3,7 @@ description: "A new Flutter project."
 repository: https://github.com/vkpdeveloper/moCODE
 homepage: https://github.com/vkpdeveloper/moCODE
 publish_to: "none"
-version: 1.0.0+1
+version: 0.0.2+2
 
 environment:
   sdk: ^3.10.0-290.4.beta
@@ -27,6 +27,7 @@ dependencies:
   image_picker: ^1.1.2
   firebase_core: ^3.15.2
   firebase_auth: ^5.6.3
+  firebase_app_check: ^0.3.1+1
   google_sign_in: ^7.2.0
   flutter_dotenv: ^5.2.1
   url_launcher: ^6.3.2

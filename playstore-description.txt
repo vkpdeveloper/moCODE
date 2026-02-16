@@ -1,0 +1,36 @@
+moCODE - OpenCode/KiloCode Server Client
+
+The mobile companion for OpenCode/KiloCode Server. Connect to your server and bring AI-assisted coding to your mobile device.
+
+AI Chat Interface
+- Smart chat with @file mentions to reference files in conversations
+- Slash commands for quick actions
+- Markdown rendering with syntax-highlighted code blocks
+- Real-time streaming responses
+
+Session Management
+- Create, fork, archive, and share chat sessions
+- Project organization with Git branch status
+- Session search and filtering
+- Safe deletion with confirmations
+
+Model Selection
+- Browse all available models from your providers
+- Star favorite models for quick access
+- Set default model per session or globally
+- Support for reasoning models
+
+Developer Tools
+- Rich diff viewer with syntax highlighting
+- File changes sidebar showing additions/deletions
+- Clear error messages with troubleshooting
+- Terminal with SSH support
+
+File Browser
+- SFTP integration for remote file navigation
+- Download files to your device
+- Bookmarks and sorting options
+
+SETUP: Have an OpenCode Server running, enter server address in Settings, sign in with Google, start coding smarter.
+
+Secure, modern, and built for developers.

@@ -1,5 +1,6 @@
 import Flutter
 import FirebaseCore
+import FirebaseAppCheck
 import UIKit
 
 @main
@@ -9,6 +10,12 @@ import UIKit
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
     FirebaseApp.configure()
+    
+    #if DEBUG
+    let providerFactory = AppCheckDebugProviderFactory()
+    AppCheckAppCheckProviderV2.instance = providerFactory
+    #endif
+    
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
   }
 

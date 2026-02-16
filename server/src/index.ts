@@ -1,8 +1,10 @@
 import { and, desc, eq, gte } from "drizzle-orm";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
+import { readFile, readdir, stat } from "node:fs/promises";
 import { access, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 import { Webhook } from "standardwebhooks";
 import { z } from "zod";
 
@@ -11,6 +13,9 @@ import { checkoutSessions, entitlements } from "./db/schema";
 import { corsOrigins, env } from "./lib/env";
 import { createDodoCheckoutSession } from "./lib/dodo";
 import { firebaseAuthMiddleware } from "./middleware/firebase-auth";
+import { renderLandingPage } from "./landing/LandingPage";
+import { renderPrivacyPage } from "./landing/PrivacyPage";
+import { renderTermsPage } from "./landing/TermsPage";
 
 type Variables = {
   authUser: {
@@ -56,7 +61,70 @@ app.use(
   }),
 );
 
-app.get("/", (c) => c.json({ ok: true, service: "mecode-server" }));
+const IMAGES_DIR = join(process.cwd(), "..", "images");
+const ASSETS_DIR = join(process.cwd(), "..", "assets");
+
+app.get("/", async (c) => {
+  return renderLandingPage();
+});
+
+app.get("/privacy", async () => {
+  return renderPrivacyPage();
+});
+
+app.get("/terms", async () => {
+  return renderTermsPage();
+});
+
+app.get("/images/:filename", async (c) => {
+  const filename = c.req.param("filename");
+  const filepath = join(IMAGES_DIR, filename);
+  
+  try {
+    await stat(filepath);
+  } catch {
+    return c.notFound();
+  }
+  
+  const ext = filename.split(".").pop()?.toLowerCase();
+  const contentTypes: Record<string, string> = {
+    jpg: "image/jpeg",
+    jpeg: "image/jpeg",
+    png: "image/png",
+    gif: "image/gif",
+    webp: "image/webp",
+    svg: "image/svg+xml",
+  };
+  
+  const contentType = contentTypes[ext ?? ""] ?? "application/octet-stream";
+  const file = await readFile(filepath);
+  
+  return c.body(file, {
+    headers: {
+      "Content-Type": contentType,
+      "Cache-Control": "public, max-age=86400",
+    },
+  });
+});
+
+app.get("/app-icon.png", async (c) => {
+  const filepath = join(ASSETS_DIR, "app_icon.png");
+  
+  try {
+    await stat(filepath);
+  } catch {
+    return c.notFound();
+  }
+  
+  const file = await readFile(filepath);
+  
+  return c.body(file, {
+    headers: {
+      "Content-Type": "image/png",
+      "Cache-Control": "public, max-age=86400",
+    },
+  });
+});
 
 app.get("/api/health", (c) => c.json({ ok: true, service: "mecode-server" }));
 
