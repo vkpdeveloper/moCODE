@@ -99,6 +99,23 @@
             </a>
             <a href="#features" class="btn btn-secondary">See Features</a>
           </div>
+          <form class="hero-early-access" id="early-access-form">
+            <p class="hero-early-access-text">Get early access updates</p>
+            <div class="hero-early-access-input-group">
+              <input
+                type="email"
+                name="email"
+                placeholder="Enter your email"
+                required
+                autocomplete="email"
+                class="hero-early-access-input"
+              />
+              <button type="submit" class="btn btn-primary hero-early-access-btn">
+                Join
+              </button>
+            </div>
+            <p id="early-access-message" class="hero-early-access-message"></p>
+          </form>
         </div>
 
         <div class="hero-visual">
@@ -351,5 +368,38 @@
         </div>
       </div>
     </footer>
+
+    <script>
+      const earlyAccessForm = document.getElementById('early-access-form');
+      const earlyAccessMessage = document.getElementById('early-access-message');
+
+      earlyAccessForm.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        earlyAccessMessage.textContent = '';
+        const formData = new FormData(earlyAccessForm);
+        const email = String(formData.get('email') || '').trim();
+        if (!email) {
+          earlyAccessMessage.textContent = 'Please enter a valid email address.';
+          return;
+        }
+
+        try {
+          const response = await fetch('/api/early-access', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email }),
+          });
+          const data = await response.json();
+          if (!response.ok) {
+            earlyAccessMessage.textContent = data.error || 'Failed to join early access.';
+            return;
+          }
+          earlyAccessForm.reset();
+          earlyAccessMessage.textContent = data.message || "You're on the list!";
+        } catch (error) {
+          earlyAccessMessage.textContent = 'Network error. Please try again.';
+        }
+      });
+    </script>
   </body>
 </html>

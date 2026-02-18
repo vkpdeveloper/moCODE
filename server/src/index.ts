@@ -12,6 +12,7 @@ import { db } from "./db/client";
 import {
   accountDeletionRequests,
   checkoutSessions,
+  earlyAccessEmails,
   entitlements,
 } from "./db/schema";
 import { corsOrigins, env } from "./lib/env";
@@ -42,6 +43,10 @@ const createCheckoutSchema = z.object({
 });
 
 const accountDeletionSchema = z.object({
+  email: z.string().trim().email(),
+});
+
+const earlyAccessSchema = z.object({
   email: z.string().trim().email(),
 });
 
@@ -307,6 +312,27 @@ app.post("/api/v1/billing/webhook", async (c) => {
   }
 
   return c.json({ received: true });
+});
+
+app.post("/api/early-access", async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  const input = earlyAccessSchema.safeParse(body);
+
+  if (!input.success) {
+    return c.json(
+      { error: "Invalid email address" },
+      400,
+    );
+  }
+
+  try {
+    await db.insert(earlyAccessEmails).values({
+      email: input.data.email,
+    });
+    return c.json({ ok: true, message: "You're on the list!" });
+  } catch (error) {
+    return c.json({ ok: true, message: "You're already on the list!" });
+  }
 });
 
 app.use("/api/v1/*", firebaseAuthMiddleware);

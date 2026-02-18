@@ -238,6 +238,50 @@ body {
   opacity: 0;
 }
 
+.hero-early-access {
+  margin-top: 32px;
+  animation: fadeInUp 0.6s ease 0.4s forwards;
+  opacity: 0;
+}
+
+.hero-early-access-text {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin-bottom: 12px;
+}
+
+.hero-early-access-input-group {
+  display: flex;
+  gap: 8px;
+  max-width: 400px;
+}
+
+.hero-early-access-input {
+  flex: 1;
+  padding: 12px 16px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 14px;
+}
+
+.hero-early-access-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.hero-early-access-btn {
+  padding: 12px 20px;
+}
+
+.hero-early-access-message {
+  margin-top: 12px;
+  font-size: 13px;
+  color: var(--success);
+}
+
 @keyframes fadeInUp {
   from {
     opacity: 0;

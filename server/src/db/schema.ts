@@ -62,3 +62,9 @@ export const accountDeletionRequests = pgTable('account_deletion_requests', {
   email: text('email').notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 });
+
+export const earlyAccessEmails = pgTable('early_access_emails', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  email: text('email').notNull().unique(),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+});
