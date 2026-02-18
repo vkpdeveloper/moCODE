@@ -282,6 +282,30 @@ body {
   color: var(--success);
 }
 
+.hero-early-access-count {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 2px 8px;
+  background: rgba(74, 222, 128, 0.15);
+  border: 1px solid var(--success);
+  border-radius: 4px;
+  font-size: 11px;
+  color: var(--success);
+  font-weight: 600;
+  animation: pixelPulse 2s ease-in-out infinite;
+}
+
+@keyframes pixelPulse {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.8;
+    transform: scale(1.02);
+  }
+}
+
 @keyframes fadeInUp {
   from {
     opacity: 0;

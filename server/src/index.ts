@@ -1,4 +1,4 @@
-import { and, desc, eq, gte } from "drizzle-orm";
+import { and, count, desc, eq, gte } from "drizzle-orm";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { readFileSync } from "node:fs";
@@ -79,7 +79,18 @@ const PUBLIC_DIR = join(process.cwd(), "public");
 
 app.use("/*", serveStatic({ root: PUBLIC_DIR }));
 
-app.get("/", async (c) => c.html(landingHtml));
+app.get("/", async (c) => {
+  const earlyAccessCountResult = await db
+    .select({ count: count() })
+    .from(earlyAccessEmails);
+  const earlyAccessCount = (earlyAccessCountResult[0]?.count ?? 0) + 100;
+
+  const html = landingHtml.replace(
+    'id="early-access-count"',
+    `id="early-access-count" data-count="${earlyAccessCount}"`,
+  );
+  return c.html(html);
+});
 
 app.get("/privacy", async (c) => c.html(privacyHtml));
 

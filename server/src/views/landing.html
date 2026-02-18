@@ -109,7 +109,10 @@
             <a href="#features" class="btn btn-secondary">See Features</a>
           </div>
           <form class="hero-early-access" id="early-access-form">
-            <p class="hero-early-access-text">Get early access updates</p>
+            <p class="hero-early-access-text">
+              Get early access updates
+              <span id="early-access-count" class="hero-early-access-count"></span>
+            </p>
             <div class="hero-early-access-input-group">
               <input
                 type="email"
@@ -381,6 +384,14 @@
     <script>
       const earlyAccessForm = document.getElementById('early-access-form');
       const earlyAccessMessage = document.getElementById('early-access-message');
+      const earlyAccessCountEl = document.getElementById('early-access-count');
+
+      if (earlyAccessCountEl) {
+        const count = parseInt(earlyAccessCountEl.dataset.count, 10);
+        if (!isNaN(count)) {
+          earlyAccessCountEl.textContent = count.toLocaleString() + ' joined';
+        }
+      }
 
       earlyAccessForm.addEventListener('submit', async (event) => {
         event.preventDefault();
