@@ -180,7 +180,7 @@ app.get("/account-deletion-request", async (c) => {
 
     <footer class="footer">
       <div class="container footer-content">
-        <p class="footer-text">© 2024 moCODE. Built for developers.</p>
+        <p class="footer-text">© 2026 moCODE. Built for developers.</p>
         <div class="footer-links">
           <a href="/privacy" class="footer-link">Privacy</a>
           <a href="/terms" class="footer-link">Terms</a>
@@ -330,10 +330,7 @@ app.post("/api/early-access", async (c) => {
   const input = earlyAccessSchema.safeParse(body);
 
   if (!input.success) {
-    return c.json(
-      { error: "Invalid email address" },
-      400,
-    );
+    return c.json({ error: "Invalid email address" }, 400);
   }
 
   try {

@@ -32,13 +32,18 @@
     <link rel="apple-touch-icon" href="/app-icon.png" />
     <link rel="stylesheet" href="/styles.css" />
     <!-- Google tag (gtag.js) -->
-    <script async src="https://www.googletagmanager.com/gtag/js?id=G-NLERW6FM6M"></script>
+    <script
+      async
+      src="https://www.googletagmanager.com/gtag/js?id=G-NLERW6FM6M"
+    ></script>
     <script>
       window.dataLayer = window.dataLayer || [];
-      function gtag(){dataLayer.push(arguments);}
-      gtag('js', new Date());
+      function gtag() {
+        dataLayer.push(arguments);
+      }
+      gtag("js", new Date());
 
-      gtag('config', 'G-NLERW6FM6M');
+      gtag("config", "G-NLERW6FM6M");
     </script>
   </head>
   <body>
@@ -111,7 +116,10 @@
           <form class="hero-early-access" id="early-access-form">
             <p class="hero-early-access-text">
               Get early access updates
-              <span id="early-access-count" class="hero-early-access-count"></span>
+              <span
+                id="early-access-count"
+                class="hero-early-access-count"
+              ></span>
             </p>
             <div class="hero-early-access-input-group">
               <input
@@ -122,7 +130,10 @@
                 autocomplete="email"
                 class="hero-early-access-input"
               />
-              <button type="submit" class="btn btn-primary hero-early-access-btn">
+              <button
+                type="submit"
+                class="btn btn-primary hero-early-access-btn"
+              >
                 Join
               </button>
             </div>
@@ -373,7 +384,7 @@
 
     <footer class="footer">
       <div class="container footer-content">
-        <p class="footer-text">© 2024 moCODE. Built for developers.</p>
+        <p class="footer-text">© 2026 moCODE. Built for developers.</p>
         <div class="footer-links">
           <a href="/privacy" class="footer-link">Privacy</a>
           <a href="/terms" class="footer-link">Terms</a>
@@ -382,42 +393,47 @@
     </footer>
 
     <script>
-      const earlyAccessForm = document.getElementById('early-access-form');
-      const earlyAccessMessage = document.getElementById('early-access-message');
-      const earlyAccessCountEl = document.getElementById('early-access-count');
+      const earlyAccessForm = document.getElementById("early-access-form");
+      const earlyAccessMessage = document.getElementById(
+        "early-access-message",
+      );
+      const earlyAccessCountEl = document.getElementById("early-access-count");
 
       if (earlyAccessCountEl) {
         const count = parseInt(earlyAccessCountEl.dataset.count, 10);
         if (!isNaN(count)) {
-          earlyAccessCountEl.textContent = count.toLocaleString() + ' joined';
+          earlyAccessCountEl.textContent = count.toLocaleString() + " joined";
         }
       }
 
-      earlyAccessForm.addEventListener('submit', async (event) => {
+      earlyAccessForm.addEventListener("submit", async (event) => {
         event.preventDefault();
-        earlyAccessMessage.textContent = '';
+        earlyAccessMessage.textContent = "";
         const formData = new FormData(earlyAccessForm);
-        const email = String(formData.get('email') || '').trim();
+        const email = String(formData.get("email") || "").trim();
         if (!email) {
-          earlyAccessMessage.textContent = 'Please enter a valid email address.';
+          earlyAccessMessage.textContent =
+            "Please enter a valid email address.";
           return;
         }
 
         try {
-          const response = await fetch('/api/early-access', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+          const response = await fetch("/api/early-access", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ email }),
           });
           const data = await response.json();
           if (!response.ok) {
-            earlyAccessMessage.textContent = data.error || 'Failed to join early access.';
+            earlyAccessMessage.textContent =
+              data.error || "Failed to join early access.";
             return;
           }
           earlyAccessForm.reset();
-          earlyAccessMessage.textContent = data.message || "You're on the list!";
+          earlyAccessMessage.textContent =
+            data.message || "You're on the list!";
         } catch (error) {
-          earlyAccessMessage.textContent = 'Network error. Please try again.';
+          earlyAccessMessage.textContent = "Network error. Please try again.";
         }
       });
     </script>
