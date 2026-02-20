@@ -2344,18 +2344,71 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
               ),
             ),
           ),
-          _buildSidebarToggle(),
-          IconButton(
-            icon: const Icon(Icons.build_circle_outlined, size: 20),
-            onPressed: () => _showToolsMenu(context),
-            tooltip: 'Tools',
-          ),
-          IconButton(
-            icon: const Icon(Icons.swap_horiz, size: 20),
-            onPressed: () {
-              context.push('/models', extra: {'mode': 'session'});
+          PopupMenuButton<String>(
+            icon: const Icon(Icons.more_vert, size: 20),
+            tooltip: 'More options',
+            onSelected: (value) {
+              switch (value) {
+                case 'sidebar':
+                  setState(() => _isSidebarOpen = !_isSidebarOpen);
+                  break;
+                case 'tools':
+                  _showToolsMenu(context);
+                  break;
+                case 'models':
+                  context.push('/models', extra: {'mode': 'session'});
+                  break;
+              }
             },
-            tooltip: 'Models',
+            itemBuilder: (context) => [
+              PopupMenuItem<String>(
+                value: 'sidebar',
+                child: Row(
+                  children: [
+                    Icon(
+                      _isSidebarOpen
+                          ? Icons.view_sidebar
+                          : Icons.view_sidebar_outlined,
+                      size: 18,
+                      color: AppTheme.textSecondary,
+                    ),
+                    const SizedBox(width: 12),
+                    Text(
+                      _isSidebarOpen ? 'Hide Sidebar' : 'Show Sidebar',
+                      style: const TextStyle(fontSize: 13),
+                    ),
+                  ],
+                ),
+              ),
+              const PopupMenuItem<String>(
+                value: 'tools',
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.build_circle_outlined,
+                      size: 18,
+                      color: AppTheme.textSecondary,
+                    ),
+                    SizedBox(width: 12),
+                    Text('Tools', style: TextStyle(fontSize: 13)),
+                  ],
+                ),
+              ),
+              const PopupMenuItem<String>(
+                value: 'models',
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.swap_horiz,
+                      size: 18,
+                      color: AppTheme.textSecondary,
+                    ),
+                    SizedBox(width: 12),
+                    Text('Models', style: TextStyle(fontSize: 13)),
+                  ],
+                ),
+              ),
+            ],
           ),
         ],
       ),

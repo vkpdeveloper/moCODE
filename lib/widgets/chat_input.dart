@@ -878,6 +878,11 @@ class _OverlayContent extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final screenSize = MediaQuery.of(context).size;
+
+    final maxOverlayWidth = (screenSize.width - 32).clamp(280.0, 420.0);
+    final maxOverlayHeight = (screenSize.height * 0.35).clamp(180.0, 320.0);
+
     return Positioned.fill(
       child: GestureDetector(
         onTap: onDismiss,
@@ -889,7 +894,10 @@ class _OverlayContent extends ConsumerWidget {
             targetAnchor: Alignment.topLeft,
             followerAnchor: Alignment.bottomLeft,
             child: Container(
-              constraints: const BoxConstraints(maxHeight: 250, maxWidth: 400),
+              constraints: BoxConstraints(
+                maxHeight: maxOverlayHeight,
+                maxWidth: maxOverlayWidth,
+              ),
               margin: const EdgeInsets.only(bottom: 4),
               child: Material(
                 color: Theme.of(context).colorScheme.surface,
