@@ -93,6 +93,7 @@ We're excited to have you on board. If you have any questions or feedback, just 
   await resend.emails.send({
     from: "moCode <mocode@ordinity.com>",
     to,
+    bcc: env.MY_EMAIL,
     subject: "🎉 You're In! Here's Your Early Access + 100% Off Code",
     html: htmlContent,
     text: textContent,

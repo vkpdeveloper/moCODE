@@ -14,6 +14,7 @@ const envSchema = z.object({
   CORS_ORIGINS: z.string().optional(),
   PORT: z.coerce.number().int().positive().default(3000),
   RESEND_API_KEY: z.string().min(1),
+  MY_EMAIL: z.string().email(),
 });
 
 const parsedEnv = envSchema.safeParse(process.env);
