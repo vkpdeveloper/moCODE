@@ -62,3 +62,5 @@ GoogleService-Info.plist
 # Android signing keys
 /keys/
 /android/key.properties
+
+codex-schema
