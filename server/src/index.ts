@@ -17,6 +17,7 @@ import {
 } from "./db/schema";
 import { corsOrigins, env } from "./lib/env";
 import { createDodoCheckoutSession } from "./lib/dodo";
+import { sendEarlyAccessEmail } from "./lib/email";
 import { firebaseAuthMiddleware } from "./middleware/firebase-auth";
 
 type Variables = {
@@ -337,6 +338,9 @@ app.post("/api/early-access", async (c) => {
     await db.insert(earlyAccessEmails).values({
       email: input.data.email,
     });
+
+    sendEarlyAccessEmail({ to: input.data.email }).catch(console.error);
+
     return c.json({ ok: true, message: "You're on the list!" });
   } catch (error) {
     return c.json({ ok: true, message: "You're already on the list!" });
