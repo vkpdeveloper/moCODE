@@ -13,10 +13,7 @@ const envSchema = z.object({
   FIREBASE_PRIVATE_KEY: z.string().min(1),
   CORS_ORIGINS: z.string().optional(),
   PORT: z.coerce.number().int().positive().default(3000),
-  SMTP_HOST: z.string().default("smtp.zoho.com"),
-  SMTP_PORT: z.coerce.number().int().positive().default(587),
-  SMTP_USER: z.string().email(),
-  SMTP_PASS: z.string().min(1),
+  RESEND_API_KEY: z.string().min(1),
 });
 
 const parsedEnv = envSchema.safeParse(process.env);

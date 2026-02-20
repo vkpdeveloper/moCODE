@@ -1,28 +1,21 @@
-import nodemailer from "nodemailer";
+import { Resend } from "resend";
 import { env } from "./env";
 
-const transporter = nodemailer.createTransport({
-  host: env.SMTP_HOST,
-  port: env.SMTP_PORT,
-  secure: false,
-  auth: {
-    user: env.SMTP_USER,
-    pass: env.SMTP_PASS,
-  },
-  tls: {
-    rejectUnauthorized: false,
-  },
-});
+const resend = new Resend(env.RESEND_API_KEY);
 
 export interface SendEarlyAccessEmailParams {
   to: string;
   name?: string | null;
 }
 
-export async function sendEarlyAccessEmail({ to, name }: SendEarlyAccessEmailParams) {
-  const appLink = "https://play.google.com/store/apps/details?id=com.mocode.app";
+export async function sendEarlyAccessEmail({
+  to,
+  name,
+}: SendEarlyAccessEmailParams) {
+  const appLink =
+    "https://play.google.com/store/apps/details?id=com.mocode.app";
   const discountCode = "EARLY_MOCODE";
-  
+
   const htmlContent = `
 <!DOCTYPE html>
 <html>
@@ -97,8 +90,8 @@ We're excited to have you on board. If you have any questions or feedback, just 
 — The moCODE Team
   `.trim();
 
-  await transporter.sendMail({
-    from: `"moCODE" <${env.SMTP_USER}>`,
+  await resend.emails.send({
+    from: "moCode <mocode@ordinity.com>",
     to,
     subject: "🎉 You're In! Here's Your Early Access + 100% Off Code",
     html: htmlContent,
