@@ -13,7 +13,7 @@ export async function sendEarlyAccessEmail({
   name,
 }: SendEarlyAccessEmailParams) {
   const appLink =
-    "https://play.google.com/store/apps/details?id=com.mocode.app";
+    "https://play.google.com/store/apps/details?id=com.ordinity.mocode";
   const discountCode = "EARLY_MOCODE";
 
   const htmlContent = `
