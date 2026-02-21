@@ -1,6 +1,7 @@
 import { and, count, desc, eq, gte } from "drizzle-orm";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
+import { secureHeaders } from "hono/secure-headers";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
@@ -53,6 +54,21 @@ const earlyAccessSchema = z.object({
 });
 
 const app = new Hono<{ Variables: Variables }>();
+
+const isHttpsAppBaseUrl = env.APP_BASE_URL.startsWith("https://");
+
+app.use(
+  "*",
+  secureHeaders({
+    xFrameOptions: "DENY",
+    contentSecurityPolicy: {
+      frameAncestors: ["'none'"],
+    },
+    strictTransportSecurity: isHttpsAppBaseUrl
+      ? "max-age=63072000; includeSubDomains; preload"
+      : false,
+  }),
+);
 
 app.use(
   "*",
