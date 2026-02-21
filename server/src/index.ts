@@ -19,6 +19,7 @@ import { corsOrigins, env } from "./lib/env";
 import { createDodoCheckoutSession } from "./lib/dodo";
 import { sendEarlyAccessEmail } from "./lib/email";
 import { firebaseAuthMiddleware } from "./middleware/firebase-auth";
+import asrRouter from "./routes/asr";
 
 type Variables = {
   authUser: {
@@ -227,6 +228,8 @@ app.get("/account-deletion-request", async (c) => {
 });
 
 app.get("/api/health", (c) => c.json({ ok: true, service: "mecode-server" }));
+
+app.route("/api/v1/asr", asrRouter);
 
 app.get("/billing/complete", (c) => c.html(billingCompleteHtml));
 

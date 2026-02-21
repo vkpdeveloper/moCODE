@@ -15,6 +15,20 @@
       "when": 1771392196427,
       "tag": "0001_rich_deathstrike",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1771647733110,
+      "tag": "0002_fine_naoko",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1771647860967,
+      "tag": "0003_stormy_argent",
+      "breakpoints": true
     }
   ]
 }

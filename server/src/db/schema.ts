@@ -68,3 +68,21 @@ export const earlyAccessEmails = pgTable('early_access_emails', {
   email: text('email').notNull().unique(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 });
+
+export const aiModelUsages = pgTable(
+  'ai_model_usages',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    type: text('type').notNull(),
+    modelProvider: text('model_provider').notNull(),
+    modelId: text('model_id').notNull(),
+    inputTokens: integer('input_tokens'),
+    outputTokens: integer('output_tokens'),
+    processingTimeMs: integer('processing_time_ms'),
+    metadata: text('metadata'),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+);

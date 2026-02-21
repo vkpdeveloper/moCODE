@@ -12,7 +12,11 @@ import 'patch_diff_widget.dart';
 import '../constants/file_icons.dart';
 
 final md.ExtensionSet _safeMarkdownExtensionSet = md.ExtensionSet(
-  md.ExtensionSet.gitHubWeb.blockSyntaxes,
+  List<md.BlockSyntax>.unmodifiable(
+    md.ExtensionSet.gitHubWeb.blockSyntaxes.where(
+      (syntax) => syntax is! md.HtmlBlockSyntax,
+    ),
+  ),
   List<md.InlineSyntax>.unmodifiable(
     md.ExtensionSet.gitHubWeb.inlineSyntaxes.where(
       (syntax) => syntax is! md.InlineHtmlSyntax,
@@ -147,19 +151,12 @@ class UserMessageWidget extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(
-            icon,
-            size: 14,
-            color: AppTheme.info,
-          ),
+          Icon(icon, size: 14, color: AppTheme.info),
           const SizedBox(width: 6),
           Flexible(
             child: Text(
               filename,
-              style: const TextStyle(
-                color: AppTheme.textPrimary,
-                fontSize: 11,
-              ),
+              style: const TextStyle(color: AppTheme.textPrimary, fontSize: 11),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
             ),
@@ -187,10 +184,10 @@ class UserMessageWidget extends StatelessWidget {
   }
 
   bool _isTextOrCodeMime(String mime) {
-    return mime.startsWith('text/') || 
-           mime == 'application/json' ||
-           mime == 'application/xml' ||
-           mime == 'application/javascript';
+    return mime.startsWith('text/') ||
+        mime == 'application/json' ||
+        mime == 'application/xml' ||
+        mime == 'application/javascript';
   }
 
   String _getMimeCategory(String mime) {
@@ -217,8 +214,9 @@ class UserMessageWidget extends StatelessWidget {
   Widget _buildTextContent(BuildContext context, TextPart part) {
     if (part.text.isEmpty) return const SizedBox.shrink();
 
+    final sanitized = _sanitizeMarkdown(part.text);
     return MarkdownBody(
-      data: part.text,
+      data: sanitized,
       selectable: true,
       softLineBreak: true,
       extensionSet: _safeMarkdownExtensionSet,
@@ -311,6 +309,10 @@ class UserMessageWidget extends StatelessWidget {
       ),
     );
   }
+}
+
+String _sanitizeMarkdown(String input) {
+  return input.replaceAll(RegExp(r'<[^>]*>'), '');
 }
 
 class _UserMessageCodeBlockBuilder extends MarkdownElementBuilder {

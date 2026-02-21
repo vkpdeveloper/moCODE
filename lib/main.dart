@@ -1,3 +1,4 @@
+import 'dart:io' show Platform;
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_app_check/firebase_app_check.dart';
 import 'package:flutter/foundation.dart';
@@ -6,19 +7,19 @@ import 'package:flutter/services.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:whisper_ggml_plus_ffmpeg/whisper_ggml_plus_ffmpeg.dart';
 
 import 'router/app_router.dart';
 import 'services/download_notification_service.dart';
 import 'theme/app_theme.dart';
 import 'widgets/active_session_manager.dart';
 import 'widgets/path_bootstrap.dart';
+import 'widgets/update_dialog.dart';
 import 'providers/providers.dart';
+import 'services/in_app_update_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   FlutterForegroundTask.initCommunicationPort();
-  WhisperFFmpegConverter.register();
 
   final envFile = kReleaseMode ? '.prod.env' : '.dev.env';
   await dotenv.load(fileName: envFile);
@@ -36,7 +37,6 @@ Future<void> main() async {
     );
   }
 
-  // Initialize download notifications
   await DownloadNotificationService().initialize();
 
   SystemChrome.setSystemUIOverlayStyle(
@@ -50,11 +50,48 @@ Future<void> main() async {
   runApp(const ProviderScope(child: ActiveSessionManager(child: MoCODEApp())));
 }
 
-class MoCODEApp extends ConsumerWidget {
+class MoCODEApp extends ConsumerStatefulWidget {
   const MoCODEApp({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<MoCODEApp> createState() => _MoCODEAppState();
+}
+
+class _MoCODEAppState extends ConsumerState<MoCODEApp>
+    with WidgetsBindingObserver {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _checkForUpdates();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _checkForUpdates();
+    }
+  }
+
+  Future<void> _checkForUpdates() async {
+    if (!Platform.isAndroid || !kReleaseMode) return;
+
+    final updateService = ref.read(inAppUpdateServiceProvider);
+    await updateService.checkForUpdate();
+
+    if (updateService.status == UpdateStatus.updateAvailable) {
+      ref.read(updateAvailableProvider.notifier).state = true;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
     ref.watch(globalEventCoordinatorProvider);
     final router = ref.watch(routerProvider);
 
@@ -64,6 +101,9 @@ class MoCODEApp extends ConsumerWidget {
         debugShowCheckedModeBanner: false,
         theme: AppTheme.darkTheme,
         routerConfig: router,
+        builder: (context, child) {
+          return UpdateOverlay(child: child ?? const SizedBox.shrink());
+        },
       ),
     );
   }

@@ -1,7 +1,7 @@
 import 'package:dio/dio.dart';
 
 class AccountApiClient {
-  static const String defaultBaseUrl = 'https://mo-code.vercel.app';
+  static const String defaultBaseUrl = 'https://mocode.ordinity.com';
 
   late Dio _dio;
   String _baseUrl;

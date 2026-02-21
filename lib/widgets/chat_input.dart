@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -8,10 +7,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:record/record.dart';
-import 'package:whisper_ggml_plus/whisper_ggml_plus.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../providers/providers.dart';
+import '../services/asr_service.dart';
 import '../models/app_models.dart' as app_models;
 import '../theme/app_theme.dart';
 import '../constants/file_icons.dart';
@@ -74,9 +73,7 @@ class _ChatInputState extends ConsumerState<ChatInput> {
   Timer? _debounce;
   bool _isPickingImages = false;
   bool _isRecording = false;
-  bool _isTranscribing = false;
   final AudioRecorder _audioRecorder = AudioRecorder();
-  final WhisperController _whisperController = WhisperController();
   String? _recordingPath;
 
   static const int _maxAttachmentBase64Length = 10 * 1024 * 1024;
@@ -87,14 +84,6 @@ class _ChatInputState extends ConsumerState<ChatInput> {
   void initState() {
     super.initState();
     _controller.addListener(_onTextChanged);
-    _whisperController
-        .downloadModel(WhisperModel.tiny)
-        .then((val) {
-          print(val);
-        })
-        .catchError((error) {
-          print(error);
-        });
   }
 
   @override
@@ -661,18 +650,19 @@ class _ChatInputState extends ConsumerState<ChatInput> {
   }
 
   Future<void> _stopRecording() async {
+    String? audioPath;
     try {
-      await _audioRecorder.stop();
+      audioPath = await _audioRecorder.stop();
       setState(() {
         _isRecording = false;
-        _isTranscribing = true;
       });
 
-      await _transcribeAudio();
+      if (audioPath != null && audioPath.isNotEmpty) {
+        await _transcribeAudio(audioPath);
+      }
     } catch (e) {
       setState(() {
         _isRecording = false;
-        _isTranscribing = false;
       });
       if (!mounted) return;
       ScaffoldMessenger.of(
@@ -681,39 +671,61 @@ class _ChatInputState extends ConsumerState<ChatInput> {
     }
   }
 
-  Future<void> _transcribeAudio() async {
-    if (_recordingPath == null) return;
+  Future<void> _transcribeAudio(String audioPath) async {
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Row(
+          children: [
+            SizedBox(
+              width: 16,
+              height: 16,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+            SizedBox(width: 12),
+            Text('Transcribing...'),
+          ],
+        ),
+        duration: Duration(seconds: 10),
+      ),
+    );
 
     try {
-      final result = await _whisperController.transcribe(
-        model: WhisperModel.small,
-        audioPath: _recordingPath!,
-        lang: 'auto',
-        withTimestamps: false,
-      );
+      final idToken = await ref.read(idTokenProvider.future);
+      if (idToken == null) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Please sign in to use voice input')),
+        );
+        return;
+      }
+
+      final asrService = ref.read(asrServiceProvider);
+      final result = await asrService.transcribe(audioPath, idToken: idToken);
 
       if (!mounted) return;
+      ScaffoldMessenger.of(context).hideCurrentSnackBar();
 
-      if (result != null && result.transcription.text.isNotEmpty) {
-        _appendText(result.transcription.text);
+      if (result.text.isNotEmpty) {
+        final currentText = _controller.text;
+        final separator = currentText.isNotEmpty && !currentText.endsWith(' ')
+            ? ' '
+            : '';
+        _appendText('$separator${result.text}');
       }
-
-      final file = File(_recordingPath!);
-      if (await file.exists()) {
-        await file.delete();
-      }
+    } on AsrException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(e.message)));
     } catch (e) {
       if (!mounted) return;
+      ScaffoldMessenger.of(context).hideCurrentSnackBar();
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text('Transcription failed: $e')));
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isTranscribing = false;
-        });
-      }
-      _recordingPath = null;
     }
   }
 
@@ -759,10 +771,9 @@ class _ChatInputState extends ConsumerState<ChatInput> {
               _ChatInputFieldRow(
                 controller: _controller,
                 focusNode: _focusNode,
-                isBusy: widget.isBusy || _isTranscribing,
+                isBusy: widget.isBusy,
                 enabled: widget.enabled,
                 isRecording: _isRecording,
-                isTranscribing: _isTranscribing,
                 onPickImage: _openImagePicker,
                 onSend: _send,
                 onVoiceInput: _handleVoiceInput,
@@ -902,7 +913,6 @@ class _ChatInputFieldRow extends StatelessWidget {
   final bool isBusy;
   final bool enabled;
   final bool isRecording;
-  final bool isTranscribing;
   final VoidCallback onPickImage;
   final VoidCallback onSend;
   final VoidCallback onVoiceInput;
@@ -914,7 +924,6 @@ class _ChatInputFieldRow extends StatelessWidget {
     required this.isBusy,
     required this.enabled,
     required this.isRecording,
-    required this.isTranscribing,
     required this.onPickImage,
     required this.onSend,
     required this.onVoiceInput,
@@ -951,7 +960,7 @@ class _ChatInputFieldRow extends StatelessWidget {
                 decoration: InputDecoration(
                   hintText: isBusy
                       ? 'Processing...'
-                      : 'Message... (@ files, / commands, 🎤 voice)',
+                      : 'Message... (@ files, / commands)',
                   border: InputBorder.none,
                   enabledBorder: InputBorder.none,
                   focusedBorder: InputBorder.none,
@@ -991,22 +1000,6 @@ class _ChatInputFieldRow extends StatelessWidget {
   }
 
   Widget _buildVoiceInputButton() {
-    if (isTranscribing) {
-      return Container(
-        width: 40,
-        height: 40,
-        padding: const EdgeInsets.all(10),
-        child: const SizedBox(
-          width: 20,
-          height: 20,
-          child: CircularProgressIndicator(
-            strokeWidth: 2,
-            color: AppTheme.accent,
-          ),
-        ),
-      );
-    }
-
     return IconButton(
       onPressed: enabled ? onVoiceInput : null,
       icon: Stack(

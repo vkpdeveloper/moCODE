@@ -289,22 +289,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "2.1.5"
-  ffmpeg_kit_flutter_new_min:
-    dependency: transitive
-    description:
-      name: ffmpeg_kit_flutter_new_min
-      sha256: "15640bf8f177c5c3169a07490635ec0e2fe3816aeb31813eaa747ef0fbd271a6"
-      url: "https://pub.dev"
-    source: hosted
-    version: "3.1.0"
-  ffmpeg_kit_flutter_platform_interface:
-    dependency: transitive
-    description:
-      name: ffmpeg_kit_flutter_platform_interface
-      sha256: addf046ae44e190ad0101b2fde2ad909a3cd08a2a109f6106d2f7048b7abedee
-      url: "https://pub.dev"
-    source: hosted
-    version: "0.2.1"
   file:
     dependency: transitive
     description:
@@ -768,6 +752,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "0.2.2"
+  in_app_update:
+    dependency: "direct main"
+    description:
+      name: in_app_update
+      sha256: "9924a3efe592e1c0ec89dda3683b3cfec3d4cd02d908e6de00c24b759038ddb1"
+      url: "https://pub.dev"
+    source: hosted
+    version: "4.2.5"
   intl:
     dependency: "direct main"
     description:
@@ -1437,14 +1429,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.4.0"
-  universal_io:
-    dependency: transitive
-    description:
-      name: universal_io
-      sha256: f63cbc48103236abf48e345e07a03ce5757ea86285ed313a6a032596ed9301e2
-      url: "https://pub.dev"
-    source: hosted
-    version: "2.3.1"
   url_launcher:
     dependency: "direct main"
     description:
@@ -1597,21 +1581,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "3.23.6"
-  whisper_ggml_plus:
-    dependency: "direct main"
-    description:
-      path: ".external/whisper_ggml_plus"
-      relative: true
-    source: path
-    version: "1.3.1"
-  whisper_ggml_plus_ffmpeg:
-    dependency: "direct main"
-    description:
-      name: whisper_ggml_plus_ffmpeg
-      sha256: "29224753c76822b09b8ef69391ae218f8df5b8db82ec32b6d43173df01782383"
-      url: "https://pub.dev"
-    source: hosted
-    version: "1.0.0"
   win32:
     dependency: transitive
     description:

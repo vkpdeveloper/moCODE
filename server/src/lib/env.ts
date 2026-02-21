@@ -15,6 +15,7 @@ const envSchema = z.object({
   PORT: z.coerce.number().int().positive().default(3000),
   RESEND_API_KEY: z.string().min(1),
   MY_EMAIL: z.string().email(),
+  GROQ_API_KEY: z.string().min(1),
 });
 
 const parsedEnv = envSchema.safeParse(process.env);

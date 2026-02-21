@@ -29,6 +29,8 @@ import '../services/question_service.dart';
 import '../services/session_diff_service.dart';
 import '../services/todo_service.dart';
 import '../services/pty_service.dart';
+import '../services/in_app_update_service.dart';
+import '../services/asr_service.dart';
 
 // ---------------------------------------------------------------------------
 // Settings
@@ -162,6 +164,10 @@ final authServiceProvider = Provider<AuthService>((ref) {
 
 final accountServiceProvider = Provider<AccountService>((ref) {
   return AccountService(ref.watch(accountApiClientProvider));
+});
+
+final asrServiceProvider = Provider<AsrService>((ref) {
+  return AsrService(ref.watch(accountApiClientProvider));
 });
 
 final authStateProvider = StreamProvider<User?>((ref) {
@@ -643,6 +649,12 @@ final ptyServiceProvider = Provider<PtyService>((ref) {
 final preferencesServiceProvider = Provider<PreferencesService>((ref) {
   return PreferencesService();
 });
+
+final inAppUpdateServiceProvider = Provider<InAppUpdateService>((ref) {
+  return InAppUpdateService();
+});
+
+final updateAvailableProvider = StateProvider<bool>((ref) => true);
 
 // ---------------------------------------------------------------------------
 // Projects
