@@ -54,8 +54,8 @@ sealed class Part {
 
 class TextPart extends Part {
   final String text;
-  final bool? synthetic;
   final bool? ignored;
+  final bool synthetic;
   final PartTime? time;
   final Map<String, dynamic>? metadata;
 
@@ -63,8 +63,8 @@ class TextPart extends Part {
     required super.id,
     required super.sessionID,
     required super.messageID,
+    required this.synthetic,
     required this.text,
-    this.synthetic,
     this.ignored,
     this.time,
     this.metadata,
@@ -76,12 +76,12 @@ class TextPart extends Part {
       sessionID: json['sessionID'] as String,
       messageID: json['messageID'] as String,
       text: json['text'] as String? ?? '',
-      synthetic: json['synthetic'] as bool?,
       ignored: json['ignored'] as bool?,
       time: json['time'] is Map<String, dynamic>
           ? PartTime.fromJson(json['time'] as Map<String, dynamic>)
           : null,
       metadata: json['metadata'] as Map<String, dynamic>?,
+      synthetic: json['synthetic'] != null ? json['synthetic'] as bool : false,
     );
   }
 

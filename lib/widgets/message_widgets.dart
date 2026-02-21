@@ -73,7 +73,7 @@ class UserMessageWidget extends StatelessWidget {
         continue;
       }
 
-      if (part is TextPart) {
+      if (part is TextPart && !part.synthetic) {
         final text = part.text.trim();
         if (text.isNotEmpty) {
           finalUserText = part;
@@ -129,7 +129,7 @@ class UserMessageWidget extends StatelessWidget {
       );
     }
 
-    if (part is TextPart) {
+    if (part is TextPart && !part.synthetic) {
       return _buildTextContent(context, part);
     }
 

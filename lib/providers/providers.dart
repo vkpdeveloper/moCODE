@@ -1202,6 +1202,7 @@ class MessagesNotifier extends StateNotifier<MessagesState> {
     try {
       final messages = await _messageService.getMessages(
         session.id,
+        limit: 58,
         directory: session.directory,
       );
       if (!mounted || token != _loadToken) return;
