@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:whisper_ggml_plus_ffmpeg/whisper_ggml_plus_ffmpeg.dart';
 
 import 'router/app_router.dart';
 import 'services/download_notification_service.dart';
@@ -17,6 +18,8 @@ import 'providers/providers.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   FlutterForegroundTask.initCommunicationPort();
+  WhisperFFmpegConverter.register();
+
   final envFile = kReleaseMode ? '.prod.env' : '.dev.env';
   await dotenv.load(fileName: envFile);
   await Firebase.initializeApp();

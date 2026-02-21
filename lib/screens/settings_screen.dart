@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../extensions/async_value_extensions.dart';
 import '../providers/providers.dart';
 import '../theme/app_theme.dart';
 

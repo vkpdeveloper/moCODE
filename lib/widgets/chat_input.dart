@@ -1,10 +1,15 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:permission_handler/permission_handler.dart';
+import 'package:record/record.dart';
+import 'package:whisper_ggml_plus/whisper_ggml_plus.dart';
+import 'package:path_provider/path_provider.dart';
 
 import '../providers/providers.dart';
 import '../models/app_models.dart' as app_models;
@@ -68,6 +73,11 @@ class _ChatInputState extends ConsumerState<ChatInput> {
   final List<_ImageAttachment> _attachedImages = [];
   Timer? _debounce;
   bool _isPickingImages = false;
+  bool _isRecording = false;
+  bool _isTranscribing = false;
+  final AudioRecorder _audioRecorder = AudioRecorder();
+  final WhisperController _whisperController = WhisperController();
+  String? _recordingPath;
 
   static const int _maxAttachmentBase64Length = 10 * 1024 * 1024;
   static const int _overlayScanLimit = 80;
@@ -77,6 +87,14 @@ class _ChatInputState extends ConsumerState<ChatInput> {
   void initState() {
     super.initState();
     _controller.addListener(_onTextChanged);
+    _whisperController
+        .downloadModel(WhisperModel.tiny)
+        .then((val) {
+          print(val);
+        })
+        .catchError((error) {
+          print(error);
+        });
   }
 
   @override
@@ -87,6 +105,7 @@ class _ChatInputState extends ConsumerState<ChatInput> {
     _controller.removeListener(_onTextChanged);
     _controller.dispose();
     _focusNode.dispose();
+    _audioRecorder.dispose();
     super.dispose();
   }
 
@@ -374,7 +393,10 @@ class _ChatInputState extends ConsumerState<ChatInput> {
             ? parts.sublist(1).where((part) => part.isNotEmpty).toList()
             : <String>[];
         if (command.isNotEmpty) {
-          final commands = ref.read(commandsProvider).valueOrNull ?? [];
+          final commandsAsync = ref.read(commandsProvider);
+          final commands = commandsAsync.hasValue
+              ? commandsAsync.value!
+              : <app_models.Command>[];
           app_models.Command? commandMeta;
           for (final item in commands) {
             if (item.name == command) {
@@ -593,6 +615,108 @@ class _ChatInputState extends ConsumerState<ChatInput> {
     };
   }
 
+  Future<void> _handleVoiceInput() async {
+    if (_isRecording) {
+      await _stopRecording();
+    } else {
+      await _startRecording();
+    }
+  }
+
+  Future<void> _startRecording() async {
+    final status = await Permission.microphone.request();
+    if (status != PermissionStatus.granted) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Microphone permission is required for voice input'),
+        ),
+      );
+      return;
+    }
+
+    try {
+      final tempDir = await getTemporaryDirectory();
+      _recordingPath =
+          '${tempDir.path}/voice_input_${DateTime.now().millisecondsSinceEpoch}.m4a';
+
+      await _audioRecorder.start(
+        const RecordConfig(
+          encoder: AudioEncoder.aacLc,
+          bitRate: 128000,
+          sampleRate: 44100,
+        ),
+        path: _recordingPath!,
+      );
+
+      setState(() {
+        _isRecording = true;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Failed to start recording: $e')));
+    }
+  }
+
+  Future<void> _stopRecording() async {
+    try {
+      await _audioRecorder.stop();
+      setState(() {
+        _isRecording = false;
+        _isTranscribing = true;
+      });
+
+      await _transcribeAudio();
+    } catch (e) {
+      setState(() {
+        _isRecording = false;
+        _isTranscribing = false;
+      });
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Failed to stop recording: $e')));
+    }
+  }
+
+  Future<void> _transcribeAudio() async {
+    if (_recordingPath == null) return;
+
+    try {
+      final result = await _whisperController.transcribe(
+        model: WhisperModel.small,
+        audioPath: _recordingPath!,
+        lang: 'auto',
+        withTimestamps: false,
+      );
+
+      if (!mounted) return;
+
+      if (result != null && result.transcription.text.isNotEmpty) {
+        _appendText(result.transcription.text);
+      }
+
+      final file = File(_recordingPath!);
+      if (await file.exists()) {
+        await file.delete();
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Transcription failed: $e')));
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isTranscribing = false;
+        });
+      }
+      _recordingPath = null;
+    }
+  }
+
   List<Map<String, dynamic>>? _buildFileParts() {
     final parts = <Map<String, dynamic>>[];
     if (_attachedFiles.isNotEmpty) {
@@ -635,10 +759,13 @@ class _ChatInputState extends ConsumerState<ChatInput> {
               _ChatInputFieldRow(
                 controller: _controller,
                 focusNode: _focusNode,
-                isBusy: widget.isBusy,
+                isBusy: widget.isBusy || _isTranscribing,
                 enabled: widget.enabled,
+                isRecording: _isRecording,
+                isTranscribing: _isTranscribing,
                 onPickImage: _openImagePicker,
                 onSend: _send,
+                onVoiceInput: _handleVoiceInput,
                 onStop: widget.onStop,
               ),
             ],
@@ -774,8 +901,11 @@ class _ChatInputFieldRow extends StatelessWidget {
   final FocusNode focusNode;
   final bool isBusy;
   final bool enabled;
+  final bool isRecording;
+  final bool isTranscribing;
   final VoidCallback onPickImage;
   final VoidCallback onSend;
+  final VoidCallback onVoiceInput;
   final VoidCallback? onStop;
 
   const _ChatInputFieldRow({
@@ -783,8 +913,11 @@ class _ChatInputFieldRow extends StatelessWidget {
     required this.focusNode,
     required this.isBusy,
     required this.enabled,
+    required this.isRecording,
+    required this.isTranscribing,
     required this.onPickImage,
     required this.onSend,
+    required this.onVoiceInput,
     required this.onStop,
   });
 
@@ -802,6 +935,7 @@ class _ChatInputFieldRow extends StatelessWidget {
             constraints: const BoxConstraints(minWidth: 40, minHeight: 40),
             tooltip: 'Attach images',
           ),
+          _buildVoiceInputButton(),
           Expanded(
             child: ConstrainedBox(
               constraints: const BoxConstraints(minHeight: 44, maxHeight: 140),
@@ -817,7 +951,7 @@ class _ChatInputFieldRow extends StatelessWidget {
                 decoration: InputDecoration(
                   hintText: isBusy
                       ? 'Processing...'
-                      : 'Message... (@ files, / commands)',
+                      : 'Message... (@ files, / commands, 🎤 voice)',
                   border: InputBorder.none,
                   enabledBorder: InputBorder.none,
                   focusedBorder: InputBorder.none,
@@ -853,6 +987,56 @@ class _ChatInputFieldRow extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildVoiceInputButton() {
+    if (isTranscribing) {
+      return Container(
+        width: 40,
+        height: 40,
+        padding: const EdgeInsets.all(10),
+        child: const SizedBox(
+          width: 20,
+          height: 20,
+          child: CircularProgressIndicator(
+            strokeWidth: 2,
+            color: AppTheme.accent,
+          ),
+        ),
+      );
+    }
+
+    return IconButton(
+      onPressed: enabled ? onVoiceInput : null,
+      icon: Stack(
+        alignment: Alignment.center,
+        children: [
+          Icon(
+            isRecording ? Icons.stop : Icons.mic,
+            size: 18,
+            color: isRecording
+                ? AppTheme.error
+                : (enabled ? AppTheme.textPrimary : AppTheme.textTertiary),
+          ),
+          if (isRecording)
+            Positioned(
+              right: 0,
+              top: 0,
+              child: Container(
+                width: 8,
+                height: 8,
+                decoration: const BoxDecoration(
+                  color: AppTheme.error,
+                  shape: BoxShape.circle,
+                ),
+              ),
+            ),
+        ],
+      ),
+      padding: const EdgeInsets.all(10),
+      constraints: const BoxConstraints(minWidth: 40, minHeight: 40),
+      tooltip: isRecording ? 'Stop recording' : 'Voice input',
     );
   }
 }

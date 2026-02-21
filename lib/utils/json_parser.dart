@@ -1,16 +1,13 @@
-import 'package:crimson/crimson.dart';
+import 'dart:convert';
 
 dynamic parseJsonBytes(List<int> bytes) {
-  final crimson = Crimson(bytes);
-  return crimson.read();
+  return jsonDecode(utf8.decode(bytes));
 }
 
 Map<String, dynamic> parseJsonObjectBytes(List<int> bytes) {
-  final crimson = Crimson(bytes);
-  return crimson.readObject();
+  return jsonDecode(utf8.decode(bytes)) as Map<String, dynamic>;
 }
 
 List<dynamic> parseJsonListBytes(List<int> bytes) {
-  final crimson = Crimson(bytes);
-  return crimson.readArray();
+  return jsonDecode(utf8.decode(bytes)) as List<dynamic>;
 }

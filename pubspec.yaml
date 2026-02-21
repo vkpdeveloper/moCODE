@@ -13,8 +13,8 @@ dependencies:
     sdk: flutter
 
   cupertino_icons: ^1.0.8
-  flutter_riverpod: ^2.4.0
-  riverpod_annotation: ^2.4.0
+  flutter_riverpod: ^3.2.1
+  riverpod_annotation: ^4.0.2
   dio: ^5.7.0
   go_router: ^14.8.1
   shared_preferences: ^2.3.4
@@ -32,7 +32,6 @@ dependencies:
   flutter_dotenv: ^5.2.1
   url_launcher: ^6.3.2
   webview_flutter: ^4.9.0
-  crimson: ^0.4.0+1
   web_socket_channel: ^2.4.0
   lucide_icons_flutter: ^3.1.9
   markdown: ^7.2.2
@@ -45,21 +44,26 @@ dependencies:
   permission_handler: ^11.3.1
   flutter_local_notifications: ^17.2.3
   flutter_foreground_task: ^8.15.0
+  whisper_ggml_plus: ^1.3.1
+  whisper_ggml_plus_ffmpeg: ^1.0.0
+  record: ^6.2.0
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
 
   flutter_lints: ^6.0.0
-  riverpod_generator: ^2.4.0
+  riverpod_generator: ^4.0.3
   build_runner: ^2.4.14
-  json_annotation: ^4.9.0
-  json_serializable: ^6.9.0
+  json_annotation: ^4.10.0
+  json_serializable: ^6.12.0
   flutter_launcher_icons: ^0.14.4
   change_app_package_name: ^1.5.0
 
 dependency_overrides:
-  analyzer: 6.4.1
+  analyzer: any
+  whisper_ggml_plus:
+    path: .external/whisper_ggml_plus
 
 flutter:
   uses-material-design: true

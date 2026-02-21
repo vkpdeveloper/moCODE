@@ -22,18 +22,31 @@ class _SplashScreenState extends ConsumerState<SplashScreen> {
   }
 
   Future<void> _preload() async {
-    await Future<void>.delayed(const Duration(milliseconds: 150));
-    if (!mounted) return;
-    if (!ref.read(settingsProvider).isLoaded) {
-      await ref.read(settingsReloadProvider.future);
+    try {
+      await Future<void>.delayed(const Duration(milliseconds: 150));
       if (!mounted) return;
+      if (!ref.read(settingsProvider).isLoaded) {
+        await ref
+            .read(settingsReloadProvider.future)
+            .timeout(const Duration(seconds: 5));
+        if (!mounted) return;
+      }
+      final hadError = await ref
+          .read(appPreloadProvider.future)
+          .timeout(const Duration(seconds: 8), onTimeout: () => true);
+      if (!mounted) return;
+      setState(() {
+        _hasError = hadError;
+      });
+      context.go('/projects');
+    } catch (e) {
+      debugPrint('Splash preload failed: $e');
+      if (!mounted) return;
+      setState(() {
+        _hasError = true;
+      });
+      context.go('/projects');
     }
-    final hadError = await ref.read(appPreloadProvider.future);
-    if (!mounted) return;
-    setState(() {
-      _hasError = hadError;
-    });
-    context.go('/projects');
   }
 
   @override

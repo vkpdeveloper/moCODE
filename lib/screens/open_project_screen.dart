@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/legacy.dart';
 import 'package:go_router/go_router.dart';
 
 import '../models/project.dart';
@@ -76,35 +77,31 @@ class FileTreeNotifier extends StateNotifier<FileTreeState> {
     final inflight = _inflight[directory];
     if (inflight != null) return inflight;
 
-    _setNode(
-      directory,
-      current.copyWith(loading: true, error: null),
-    );
+    _setNode(directory, current.copyWith(loading: true, error: null));
 
     final promise = ref
         .read(fileListProvider((path: '/', directory: directory)).future)
         .then((entries) {
-      final children = _normalizeEntries(directory, entries);
-      _setNode(
-        directory,
-        current.copyWith(
-          loaded: true,
-          loading: false,
-          error: null,
-          children: children,
-        ),
-      );
-    }).catchError((error) {
-      _setNode(
-        directory,
-        current.copyWith(
-          loading: false,
-          error: error.toString(),
-        ),
-      );
-    }).whenComplete(() {
-      _inflight.remove(directory);
-    });
+          final children = _normalizeEntries(directory, entries);
+          _setNode(
+            directory,
+            current.copyWith(
+              loaded: true,
+              loading: false,
+              error: null,
+              children: children,
+            ),
+          );
+        })
+        .catchError((error) {
+          _setNode(
+            directory,
+            current.copyWith(loading: false, error: error.toString()),
+          );
+        })
+        .whenComplete(() {
+          _inflight.remove(directory);
+        });
 
     _inflight[directory] = promise;
     return promise;
@@ -139,9 +136,10 @@ class FileTreeNotifier extends StateNotifier<FileTreeState> {
   }
 }
 
-final fileTreeProvider = StateNotifierProvider.family<FileTreeNotifier, FileTreeState, String>(
-  (ref, root) => FileTreeNotifier(ref, root),
-);
+final fileTreeProvider =
+    StateNotifierProvider.family<FileTreeNotifier, FileTreeState, String>(
+      (ref, root) => FileTreeNotifier(ref, root),
+    );
 
 class _TreeEntry {
   final String path;
@@ -156,7 +154,7 @@ class OpenProjectScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final pathAsync = ref.watch(pathInfoProvider);
-    final pathInfo = pathAsync.valueOrNull;
+    final pathInfo = pathAsync.hasValue ? pathAsync.value : null;
     final initialPath = pathInfo?.home ?? '';
     final pathState = ref.watch(openProjectPathProvider);
     final currentPath = pathState ?? initialPath;
@@ -251,10 +249,7 @@ class OpenProjectScreen extends ConsumerWidget {
                     searchText: searchText,
                     filesAsync: filesAsync,
                   )
-                : _buildTree(
-                    ref: ref,
-                    currentPath: currentPath,
-                  ),
+                : _buildTree(ref: ref, currentPath: currentPath),
           ),
         ],
       ),
@@ -340,10 +335,7 @@ Widget _buildSearchResults({
               const SizedBox(height: 12),
               const Text(
                 'No folders found',
-                style: TextStyle(
-                  color: AppTheme.textSecondary,
-                  fontSize: 12,
-                ),
+                style: TextStyle(color: AppTheme.textSecondary, fontSize: 12),
               ),
             ],
           ),
@@ -363,17 +355,10 @@ Widget _buildSearchResults({
                 color: AppTheme.surface,
                 border: Border.all(color: AppTheme.border),
               ),
-              padding: const EdgeInsets.symmetric(
-                horizontal: 12,
-                vertical: 10,
-              ),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
               child: Row(
                 children: [
-                  Icon(
-                    Icons.folder_outlined,
-                    color: AppTheme.accent,
-                    size: 18,
-                  ),
+                  Icon(Icons.folder_outlined, color: AppTheme.accent, size: 18),
                   const SizedBox(width: 10),
                   Expanded(
                     child: Text(
@@ -399,9 +384,8 @@ Widget _buildSearchResults({
         },
       );
     },
-    loading: () => const Center(
-      child: CircularProgressIndicator(color: AppTheme.accent),
-    ),
+    loading: () =>
+        const Center(child: CircularProgressIndicator(color: AppTheme.accent)),
     error: (error, _) => Center(
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -410,20 +394,14 @@ Widget _buildSearchResults({
           const SizedBox(height: 12),
           Text(
             error.toString(),
-            style: const TextStyle(
-              color: AppTheme.textTertiary,
-              fontSize: 12,
-            ),
+            style: const TextStyle(color: AppTheme.textTertiary, fontSize: 12),
             textAlign: TextAlign.center,
           ),
           const SizedBox(height: 12),
           OutlinedButton(
             onPressed: () {
               ref.invalidate(
-                fileListProvider((
-                  path: searchText,
-                  directory: currentPath,
-                )),
+                fileListProvider((path: searchText, directory: currentPath)),
               );
             },
             child: const Text('RETRY'),
@@ -434,10 +412,7 @@ Widget _buildSearchResults({
   );
 }
 
-Widget _buildTree({
-  required WidgetRef ref,
-  required String currentPath,
-}) {
+Widget _buildTree({required WidgetRef ref, required String currentPath}) {
   if (currentPath.isEmpty) {
     return const Center(
       child: CircularProgressIndicator(color: AppTheme.accent),
@@ -462,10 +437,7 @@ Widget _buildTree({
           const SizedBox(height: 12),
           const Text(
             'No folders found',
-            style: TextStyle(
-              color: AppTheme.textSecondary,
-              fontSize: 12,
-            ),
+            style: TextStyle(color: AppTheme.textSecondary, fontSize: 12),
           ),
         ],
       ),
@@ -503,13 +475,12 @@ Widget _buildTree({
                   onPressed: () => treeNotifier.toggle(entry.path),
                   visualDensity: VisualDensity.compact,
                   padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(minWidth: 24, minHeight: 24),
+                  constraints: const BoxConstraints(
+                    minWidth: 24,
+                    minHeight: 24,
+                  ),
                 ),
-                Icon(
-                  Icons.folder_outlined,
-                  color: AppTheme.accent,
-                  size: 18,
-                ),
+                Icon(Icons.folder_outlined, color: AppTheme.accent, size: 18),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
@@ -568,8 +539,7 @@ Widget _buildTree({
                     ),
                   ),
                   TextButton(
-                    onPressed: () =>
-                        treeNotifier.load(entry.path, force: true),
+                    onPressed: () => treeNotifier.load(entry.path, force: true),
                     child: const Text('RETRY'),
                   ),
                 ],
@@ -677,7 +647,9 @@ List<String> _normalizeEntries(String directory, List<String> entries) {
     if (relative.isEmpty) continue;
 
     final firstSlash = relative.indexOf('/');
-    final immediate = firstSlash == -1 ? relative : relative.substring(0, firstSlash);
+    final immediate = firstSlash == -1
+        ? relative
+        : relative.substring(0, firstSlash);
     if (immediate.isEmpty) continue;
 
     final child = _joinPath(directory, immediate);

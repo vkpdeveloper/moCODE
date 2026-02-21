@@ -327,7 +327,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
         }
         final session = ref.read(selectedSessionProvider);
         if (session == null) return;
-        final statusMap = next.valueOrNull;
+        final statusMap = next.hasValue ? next.value : null;
         if (statusMap == null) return;
         final isBusy = _isBusyStatus(statusMap[session.id], fallback: false);
         if (mounted && _isBusy != isBusy) {
@@ -1047,7 +1047,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
 
     final busyLabel = () {
       if (session == null) return 'Session busy';
-      final info = statusAsync.valueOrNull?[session.id];
+      final statusValue = statusAsync.hasValue ? statusAsync.value : null;
+      final info = statusValue?[session.id];
       if (info is Map<String, dynamic>) {
         final message = info['message']?.toString();
         final attempt = info['attempt'];

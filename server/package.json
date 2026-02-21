@@ -12,7 +12,9 @@
     "db:push": "drizzle-kit push"
   },
   "dependencies": {
+    "@ai-sdk/groq": "^3.0.24",
     "@hono/node-server": "^1.14.0",
+    "ai": "^6.0.97",
     "dotenv": "^16.6.1",
     "drizzle-orm": "^0.44.5",
     "firebase-admin": "^13.5.0",

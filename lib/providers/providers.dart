@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/legacy.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -169,7 +170,8 @@ final authStateProvider = StreamProvider<User?>((ref) {
 });
 
 final firebaseUserProvider = Provider<User?>((ref) {
-  return ref.watch(authStateProvider).valueOrNull;
+  final authState = ref.watch(authStateProvider);
+  return authState.hasValue ? authState.value : null;
 });
 
 final idTokenProvider = FutureProvider<String?>((ref) async {
@@ -204,12 +206,13 @@ enum AccessGateStatus { loading, signedOut, unpaid, granted }
 final accessGateStatusProvider = Provider<AccessGateStatus>((ref) {
   final auth = ref.watch(authStateProvider);
   if (auth.isLoading) return AccessGateStatus.loading;
-  final user = auth.valueOrNull;
+  final user = auth.hasValue ? auth.value : null;
   if (user == null) return AccessGateStatus.signedOut;
 
   final billing = ref.watch(billingStatusProvider);
   if (billing.isLoading) return AccessGateStatus.loading;
-  final unlocked = billing.valueOrNull?['oneTimeUnlocked'] == true;
+  final billingValue = billing.hasValue ? billing.value : null;
+  final unlocked = billingValue?['oneTimeUnlocked'] == true;
   return unlocked ? AccessGateStatus.granted : AccessGateStatus.unpaid;
 });
 
@@ -742,7 +745,7 @@ class SessionStatusNotifier
       state = AsyncValue.data(status);
     } catch (e, st) {
       if (!mounted || directory != _directory) return;
-      final previous = state.valueOrNull;
+      final previous = state.hasValue ? state.value : null;
       if (previous != null) {
         state = AsyncValue.data(previous);
       } else {
@@ -752,7 +755,8 @@ class SessionStatusNotifier
   }
 
   void upsertStatus(String sessionID, dynamic status) {
-    final next = Map<String, dynamic>.from(state.valueOrNull ?? const {});
+    final currentStatus = state.hasValue ? state.value : null;
+    final next = Map<String, dynamic>.from(currentStatus ?? const {});
     if (status is Map<String, dynamic>) {
       next[sessionID] = status;
     } else if (status is String) {
@@ -764,7 +768,8 @@ class SessionStatusNotifier
   }
 
   void markIdle(String sessionID) {
-    final next = Map<String, dynamic>.from(state.valueOrNull ?? const {});
+    final currentStatus = state.hasValue ? state.value : null;
+    final next = Map<String, dynamic>.from(currentStatus ?? const {});
     next[sessionID] = {'type': 'idle'};
     state = AsyncValue.data(next);
   }
