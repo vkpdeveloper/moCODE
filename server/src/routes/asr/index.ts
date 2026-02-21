@@ -141,6 +141,8 @@ asrRouter.post("/transcribe", async (c) => {
   }
 
   const language = formData.get("language") as string | null;
+  const durationMsParam = (formData.get("durationMs") ?? formData.get("duration")) as string | null;
+  const clientDurationMs = durationMsParam ? parseFloat(durationMsParam) : null;
 
   const arrayBuffer = await audioFile.arrayBuffer();
   const buffer = Buffer.from(arrayBuffer);
@@ -176,9 +178,11 @@ asrRouter.post("/transcribe", async (c) => {
           end: seg.endSecond,
         })) ?? [],
       language: providerOptions.language ?? "auto",
-      duration: "duration" in result && typeof result.duration === "number"
-        ? result.duration
-        : 0,
+      duration: typeof clientDurationMs === "number" && Number.isFinite(clientDurationMs)
+        ? clientDurationMs / 1000
+        : ("duration" in result && typeof result.duration === "number"
+          ? result.duration
+          : 0),
     };
 
     if (result.segments) {

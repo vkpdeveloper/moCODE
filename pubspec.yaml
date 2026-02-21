@@ -45,6 +45,7 @@ dependencies:
   flutter_local_notifications: ^17.2.3
   flutter_foreground_task: ^8.15.0
   record: ^6.2.0
+  audioplayers: ^6.1.0
   in_app_update: ^4.2.5
 
 dev_dependencies:

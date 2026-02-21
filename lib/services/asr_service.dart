@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:audioplayers/audioplayers.dart';
 import 'package:dio/dio.dart';
 
 import '../utils/json_parser.dart';
@@ -20,6 +21,8 @@ class AsrService {
       throw AsrException('Audio file not found');
     }
 
+    final duration = await _getAudioDuration(audioPath);
+
     final fileName = audioPath.split('/').last;
     final mimeType = _getMimeType(fileName);
 
@@ -30,6 +33,7 @@ class AsrService {
         contentType: DioMediaType.parse(mimeType),
       ),
       if (language != null && language.isNotEmpty) 'language': language,
+      'durationMs': duration,
     });
 
     final headers = <String, dynamic>{'Content-Type': 'multipart/form-data'};
@@ -59,6 +63,22 @@ class AsrService {
           e.response?.data?['error'] ?? e.message ?? 'Unknown error';
       throw AsrException('Transcription failed: $errorMsg');
     }
+  }
+
+  Future<int> _getAudioDuration(String audioPath) async {
+    final player = AudioPlayer();
+    try {
+      await player.setSource(DeviceFileSource(audioPath));
+      final duration = await player.getDuration();
+      if (duration != null) {
+        return duration.inMilliseconds;
+      }
+    } catch (_) {
+      return 0;
+    } finally {
+      await player.dispose();
+    }
+    return 0;
   }
 
   String _getMimeType(String fileName) {
