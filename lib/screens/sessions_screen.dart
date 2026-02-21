@@ -9,6 +9,7 @@ import '../models/project.dart';
 import '../providers/providers.dart';
 import '../providers/ssh_provider.dart';
 import '../theme/app_theme.dart';
+import '../utils/app_snackbar.dart';
 import '../widgets/session_busy_indicator.dart';
 import '../widgets/ssh_connection_dialog.dart';
 import 'terminal_page.dart';
@@ -389,9 +390,7 @@ class SessionsScreen extends ConsumerWidget {
                   }
                 } catch (e) {
                   if (context.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('Failed to fork: $e')),
-                    );
+                    AppSnackBar.showError(context, 'Failed to fork: $e');
                   }
                 }
               },
@@ -415,9 +414,7 @@ class SessionsScreen extends ConsumerWidget {
                 onTap: () {
                   Navigator.pop(ctx);
                   Clipboard.setData(ClipboardData(text: session.share!.url));
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Link copied to clipboard')),
-                  );
+                  AppSnackBar.showSuccess(context, 'Link copied to clipboard');
                 },
               ),
             ListTile(
@@ -451,21 +448,16 @@ class SessionsScreen extends ConsumerWidget {
                       Clipboard.setData(
                         ClipboardData(text: updated.share!.url),
                       );
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text(
-                            'Session shared! Link copied to clipboard',
-                          ),
-                        ),
+                      AppSnackBar.showSuccess(
+                        context,
+                        'Session shared! Link copied to clipboard',
                       );
                     }
                   }
                   ref.invalidate(sessionsProvider);
                 } catch (e) {
                   if (context.mounted) {
-                    ScaffoldMessenger.of(
-                      context,
-                    ).showSnackBar(SnackBar(content: Text('Failed: $e')));
+                    AppSnackBar.showError(context, 'Failed: $e');
                   }
                 }
               },

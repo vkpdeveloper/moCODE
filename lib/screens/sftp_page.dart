@@ -12,6 +12,7 @@ import '../providers/sftp_provider.dart';
 import '../providers/ssh_provider.dart';
 import '../services/storage_permission_service.dart';
 import '../theme/app_theme.dart';
+import '../utils/app_snackbar.dart';
 
 class SftpPage extends ConsumerStatefulWidget {
   final String workingDirectory;
@@ -1096,11 +1097,10 @@ class _SftpPageState extends ConsumerState<SftpPage>
     if (filesToDownload.isEmpty) {
       if (directoriesSkipped > 0) {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Directory download is not supported yet'),
-              duration: Duration(seconds: 2),
-            ),
+          AppSnackBar.showWarning(
+            context,
+            'Directory download is not supported yet',
+            duration: const Duration(seconds: 2),
           );
         }
       }
@@ -1126,8 +1126,10 @@ class _SftpPageState extends ConsumerState<SftpPage>
         message += ' ($directoriesSkipped directories skipped)';
       }
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(message), duration: const Duration(seconds: 3)),
+      AppSnackBar.showSuccess(
+        context,
+        message,
+        duration: const Duration(seconds: 3),
       );
     }
   }
@@ -1138,12 +1140,7 @@ class _SftpPageState extends ConsumerState<SftpPage>
         await StoragePermissionService.requestStoragePermission();
     if (!hasPermission) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Storage permission denied'),
-            backgroundColor: AppTheme.error,
-          ),
-        );
+        AppSnackBar.showError(context, 'Storage permission denied');
       }
       return false;
     }
@@ -1157,12 +1154,7 @@ class _SftpPageState extends ConsumerState<SftpPage>
 
     if (downloadsDir == null) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Could not access downloads directory'),
-            backgroundColor: AppTheme.error,
-          ),
-        );
+        AppSnackBar.showError(context, 'Could not access downloads directory');
       }
       return false;
     }
@@ -1222,22 +1214,20 @@ class _SftpPageState extends ConsumerState<SftpPage>
     }
 
     if (mounted && showSnackBars) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Downloading...'),
-          duration: Duration(seconds: 1),
-        ),
+      AppSnackBar.showInfo(
+        context,
+        'Downloading...',
+        duration: const Duration(seconds: 1),
       );
     }
 
     await ref.read(sftpProvider.notifier).downloadFile(item, localPath);
 
     if (mounted && showSnackBars) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Downloaded to $localPath'),
-          backgroundColor: AppTheme.success,
-        ),
+      AppSnackBar.showSuccess(
+        context,
+        'Downloaded to $localPath',
+        duration: const Duration(seconds: 3),
       );
     }
     return true;

@@ -7,6 +7,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../extensions/async_value_extensions.dart';
 import '../providers/providers.dart';
 import '../theme/app_theme.dart';
+import '../utils/app_snackbar.dart';
 
 class SettingsScreen extends ConsumerStatefulWidget {
   final bool refreshPaymentOnOpen;
@@ -495,9 +496,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                             ref.invalidate(projectsProvider);
                             ref.invalidate(sessionsProvider);
                             ref.invalidate(providersListProvider);
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(content: Text('Refreshing...')),
-                            );
+                            AppSnackBar.showInfo(context, 'Refreshing...');
                           },
                         ),
                         const Divider(height: 1),
@@ -759,9 +758,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   Future<void> _startCheckout() async {
     final user = ref.read(firebaseUserProvider);
     if (user == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Sign in with Google first')),
-      );
+      AppSnackBar.showWarning(context, 'Sign in with Google first');
       return;
     }
 
@@ -773,9 +770,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
         if (!mounted) return;
         context.push('/payment/checkout');
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Opening secure setup...')),
-        );
+        AppSnackBar.showInfo(context, 'Opening secure setup...');
         return;
       }
 
@@ -839,14 +834,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         setState(() {
           _paymentRefreshLoading = false;
         });
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              unlocked
-                  ? 'Payment confirmed. Full access unlocked.'
-                  : 'We are still verifying payment. Tap refresh in a moment.',
-            ),
-          ),
+        AppSnackBar.show(
+          context,
+          message: unlocked
+              ? 'Payment confirmed. Full access unlocked.'
+              : 'We are still verifying payment. Tap refresh in a moment.',
+          type: unlocked ? SnackBarType.success : SnackBarType.info,
         );
       }
     }

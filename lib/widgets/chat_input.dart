@@ -10,9 +10,9 @@ import 'package:record/record.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../providers/providers.dart';
-import '../services/asr_service.dart';
 import '../models/app_models.dart' as app_models;
 import '../theme/app_theme.dart';
+import '../utils/app_snackbar.dart';
 import '../constants/file_icons.dart';
 
 class ChatInput extends ConsumerStatefulWidget {
@@ -73,6 +73,7 @@ class _ChatInputState extends ConsumerState<ChatInput> {
   Timer? _debounce;
   bool _isPickingImages = false;
   bool _isRecording = false;
+  bool _isTranscribing = false;
   final AudioRecorder _audioRecorder = AudioRecorder();
   String? _recordingPath;
 
@@ -397,9 +398,7 @@ class _ChatInputState extends ConsumerState<ChatInput> {
           final requiresArgs = command == 'run' || hints.isNotEmpty;
           if (requiresArgs && args.isEmpty) {
             if (hints.isNotEmpty) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text('Hint: ${hints.join(' ')}')),
-              );
+              AppSnackBar.showInfo(context, 'Hint: ${hints.join(' ')}');
             }
             return;
           }
@@ -503,10 +502,9 @@ class _ChatInputState extends ConsumerState<ChatInput> {
   }
 
   void _showSizeLimitSnack() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Image attachments must be under 10 MB total.'),
-      ),
+    AppSnackBar.showWarning(
+      context,
+      'Image attachments must be under 10 MB total.',
     );
   }
 
@@ -520,9 +518,7 @@ class _ChatInputState extends ConsumerState<ChatInput> {
       await _showImagePreview(picked);
     } catch (_) {
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('Failed to pick images.')));
+        AppSnackBar.showError(context, 'Failed to pick images.');
       }
     } finally {
       if (mounted) {
@@ -613,16 +609,41 @@ class _ChatInputState extends ConsumerState<ChatInput> {
   }
 
   Future<void> _startRecording() async {
-    final status = await Permission.microphone.request();
-    if (status != PermissionStatus.granted) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Microphone permission is required for voice input'),
-        ),
+    debugPrint('[Voice] Starting recording process...');
+
+    // First check using permission_handler to see current status
+    final currentStatus = await Permission.microphone.status;
+    debugPrint(
+      '[Voice] Current permission status (permission_handler): $currentStatus',
+    );
+
+    // Use the record package's hasPermission method
+    final hasPermission = await _audioRecorder.hasPermission();
+    debugPrint('[Voice] Record package hasPermission: $hasPermission');
+
+    if (!hasPermission) {
+      // Request permission using permission_handler
+      final status = await Permission.microphone.request();
+      debugPrint('[Voice] After request, permission status: $status');
+
+      // Check again with record package after requesting
+      final hasPermissionAfterRequest = await _audioRecorder.hasPermission();
+      debugPrint(
+        '[Voice] Record package hasPermission after request: $hasPermissionAfterRequest',
       );
-      return;
+
+      if (!hasPermissionAfterRequest) {
+        if (!mounted) return;
+        AppSnackBar.showError(
+          context,
+          'Microphone permission is required for voice input',
+          duration: const Duration(seconds: 4),
+        );
+        return;
+      }
     }
+
+    debugPrint('[Voice] Permission granted, starting audio recorder...');
 
     try {
       final tempDir = await getTemporaryDirectory();
@@ -655,6 +676,7 @@ class _ChatInputState extends ConsumerState<ChatInput> {
       audioPath = await _audioRecorder.stop();
       setState(() {
         _isRecording = false;
+        _isTranscribing = true;
       });
 
       if (audioPath != null && audioPath.isNotEmpty) {
@@ -663,41 +685,21 @@ class _ChatInputState extends ConsumerState<ChatInput> {
     } catch (e) {
       setState(() {
         _isRecording = false;
+        _isTranscribing = false;
       });
-      if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Failed to stop recording: $e')));
     }
   }
 
   Future<void> _transcribeAudio(String audioPath) async {
     if (!mounted) return;
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Row(
-          children: [
-            SizedBox(
-              width: 16,
-              height: 16,
-              child: CircularProgressIndicator(strokeWidth: 2),
-            ),
-            SizedBox(width: 12),
-            Text('Transcribing...'),
-          ],
-        ),
-        duration: Duration(seconds: 10),
-      ),
-    );
-
     try {
       final idToken = await ref.read(idTokenProvider.future);
       if (idToken == null) {
         if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Please sign in to use voice input')),
-        );
+        setState(() {
+          _isTranscribing = false;
+        });
         return;
       }
 
@@ -705,7 +707,10 @@ class _ChatInputState extends ConsumerState<ChatInput> {
       final result = await asrService.transcribe(audioPath, idToken: idToken);
 
       if (!mounted) return;
-      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+
+      setState(() {
+        _isTranscribing = false;
+      });
 
       if (result.text.isNotEmpty) {
         final currentText = _controller.text;
@@ -714,18 +719,11 @@ class _ChatInputState extends ConsumerState<ChatInput> {
             : '';
         _appendText('$separator${result.text}');
       }
-    } on AsrException catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).hideCurrentSnackBar();
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(e.message)));
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).hideCurrentSnackBar();
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Transcription failed: $e')));
+      setState(() {
+        _isTranscribing = false;
+      });
     }
   }
 
@@ -774,6 +772,8 @@ class _ChatInputState extends ConsumerState<ChatInput> {
                 isBusy: widget.isBusy,
                 enabled: widget.enabled,
                 isRecording: _isRecording,
+                isTranscribing: _isTranscribing,
+                hasText: _controller.text.isNotEmpty,
                 onPickImage: _openImagePicker,
                 onSend: _send,
                 onVoiceInput: _handleVoiceInput,
@@ -913,6 +913,8 @@ class _ChatInputFieldRow extends StatelessWidget {
   final bool isBusy;
   final bool enabled;
   final bool isRecording;
+  final bool isTranscribing;
+  final bool hasText;
   final VoidCallback onPickImage;
   final VoidCallback onSend;
   final VoidCallback onVoiceInput;
@@ -924,6 +926,8 @@ class _ChatInputFieldRow extends StatelessWidget {
     required this.isBusy,
     required this.enabled,
     required this.isRecording,
+    required this.isTranscribing,
+    required this.hasText,
     required this.onPickImage,
     required this.onSend,
     required this.onVoiceInput,
@@ -944,92 +948,180 @@ class _ChatInputFieldRow extends StatelessWidget {
             constraints: const BoxConstraints(minWidth: 40, minHeight: 40),
             tooltip: 'Attach images',
           ),
-          _buildVoiceInputButton(),
-          Expanded(
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(minHeight: 44, maxHeight: 140),
-              child: TextField(
-                controller: controller,
-                focusNode: focusNode,
-                enabled: enabled,
-                maxLines: null,
-                style: const TextStyle(
-                  color: AppTheme.textPrimary,
-                  fontSize: 13,
-                ),
-                decoration: InputDecoration(
-                  hintText: isBusy
-                      ? 'Processing...'
-                      : 'Message... (@ files, / commands)',
-                  border: InputBorder.none,
-                  enabledBorder: InputBorder.none,
-                  focusedBorder: InputBorder.none,
-                  fillColor: Colors.transparent,
-                  filled: true,
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 12,
-                  ),
-                ),
-                onSubmitted: (_) => onSend(),
-              ),
-            ),
-          ),
+          Expanded(child: _buildCenterContent()),
           const SizedBox(width: 4),
-          GestureDetector(
-            onTap: isBusy ? onStop : (enabled ? onSend : null),
-            child: Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: isBusy
-                    ? AppTheme.error
-                    : (enabled ? AppTheme.accent : AppTheme.border),
-                shape: BoxShape.rectangle,
-                borderRadius: BorderRadius.circular(4),
-              ),
-              child: Icon(
-                isBusy ? Icons.stop : Icons.arrow_upward,
-                size: 18,
-                color: isBusy || enabled ? Colors.white : AppTheme.textTertiary,
-              ),
-            ),
-          ),
+          _buildRightButton(),
         ],
       ),
     );
   }
 
-  Widget _buildVoiceInputButton() {
-    return IconButton(
-      onPressed: enabled ? onVoiceInput : null,
-      icon: Stack(
-        alignment: Alignment.center,
-        children: [
-          Icon(
-            isRecording ? Icons.stop : Icons.mic,
-            size: 18,
-            color: isRecording
-                ? AppTheme.error
-                : (enabled ? AppTheme.textPrimary : AppTheme.textTertiary),
-          ),
-          if (isRecording)
-            Positioned(
-              right: 0,
-              top: 0,
-              child: Container(
-                width: 8,
-                height: 8,
-                decoration: const BoxDecoration(
-                  color: AppTheme.error,
-                  shape: BoxShape.circle,
-                ),
+  Widget _buildCenterContent() {
+    if (isRecording) {
+      return Container(
+        constraints: const BoxConstraints(minHeight: 44, maxHeight: 140),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
+        child: const Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            _PulsingDot(),
+            SizedBox(width: 8),
+            Text(
+              'Recording...',
+              style: TextStyle(
+                color: AppTheme.error,
+                fontSize: 13,
+                fontWeight: FontWeight.w500,
               ),
             ),
-        ],
+          ],
+        ),
+      );
+    }
+
+    if (isTranscribing) {
+      return Container(
+        constraints: const BoxConstraints(minHeight: 44, maxHeight: 140),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
+        child: const Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            SizedBox(
+              width: 14,
+              height: 14,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: AppTheme.accent,
+              ),
+            ),
+            SizedBox(width: 8),
+            Text(
+              'Transcribing...',
+              style: TextStyle(
+                color: AppTheme.textSecondary,
+                fontSize: 13,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return ConstrainedBox(
+      constraints: const BoxConstraints(minHeight: 44, maxHeight: 140),
+      child: TextField(
+        controller: controller,
+        focusNode: focusNode,
+        enabled: enabled,
+        maxLines: null,
+        style: const TextStyle(color: AppTheme.textPrimary, fontSize: 13),
+        decoration: InputDecoration(
+          hintText: isBusy
+              ? 'Processing...'
+              : 'Message... (@ files, / commands)',
+          border: InputBorder.none,
+          enabledBorder: InputBorder.none,
+          focusedBorder: InputBorder.none,
+          fillColor: Colors.transparent,
+          filled: true,
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 10,
+            vertical: 12,
+          ),
+        ),
+        onSubmitted: (_) => onSend(),
       ),
+    );
+  }
+
+  Widget _buildRightButton() {
+    if (isRecording) {
+      return GestureDetector(
+        onTap: onVoiceInput,
+        child: Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: AppTheme.error,
+            shape: BoxShape.rectangle,
+            borderRadius: BorderRadius.circular(4),
+          ),
+          child: const Icon(Icons.stop, size: 18, color: Colors.white),
+        ),
+      );
+    }
+
+    if (isTranscribing) {
+      return const SizedBox(width: 40, height: 40);
+    }
+
+    if (hasText && !isBusy) {
+      return GestureDetector(
+        onTap: enabled ? onSend : null,
+        child: Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: enabled ? AppTheme.accent : AppTheme.border,
+            shape: BoxShape.rectangle,
+            borderRadius: BorderRadius.circular(4),
+          ),
+          child: const Icon(Icons.arrow_upward, size: 18, color: Colors.white),
+        ),
+      );
+    }
+
+    return IconButton(
+      onPressed: enabled ? onVoiceInput : null,
+      icon: const Icon(Icons.mic, size: 18, color: AppTheme.textPrimary),
       padding: const EdgeInsets.all(10),
       constraints: const BoxConstraints(minWidth: 40, minHeight: 40),
-      tooltip: isRecording ? 'Stop recording' : 'Voice input',
+      tooltip: 'Voice input',
+    );
+  }
+}
+
+class _PulsingDot extends StatefulWidget {
+  const _PulsingDot();
+
+  @override
+  State<_PulsingDot> createState() => _PulsingDotState();
+}
+
+class _PulsingDotState extends State<_PulsingDot>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+  late Animation<double> _animation;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      duration: const Duration(milliseconds: 800),
+      vsync: this,
+    )..repeat(reverse: true);
+    _animation = Tween<double>(begin: 0.3, end: 1.0).animate(_controller);
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _animation,
+      builder: (context, child) {
+        return Container(
+          width: 10,
+          height: 10,
+          decoration: BoxDecoration(
+            color: AppTheme.error.withValues(alpha: _animation.value),
+            shape: BoxShape.circle,
+          ),
+        );
+      },
     );
   }
 }

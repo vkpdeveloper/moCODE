@@ -9,6 +9,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../models/part.dart';
 import '../theme/app_theme.dart';
 import '../constants/file_icons.dart';
+import '../utils/app_snackbar.dart';
 import 'message_parts_presenter.dart';
 import 'patch_diff_widget.dart';
 
@@ -145,12 +146,16 @@ class MessagePartsWidget extends StatelessWidget {
   }
 
   Widget _buildTextPart(BuildContext context, TextPart part) {
-    if (part.text.isEmpty) return const SizedBox.shrink();
+    final text = part.text;
+    if (text.isEmpty || text.trim().isEmpty) return const SizedBox.shrink();
+
+    final sanitized = _sanitizeMarkdownText(text);
+    if (sanitized.isEmpty) return const SizedBox.shrink();
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 4),
       child: MarkdownBody(
-        data: part.text,
+        data: sanitized,
         selectable: true,
         softLineBreak: true,
         extensionSet: _safeMarkdownExtensionSet,
@@ -789,10 +794,9 @@ class MessagePartsWidget extends StatelessWidget {
                               ClipboardData(text: header.join(' ')),
                             );
                             if (context.mounted) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                  content: Text('Command copied.'),
-                                ),
+                              AppSnackBar.showSuccess(
+                                context,
+                                'Command copied.',
                               );
                             }
                           },
@@ -871,10 +875,9 @@ class MessagePartsWidget extends StatelessWidget {
                                     ClipboardData(text: output),
                                   );
                                   if (context.mounted) {
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      const SnackBar(
-                                        content: Text('Output copied.'),
-                                      ),
+                                    AppSnackBar.showSuccess(
+                                      context,
+                                      'Output copied.',
                                     );
                                   }
                                 },
@@ -1019,6 +1022,23 @@ class MessagePartsWidget extends StatelessWidget {
     final segments = normalized.split('/').where((e) => e.isNotEmpty).toList();
     if (segments.isEmpty) return path;
     return segments.last;
+  }
+
+  String _sanitizeMarkdownText(String text) {
+    if (text.isEmpty) return text;
+
+    var sanitized = text;
+
+    sanitized = sanitized.replaceAll(
+      RegExp(r'[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]'),
+      '',
+    );
+
+    if (sanitized != text) {
+      return sanitized;
+    }
+
+    return text;
   }
 }
 
@@ -1296,9 +1316,7 @@ class _CodeBlockBuilder extends MarkdownElementBuilder {
                   onTap: () async {
                     await Clipboard.setData(ClipboardData(text: code));
                     if (context.mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Code copied.')),
-                      );
+                      AppSnackBar.showSuccess(context, 'Code copied.');
                     }
                   },
                   child: const Icon(

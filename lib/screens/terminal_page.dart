@@ -7,6 +7,7 @@ import '../providers/ssh_provider.dart';
 import '../providers/providers.dart';
 import '../services/connection_manager.dart';
 import '../theme/app_theme.dart';
+import '../utils/app_snackbar.dart';
 
 class TerminalPage extends ConsumerStatefulWidget {
   const TerminalPage({super.key});
@@ -135,11 +136,10 @@ class _TerminalPageState extends ConsumerState<TerminalPage>
                   await Clipboard.setData(ClipboardData(text: text));
                   _terminalController.clearSelection();
                   if (mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('Copied to clipboard'),
-                        duration: Duration(seconds: 1),
-                      ),
+                    AppSnackBar.showSuccess(
+                      context,
+                      'Copied to clipboard',
+                      duration: const Duration(seconds: 1),
                     );
                   }
                   HapticFeedback.selectionClick();

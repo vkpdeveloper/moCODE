@@ -19,6 +19,7 @@ import '../models/command_run.dart';
 import '../providers/providers.dart';
 import '../providers/ssh_provider.dart';
 import '../theme/app_theme.dart';
+import '../utils/app_snackbar.dart';
 import '../widgets/chat_input.dart';
 import '../widgets/message_parts.dart';
 import '../widgets/message_widgets.dart';
@@ -462,16 +463,20 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     final title = props['title']?.toString();
     final variant = props['variant']?.toString() ?? 'info';
     final durationMs = (props['duration'] as num?)?.toInt();
-    final color = _toastColor(variant);
     final snackText = title != null && title.isNotEmpty
         ? '$title: $message'
         : message;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(snackText),
-        backgroundColor: color,
-        duration: Duration(milliseconds: durationMs ?? 2800),
-      ),
+    final type = switch (variant) {
+      'success' => SnackBarType.success,
+      'warning' => SnackBarType.warning,
+      'error' => SnackBarType.error,
+      _ => SnackBarType.info,
+    };
+    AppSnackBar.show(
+      context,
+      message: snackText,
+      type: type,
+      duration: Duration(milliseconds: durationMs ?? 2800),
     );
   }
 
@@ -1544,9 +1549,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
                     : () {
                         Clipboard.setData(ClipboardData(text: output));
                         if (!mounted) return;
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('Output copied.')),
-                        );
+                        AppSnackBar.showSuccess(context, 'Output copied.');
                       },
                 padding: EdgeInsets.zero,
                 constraints: const BoxConstraints(minWidth: 24, minHeight: 24),
@@ -1719,10 +1722,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
 
     if (model == null) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('No model selected. Pick a model first.'),
-          ),
+        AppSnackBar.showWarning(
+          context,
+          'No model selected. Pick a model first.',
         );
       }
       return false;
@@ -2046,15 +2048,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
       await _loadSessionDiff(updated);
       await _loadTodos(updated);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Message effects reverted.')),
-        );
+        AppSnackBar.showSuccess(context, 'Message effects reverted.');
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Undo failed: $e')));
+        AppSnackBar.showError(context, 'Undo failed: $e');
       }
     } finally {
       if (mounted) {
@@ -2078,15 +2076,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
       await _loadSessionDiff(updated);
       await _loadTodos(updated);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Message effects restored.')),
-        );
+        AppSnackBar.showSuccess(context, 'Message effects restored.');
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Redo failed: $e')));
+        AppSnackBar.showError(context, 'Redo failed: $e');
       }
     } finally {
       if (mounted) {

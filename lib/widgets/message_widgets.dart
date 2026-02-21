@@ -58,7 +58,7 @@ class UserMessageWidget extends StatelessWidget {
   }
 
   List<Part> _partsForDisplay(List<Part> source) {
-    final hasAttachment = source.any((part) => part is FilePart);
+    final hasAttachment = source.any((part) => part.type != 'text');
     if (!hasAttachment) {
       return _getFilteredParts(source);
     }
@@ -212,9 +212,12 @@ class UserMessageWidget extends StatelessWidget {
   }
 
   Widget _buildTextContent(BuildContext context, TextPart part) {
-    if (part.text.isEmpty) return const SizedBox.shrink();
+    final text = part.text;
+    if (text.isEmpty || text.trim().isEmpty) return const SizedBox.shrink();
 
-    final sanitized = _sanitizeMarkdown(part.text);
+    final sanitized = _sanitizeMarkdown(text);
+    if (sanitized.isEmpty) return const SizedBox.shrink();
+
     return MarkdownBody(
       data: sanitized,
       selectable: true,

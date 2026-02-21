@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/ssh_credentials.dart';
 import '../providers/ssh_provider.dart';
 import '../theme/app_theme.dart';
+import '../utils/app_snackbar.dart';
 
 class SshConnectionDialog extends ConsumerStatefulWidget {
   final String defaultHost;
@@ -16,7 +17,8 @@ class SshConnectionDialog extends ConsumerStatefulWidget {
   });
 
   @override
-  ConsumerState<SshConnectionDialog> createState() => _SshConnectionDialogState();
+  ConsumerState<SshConnectionDialog> createState() =>
+      _SshConnectionDialogState();
 }
 
 class _SshConnectionDialogState extends ConsumerState<SshConnectionDialog> {
@@ -106,22 +108,18 @@ class _SshConnectionDialogState extends ConsumerState<SshConnectionDialog> {
       workingDirectory: widget.workingDirectory,
     );
 
-    final success = await ref.read(sshProvider.notifier).connect(
-      credentials,
-      remember: _rememberIdentity,
-    );
+    final success = await ref
+        .read(sshProvider.notifier)
+        .connect(credentials, remember: _rememberIdentity);
 
     if (success && mounted) {
       Navigator.of(context).pop(true);
     } else if (!success && mounted) {
       final error = ref.read(sshProvider).error;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(error ?? 'Connection failed'),
-          backgroundColor: AppTheme.error,
-          behavior: SnackBarBehavior.floating,
-          duration: const Duration(seconds: 4),
-        ),
+      AppSnackBar.showError(
+        context,
+        error ?? 'Connection failed',
+        duration: const Duration(seconds: 4),
       );
     }
   }
@@ -178,10 +176,7 @@ class _SshConnectionDialogState extends ConsumerState<SshConnectionDialog> {
                 ),
                 const Text(
                   'Remember identity',
-                  style: TextStyle(
-                    color: AppTheme.textSecondary,
-                    fontSize: 13,
-                  ),
+                  style: TextStyle(color: AppTheme.textSecondary, fontSize: 13),
                 ),
               ],
             ),
@@ -189,19 +184,13 @@ class _SshConnectionDialogState extends ConsumerState<SshConnectionDialog> {
               const SizedBox(height: 12),
               Text(
                 _validationError!,
-                style: const TextStyle(
-                  color: AppTheme.error,
-                  fontSize: 12,
-                ),
+                style: const TextStyle(color: AppTheme.error, fontSize: 12),
               ),
             ] else if (sshState.error != null) ...[
               const SizedBox(height: 12),
               Text(
                 sshState.error!,
-                style: const TextStyle(
-                  color: AppTheme.error,
-                  fontSize: 12,
-                ),
+                style: const TextStyle(color: AppTheme.error, fontSize: 12),
               ),
             ],
             const SizedBox(height: 24),
@@ -253,20 +242,14 @@ class _SshConnectionDialogState extends ConsumerState<SshConnectionDialog> {
       children: [
         Text(
           label,
-          style: const TextStyle(
-            color: AppTheme.textSecondary,
-            fontSize: 11,
-          ),
+          style: const TextStyle(color: AppTheme.textSecondary, fontSize: 11),
         ),
         const SizedBox(height: 6),
         TextField(
           controller: controller,
           keyboardType: keyboardType,
           obscureText: obscureText,
-          style: const TextStyle(
-            color: AppTheme.textPrimary,
-            fontSize: 13,
-          ),
+          style: const TextStyle(color: AppTheme.textPrimary, fontSize: 13),
           decoration: InputDecoration(
             hintText: hint,
             hintStyle: const TextStyle(

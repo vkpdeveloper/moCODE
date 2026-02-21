@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:dio/dio.dart';
 
+import '../utils/json_parser.dart';
 import 'account_api_client.dart';
 
 class AsrService {
@@ -45,7 +46,7 @@ class AsrService {
       );
 
       if (response.statusCode == 200) {
-        final data = response.data as Map<String, dynamic>;
+        final data = parseJsonObjectBytes(response.data);
         return AsrTranscriptionResult.fromJson(data);
       } else {
         throw AsrException('Transcription failed: ${response.statusCode}');
@@ -76,74 +77,11 @@ class AsrService {
 
 class AsrTranscriptionResult {
   final String text;
-  final List<AsrSegment> segments;
-  final List<AsrWord> words;
-  final String language;
-  final double duration;
 
-  AsrTranscriptionResult({
-    required this.text,
-    required this.segments,
-    required this.words,
-    required this.language,
-    required this.duration,
-  });
+  AsrTranscriptionResult({required this.text});
 
   factory AsrTranscriptionResult.fromJson(Map<String, dynamic> json) {
-    return AsrTranscriptionResult(
-      text: json['text'] as String? ?? '',
-      segments:
-          (json['segments'] as List<dynamic>?)
-              ?.map((s) => AsrSegment.fromJson(s as Map<String, dynamic>))
-              .toList() ??
-          [],
-      words:
-          (json['words'] as List<dynamic>?)
-              ?.map((w) => AsrWord.fromJson(w as Map<String, dynamic>))
-              .toList() ??
-          [],
-      language: json['language'] as String? ?? 'en',
-      duration: (json['duration'] as num?)?.toDouble() ?? 0.0,
-    );
-  }
-}
-
-class AsrSegment {
-  final String text;
-  final double start;
-  final double end;
-
-  AsrSegment({required this.text, required this.start, required this.end});
-
-  factory AsrSegment.fromJson(Map<String, dynamic> json) {
-    return AsrSegment(
-      text: json['text'] as String? ?? '',
-      start: (json['start'] as num?)?.toDouble() ?? 0.0,
-      end: (json['end'] as num?)?.toDouble() ?? 0.0,
-    );
-  }
-}
-
-class AsrWord {
-  final String word;
-  final double start;
-  final double end;
-  final double confidence;
-
-  AsrWord({
-    required this.word,
-    required this.start,
-    required this.end,
-    required this.confidence,
-  });
-
-  factory AsrWord.fromJson(Map<String, dynamic> json) {
-    return AsrWord(
-      word: json['word'] as String? ?? '',
-      start: (json['start'] as num?)?.toDouble() ?? 0.0,
-      end: (json['end'] as num?)?.toDouble() ?? 0.0,
-      confidence: (json['confidence'] as num?)?.toDouble() ?? 0.0,
-    );
+    return AsrTranscriptionResult(text: json['text'] as String? ?? '');
   }
 }
 

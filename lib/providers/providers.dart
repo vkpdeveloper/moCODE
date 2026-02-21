@@ -654,7 +654,7 @@ final inAppUpdateServiceProvider = Provider<InAppUpdateService>((ref) {
   return InAppUpdateService();
 });
 
-final updateAvailableProvider = StateProvider<bool>((ref) => true);
+final updateAvailableProvider = StateProvider<bool>((ref) => false);
 
 // ---------------------------------------------------------------------------
 // Projects
