@@ -122,6 +122,7 @@ app.get("/account-deletion-request", async (c) => {
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>moCODE - Account Deletion Request</title>
+    <link rel="canonical" href="https://mocode.ordinity.com/account-deletion-request" />
     <meta
       name="description"
       content="Request account deletion for moCODE."
@@ -140,6 +141,44 @@ app.get("/account-deletion-request", async (c) => {
       content="Request account deletion for moCODE."
     />
     <meta name="twitter:image" content="/images/feature-cover-optimized.jpg" />
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "Organization",
+        "@id": "https://mocode.ordinity.com/#organization",
+        "name": "Ordinity",
+        "url": "https://mocode.ordinity.com",
+        "logo": "https://mocode.ordinity.com/app-icon.png",
+        "contactPoint": [
+          {
+            "@type": "ContactPoint",
+            "contactType": "customer support",
+            "email": "vaibhav@ordinity.com"
+          }
+        ],
+        "sameAs": ["https://www.producthunt.com/products/mocode"]
+      }
+    </script>
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "WebPage",
+        "@id": "https://mocode.ordinity.com/account-deletion-request#webpage",
+        "url": "https://mocode.ordinity.com/account-deletion-request",
+        "name": "moCODE - Account Deletion Request",
+        "description": "Request account deletion for moCODE.",
+        "isPartOf": {
+          "@id": "https://mocode.ordinity.com/#website"
+        },
+        "about": {
+          "@id": "https://mocode.ordinity.com/#organization"
+        },
+        "publisher": {
+          "@id": "https://mocode.ordinity.com/#organization"
+        },
+        "primaryImageOfPage": "https://mocode.ordinity.com/images/feature-cover-optimized.jpg"
+      }
+    </script>
     <link rel="icon" type="image/png" href="/app-icon.png" />
     <link rel="apple-touch-icon" href="/app-icon.png" />
     <link rel="stylesheet" href="/styles.css" />
