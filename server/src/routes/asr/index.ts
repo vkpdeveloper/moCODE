@@ -106,6 +106,8 @@ type TranscriptionResponse = {
   duration: number;
 };
 
+const MAX_AUDIO_FILE_SIZE_BYTES = 10 * 1024 * 1024;
+
 const asrRouter = new Hono<{ Variables: Variables }>();
 
 asrRouter.use("/transcribe", authMiddleware);
@@ -117,6 +119,16 @@ asrRouter.post("/transcribe", async (c) => {
 
   if (!audioFile) {
     return c.json({ error: "Audio file is required" }, 400);
+  }
+
+  if (audioFile.size > MAX_AUDIO_FILE_SIZE_BYTES) {
+    return c.json(
+      {
+        error: "Audio file too large",
+        details: "Maximum supported audio file size is 10 MB",
+      },
+      400,
+    );
   }
 
   const allowedTypes = [
