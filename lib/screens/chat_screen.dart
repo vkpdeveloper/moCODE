@@ -2136,7 +2136,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
             defaultHost: settings.serverHost,
             workingDirectory: project?.worktree ?? '/',
           );
-          if (connected == true && context.mounted && sshState.isConnected) {
+          final isConnectedNow = ref.read(sshProvider).isConnected;
+          if (connected == true && context.mounted && isConnectedNow) {
             Navigator.of(context).push(
               MaterialPageRoute(builder: (context) => const TerminalPage()),
             );
@@ -2157,7 +2158,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
             defaultHost: settings.serverHost,
             workingDirectory: project?.worktree ?? '/',
           );
-          if (connected == true && context.mounted && sshState.isConnected) {
+          final isConnectedNow = ref.read(sshProvider).isConnected;
+          if (connected == true && context.mounted && isConnectedNow) {
             Navigator.of(context).push(
               MaterialPageRoute(
                 builder: (context) =>

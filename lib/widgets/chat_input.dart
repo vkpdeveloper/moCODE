@@ -773,7 +773,6 @@ class _ChatInputState extends ConsumerState<ChatInput> {
                 enabled: widget.enabled,
                 isRecording: _isRecording,
                 isTranscribing: _isTranscribing,
-                hasText: _controller.text.isNotEmpty,
                 onPickImage: _openImagePicker,
                 onSend: _send,
                 onVoiceInput: _handleVoiceInput,
@@ -914,7 +913,6 @@ class _ChatInputFieldRow extends StatelessWidget {
   final bool enabled;
   final bool isRecording;
   final bool isTranscribing;
-  final bool hasText;
   final VoidCallback onPickImage;
   final VoidCallback onSend;
   final VoidCallback onVoiceInput;
@@ -927,7 +925,6 @@ class _ChatInputFieldRow extends StatelessWidget {
     required this.enabled,
     required this.isRecording,
     required this.isTranscribing,
-    required this.hasText,
     required this.onPickImage,
     required this.onSend,
     required this.onVoiceInput,
@@ -1051,31 +1048,56 @@ class _ChatInputFieldRow extends StatelessWidget {
       );
     }
 
-    if (isTranscribing) {
-      return const SizedBox(width: 40, height: 40);
-    }
-
-    if (hasText && !isBusy) {
+    if (isBusy) {
       return GestureDetector(
-        onTap: enabled ? onSend : null,
+        onTap: onStop,
         child: Container(
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
-            color: enabled ? AppTheme.accent : AppTheme.border,
+            color: onStop != null ? AppTheme.error : AppTheme.border,
             shape: BoxShape.rectangle,
             borderRadius: BorderRadius.circular(4),
           ),
-          child: const Icon(Icons.arrow_upward, size: 18, color: Colors.white),
+          child: const Icon(Icons.stop, size: 18, color: Colors.white),
         ),
       );
     }
 
-    return IconButton(
-      onPressed: enabled ? onVoiceInput : null,
-      icon: const Icon(Icons.mic, size: 18, color: AppTheme.textPrimary),
-      padding: const EdgeInsets.all(10),
-      constraints: const BoxConstraints(minWidth: 40, minHeight: 40),
-      tooltip: 'Voice input',
+    if (isTranscribing) {
+      return const SizedBox(width: 40, height: 40);
+    }
+
+    return ListenableBuilder(
+      listenable: controller,
+      builder: (context, _) {
+        final hasText = controller.text.isNotEmpty;
+        if (hasText) {
+          return GestureDetector(
+            onTap: enabled ? onSend : null,
+            child: Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: enabled ? AppTheme.accent : AppTheme.border,
+                shape: BoxShape.rectangle,
+                borderRadius: BorderRadius.circular(4),
+              ),
+              child: const Icon(
+                Icons.arrow_upward,
+                size: 18,
+                color: Colors.white,
+              ),
+            ),
+          );
+        }
+
+        return IconButton(
+          onPressed: enabled ? onVoiceInput : null,
+          icon: const Icon(Icons.mic, size: 18, color: AppTheme.textPrimary),
+          padding: const EdgeInsets.all(10),
+          constraints: const BoxConstraints(minWidth: 40, minHeight: 40),
+          tooltip: 'Voice input',
+        );
+      },
     );
   }
 }
