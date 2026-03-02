@@ -2,13 +2,18 @@ import 'package:dio/dio.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
 import '../models/pty.dart';
+import '../models/server_type.dart';
 import '../utils/json_parser.dart';
 import 'api_client.dart';
 
 class PtyService {
   final ApiClient _apiClient;
+  final ServerType _serverType;
 
-  PtyService(this._apiClient);
+  PtyService(this._apiClient, {ServerType serverType = ServerType.openCode})
+    : _serverType = serverType;
+
+  bool get _useCodex => _serverType == ServerType.codex;
 
   Future<PtyInfo> createPty({
     required String command,
@@ -18,6 +23,10 @@ class PtyService {
     Map<String, String>? env,
     String? directory,
   }) async {
+    if (_useCodex) {
+      throw UnsupportedError('PTY is not supported for Codex MVP');
+    }
+
     try {
       final response = await _apiClient.dio.post(
         '/pty',
@@ -42,6 +51,9 @@ class PtyService {
   }
 
   Future<PtyInfo> getPty(String id, {String? directory}) async {
+    if (_useCodex) {
+      throw UnsupportedError('PTY is not supported for Codex MVP');
+    }
     try {
       final response = await _apiClient.dio.get(
         '/pty/$id',
@@ -64,6 +76,9 @@ class PtyService {
     ({int rows, int cols})? size,
     String? directory,
   }) async {
+    if (_useCodex) {
+      throw UnsupportedError('PTY is not supported for Codex MVP');
+    }
     try {
       final payload = <String, dynamic>{};
       if (title != null) payload['title'] = title;
@@ -83,6 +98,9 @@ class PtyService {
   }
 
   Future<void> removePty(String id, {String? directory}) async {
+    if (_useCodex) {
+      throw UnsupportedError('PTY is not supported for Codex MVP');
+    }
     try {
       await _apiClient.dio.delete(
         '/pty/$id',
@@ -94,6 +112,9 @@ class PtyService {
   }
 
   WebSocketChannel connect(String id, {String? directory}) {
+    if (_useCodex) {
+      throw UnsupportedError('PTY is not supported for Codex MVP');
+    }
     final url = _apiClient.buildWsUrl(
       '/pty/$id/connect',
       queryParameters: {'directory': directory},

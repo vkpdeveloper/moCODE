@@ -14,7 +14,6 @@ import '../screens/account_deletion_request_screen.dart';
 
 final routerProvider = Provider<GoRouter>((ref) {
   final accessGateStatus = ref.watch(accessGateStatusProvider);
-
   return GoRouter(
     initialLocation: '/splash',
     redirect: (context, state) {

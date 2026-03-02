@@ -6,10 +6,12 @@ import 'package:intl/intl.dart';
 
 import '../extensions/async_value_extensions.dart';
 import '../models/project.dart';
+import '../models/server_type.dart';
 import '../providers/providers.dart';
 import '../providers/ssh_provider.dart';
 import '../theme/app_theme.dart';
 import '../utils/app_snackbar.dart';
+import '../utils/user_friendly_error.dart';
 import '../widgets/session_busy_indicator.dart';
 import '../widgets/ssh_connection_dialog.dart';
 import 'terminal_page.dart';
@@ -25,6 +27,8 @@ class SessionsScreen extends ConsumerWidget {
     final sessionsAsync = ref.watch(sessionsProvider);
     final vcsAsync = ref.watch(vcsInfoProvider);
     final statusAsync = ref.watch(sessionStatusProvider);
+    final settings = ref.watch(settingsProvider);
+    final isCodex = settings.activeServerType == ServerType.codex;
 
     ref.listen<Project?>(selectedProjectProvider, (prev, next) {
       if (next == null) return;
@@ -32,14 +36,16 @@ class SessionsScreen extends ConsumerWidget {
       ref.read(projectModelProvider.notifier).preload(next.id);
     });
 
-    if (project == null) {
+    if (project == null && !isCodex) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         context.go('/projects');
       });
       return const SizedBox.shrink();
     }
 
-    final projectName = project.name ?? project.worktree.split('/').last;
+    final projectName = project == null
+        ? 'Sessions'
+        : (project.name ?? project.worktree.split('/').last);
 
     return Scaffold(
       appBar: AppBar(
@@ -74,11 +80,12 @@ class SessionsScreen extends ConsumerWidget {
           ],
         ),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.build_circle_outlined, size: 20),
-            tooltip: 'Tools',
-            onPressed: () => _showToolsMenu(context, ref, project),
-          ),
+          if (!isCodex)
+            IconButton(
+              icon: const Icon(Icons.build_circle_outlined, size: 20),
+              tooltip: 'Tools',
+              onPressed: () => _showToolsMenu(context, ref, project!),
+            ),
           IconButton(
             icon: const Icon(Icons.swap_horiz, size: 20),
             tooltip: 'Models',
@@ -310,13 +317,11 @@ class SessionsScreen extends ConsumerWidget {
 
   Future<void> _createSession(BuildContext context, WidgetRef ref) async {
     final project = ref.read(selectedProjectProvider);
-    if (project == null) return;
+    final directory = project?.worktree;
 
     try {
       final sessionService = ref.read(sessionServiceProvider);
-      final session = await sessionService.createSession(
-        directory: project.worktree,
-      );
+      final session = await sessionService.createSession(directory: directory);
       ref.invalidate(sessionsProvider);
       ref.read(selectedSessionProvider.notifier).state = session;
       if (context.mounted) {
@@ -324,9 +329,11 @@ class SessionsScreen extends ConsumerWidget {
       }
     } catch (e) {
       if (context.mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Failed to create session: $e')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to create session: ${userFriendlyError(e)}'),
+          ),
+        );
       }
     }
   }
@@ -417,51 +424,52 @@ class SessionsScreen extends ConsumerWidget {
                   AppSnackBar.showSuccess(context, 'Link copied to clipboard');
                 },
               ),
-            ListTile(
-              leading: Icon(
-                session.share != null ? Icons.link_off : Icons.share,
-                color: AppTheme.textSecondary,
-                size: 20,
-              ),
-              title: Text(
-                session.share != null ? 'Unshare' : 'Share',
-                style: const TextStyle(
-                  color: AppTheme.textPrimary,
-                  fontSize: 13,
+            if (ref.read(settingsProvider).activeServerType != ServerType.codex)
+              ListTile(
+                leading: Icon(
+                  session.share != null ? Icons.link_off : Icons.share,
+                  color: AppTheme.textSecondary,
+                  size: 20,
                 ),
-              ),
-              onTap: () async {
-                Navigator.pop(ctx);
-                try {
-                  final sessionService = ref.read(sessionServiceProvider);
-                  if (session.share != null) {
-                    await sessionService.unshareSession(
-                      session.id,
-                      directory: session.directory,
-                    );
-                  } else {
-                    final updated = await sessionService.shareSession(
-                      session.id,
-                      directory: session.directory,
-                    );
-                    if (context.mounted && updated.share != null) {
-                      Clipboard.setData(
-                        ClipboardData(text: updated.share!.url),
+                title: Text(
+                  session.share != null ? 'Unshare' : 'Share',
+                  style: const TextStyle(
+                    color: AppTheme.textPrimary,
+                    fontSize: 13,
+                  ),
+                ),
+                onTap: () async {
+                  Navigator.pop(ctx);
+                  try {
+                    final sessionService = ref.read(sessionServiceProvider);
+                    if (session.share != null) {
+                      await sessionService.unshareSession(
+                        session.id,
+                        directory: session.directory,
                       );
-                      AppSnackBar.showSuccess(
-                        context,
-                        'Session shared! Link copied to clipboard',
+                    } else {
+                      final updated = await sessionService.shareSession(
+                        session.id,
+                        directory: session.directory,
                       );
+                      if (context.mounted && updated.share != null) {
+                        Clipboard.setData(
+                          ClipboardData(text: updated.share!.url),
+                        );
+                        AppSnackBar.showSuccess(
+                          context,
+                          'Session shared! Link copied to clipboard',
+                        );
+                      }
+                    }
+                    ref.invalidate(sessionsProvider);
+                  } catch (e) {
+                    if (context.mounted) {
+                      AppSnackBar.showError(context, 'Failed: $e');
                     }
                   }
-                  ref.invalidate(sessionsProvider);
-                } catch (e) {
-                  if (context.mounted) {
-                    AppSnackBar.showError(context, 'Failed: $e');
-                  }
-                }
-              },
-            ),
+                },
+              ),
           ],
         ),
       ),
@@ -517,34 +525,6 @@ class SessionsScreen extends ConsumerWidget {
         }
       },
     );
-  }
-
-  Future<void> _openTerminal(
-    BuildContext context,
-    WidgetRef ref,
-    Project project,
-  ) async {
-    final settings = ref.read(settingsProvider);
-    final sshState = ref.read(sshProvider);
-
-    if (sshState.isConnected) {
-      Navigator.of(
-        context,
-      ).push(MaterialPageRoute(builder: (context) => const TerminalPage()));
-    } else {
-      final connected = await showSshConnectionDialog(
-        context,
-        defaultHost: settings.serverHost,
-        workingDirectory: project.worktree,
-      );
-      if (connected == true) {
-        if (context.mounted) {
-          Navigator.of(
-            context,
-          ).push(MaterialPageRoute(builder: (context) => const TerminalPage()));
-        }
-      }
-    }
   }
 
   Future<void> _confirmDeleteSession(

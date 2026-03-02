@@ -3,16 +3,38 @@ import 'dart:convert';
 
 import 'package:dio/dio.dart';
 
-import 'api_client.dart';
+import '../models/server_type.dart';
 import '../utils/json_parser.dart';
+import '../utils/app_logger.dart';
+import 'api_client.dart';
+import 'codex_app_server_service.dart';
 
 class EventService {
   final ApiClient _apiClient;
+  final ServerType _serverType;
+  final CodexAppServerService? _codex;
   final Map<String, _EventConnection> _connections = {};
 
-  EventService(this._apiClient);
+  EventService(
+    this._apiClient, {
+    ServerType serverType = ServerType.openCode,
+    CodexAppServerService? codex,
+  }) : _serverType = serverType,
+       _codex = codex;
+
+  bool get _useCodex => _serverType == ServerType.codex;
 
   Stream<Map<String, dynamic>> subscribe({String? directory}) {
+    if (_useCodex) {
+      AppLogger.info(
+        'service.event',
+        'subscribe:codex',
+        data: {'workspace': null},
+      );
+      return (_codex ?? (throw StateError('Codex service missing')))
+          .subscribeEvents();
+    }
+
     final key = _directoryKey(directory);
     final connection = _connections.putIfAbsent(
       key,
@@ -23,6 +45,7 @@ class EventService {
   }
 
   void retain(String directory) {
+    if (_useCodex) return;
     final key = _directoryKey(directory);
     final connection = _connections.putIfAbsent(
       key,
@@ -32,6 +55,7 @@ class EventService {
   }
 
   void release(String directory, {Duration? grace}) {
+    if (_useCodex) return;
     final key = _directoryKey(directory);
     final connection = _connections[key];
     if (connection == null) return;
@@ -114,7 +138,6 @@ class _EventConnection {
       _isConnected = true;
       _isConnecting = false;
 
-      // Emit a synthetic reconnect event so listeners can refresh state
       if (_hasConnectedBefore && !_controller.isClosed) {
         _controller.add({'type': '__reconnected__'});
       }
@@ -150,7 +173,6 @@ class _EventConnection {
         }
       }
 
-      // Stream ended normally (server closed connection) — reconnect
       _isConnected = false;
       _isConnecting = false;
       await _retryConnect();

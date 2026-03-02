@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
 import '../models/message.dart';
@@ -16,10 +17,13 @@ import '../models/todo.dart';
 import '../models/file_diff.dart';
 import '../models/part.dart';
 import '../models/command_run.dart';
+import '../models/server_type.dart';
 import '../providers/providers.dart';
 import '../providers/ssh_provider.dart';
 import '../theme/app_theme.dart';
+import '../utils/app_logger.dart';
 import '../utils/app_snackbar.dart';
+import '../utils/user_friendly_error.dart';
 import '../widgets/chat_input.dart';
 import '../widgets/message_parts.dart';
 import '../widgets/message_widgets.dart';
@@ -75,6 +79,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
   StreamSubscription? _ptyStreamSub;
   WebSocketChannel? _ptyChannel;
   String? _activeRunId;
+  bool _authRecoveryInProgress = false;
 
   AssistantMessageInfo _commandMessageInfo(
     CommandOutputPart part,
@@ -175,59 +180,64 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
   }
 
   void _subscribeToEvents() {
+    final settings = ref.read(settingsProvider);
+    final isCodex = settings.activeServerType == ServerType.codex;
     final project = ref.read(selectedProjectProvider);
-    if (project == null) return;
+    if (!isCodex && project == null) return;
 
     final eventService = ref.read(eventServiceProvider);
-    _eventSub = eventService.subscribe(directory: project.worktree).listen((
-      event,
-    ) {
-      try {
-        final type = event['type'] as String? ?? '';
+    _eventSub = eventService
+        .subscribe(directory: isCodex ? null : project!.worktree)
+        .listen((event) {
+          try {
+            final type = event['type'] as String? ?? '';
 
-        // SSE reconnected — full sync to catch up on missed events
-        if (type == '__reconnected__') {
-          final session = ref.read(selectedSessionProvider);
-          if (session != null) {
-            _refreshAfterReconnect(session);
-          }
-          return;
-        }
+            // SSE reconnected — full sync to catch up on missed events
+            if (type == '__reconnected__') {
+              final session = ref.read(selectedSessionProvider);
+              if (session != null) {
+                _refreshAfterReconnect(session);
+              }
+              return;
+            }
 
-        if (type == 'permission.asked') {
-          final props = event['properties'];
-          if (props is Map<String, dynamic>) {
-            _handlePermissionAsked(props);
+            if (type == 'permission.asked') {
+              final props = event['properties'];
+              if (props is Map<String, dynamic>) {
+                _handlePermissionAsked(props);
+              }
+            } else if (type == 'permission.updated' ||
+                type == 'permission.replied') {
+              _handlePermissionUpdated(event['properties']);
+            } else if (type == 'question.asked') {
+              final props = event['properties'];
+              if (props is Map<String, dynamic>) {
+                _handleQuestionAsked(props);
+              }
+            } else if (type == 'question.replied' ||
+                type == 'question.rejected') {
+              _handleQuestionUpdated(event['properties']);
+            } else if (type == 'session.error') {
+              _handleSessionErrorEvent(event['properties']);
+            } else if (type == 'session.status') {
+              _handleSessionStatusEvent(event['properties']);
+            } else if (type == 'session.idle') {
+              _handleSessionIdleEvent(event['properties']);
+            } else if (type == 'session.deleted') {
+              _handleSessionDeleted(event['properties']);
+            } else if (type == 'tui.prompt.append') {
+              _handlePromptAppend(event['properties']);
+            } else if (type == 'tui.command.execute') {
+              _handleCommandExecuted(event['properties']);
+            } else if (type == 'command.executed') {
+              _handleCommandExecuted(event['properties']);
+            } else if (type == 'tui.toast.show') {
+              _handleToastEvent(event['properties']);
+            }
+          } catch (e) {
+            debugPrint('[ChatScreen] Event error: $e\nRaw event: $event');
           }
-        } else if (type == 'permission.updated' ||
-            type == 'permission.replied') {
-          _handlePermissionUpdated(event['properties']);
-        } else if (type == 'question.asked') {
-          final props = event['properties'];
-          if (props is Map<String, dynamic>) {
-            _handleQuestionAsked(props);
-          }
-        } else if (type == 'question.replied' || type == 'question.rejected') {
-          _handleQuestionUpdated(event['properties']);
-        } else if (type == 'session.status') {
-          _handleSessionStatusEvent(event['properties']);
-        } else if (type == 'session.idle') {
-          _handleSessionIdleEvent(event['properties']);
-        } else if (type == 'session.deleted') {
-          _handleSessionDeleted(event['properties']);
-        } else if (type == 'tui.prompt.append') {
-          _handlePromptAppend(event['properties']);
-        } else if (type == 'tui.command.execute') {
-          _handleCommandExecuted(event['properties']);
-        } else if (type == 'command.executed') {
-          _handleCommandExecuted(event['properties']);
-        } else if (type == 'tui.toast.show') {
-          _handleToastEvent(event['properties']);
-        }
-      } catch (e) {
-        debugPrint('[ChatScreen] Event error: $e\nRaw event: $event');
-      }
-    });
+        });
   }
 
   void _listenToSessionChanges() {
@@ -253,9 +263,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
       await _refreshAfterReconnect(session);
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Failed to load session: $e')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to load session: ${userFriendlyError(e)}'),
+        ),
+      );
     }
   }
 
@@ -387,6 +399,92 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     _releaseActiveSession(sessionID);
   }
 
+  void _handleSessionErrorEvent(dynamic props) {
+    if (props is! Map<String, dynamic>) return;
+    final session = ref.read(selectedSessionProvider);
+    if (session == null) return;
+    final sessionID = props['sessionID']?.toString();
+    if (sessionID != null && sessionID.isNotEmpty && sessionID != session.id) {
+      return;
+    }
+
+    var message = 'Codex failed to complete this turn.';
+    final errorRaw = props['error'];
+    if (errorRaw is Map) {
+      final error = Map<String, dynamic>.from(errorRaw);
+      final data = error['data'];
+      if (data is Map) {
+        final typed = Map<String, dynamic>.from(data);
+        final fromServer = typed['message']?.toString();
+        if (fromServer != null && fromServer.isNotEmpty) {
+          message = fromServer;
+        }
+      }
+    }
+    final isAuthError = _isAuthRecoveryError(message);
+    if (isAuthError) {
+      unawaited(_recoverCodexAuthSilently());
+    }
+    AppLogger.error(
+      'chat.session',
+      'sessionError',
+      data: {
+        'sessionId': session.id,
+        'eventSessionId': sessionID,
+        'message': message,
+        'raw': props,
+      },
+    );
+
+    ref
+        .read(sessionErrorProvider.notifier)
+        .setError(
+          sessionID: session.id,
+          message: message,
+          name: 'codex.turn.error',
+        );
+    ref.read(sessionStatusProvider.notifier).markIdle(session.id);
+    if (mounted && _isBusy) {
+      setState(() => _isBusy = false);
+    }
+    _releaseActiveSession(session.id);
+    if (mounted && !isAuthError) {
+      AppSnackBar.showError(context, message);
+    }
+  }
+
+  bool _isAuthRecoveryError(String message) {
+    final lower = message.toLowerCase();
+    return lower.contains('refresh_token_reused') ||
+        lower.contains('refresh token has already been used') ||
+        lower.contains('access token could not be refreshed') ||
+        lower.contains('requires openai auth') ||
+        lower.contains('unauthorized');
+  }
+
+  Future<void> _recoverCodexAuthSilently() async {
+    if (_authRecoveryInProgress) return;
+    _authRecoveryInProgress = true;
+    try {
+      final authUrl = await ref
+          .read(codexAppServerServiceProvider)
+          .recoverAuthSilently();
+      if (authUrl == null || authUrl.isEmpty) return;
+      final uri = Uri.tryParse(authUrl);
+      if (uri == null) return;
+      AppLogger.info('chat.session', 'authRecovery:openBrowser');
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } catch (error) {
+      AppLogger.error(
+        'chat.session',
+        'authRecovery:error',
+        data: {'error': error.toString()},
+      );
+    } finally {
+      _authRecoveryInProgress = false;
+    }
+  }
+
   void _listenToMessageUpdates() {
     _messagesSub = ref.listenManual<MessagesState>(messagesProvider, (
       MessagesState? prev,
@@ -413,14 +511,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
         _scrollToBottom();
       }
     });
-  }
-
-  bool _isCurrentSessionEvent(dynamic props) {
-    if (props is! Map<String, dynamic>) return false;
-    final sessionId = props['sessionID']?.toString();
-    final session = ref.read(selectedSessionProvider);
-    if (session == null || sessionId == null) return false;
-    return sessionId == session.id;
   }
 
   void _handlePromptAppend(dynamic props) {
@@ -530,15 +620,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     }
   }
 
-  Color _toastColor(String variant) {
-    return switch (variant) {
-      'success' => AppTheme.success,
-      'warning' => AppTheme.warning,
-      'error' => AppTheme.error,
-      _ => AppTheme.info,
-    };
-  }
-
   void _resetSessionState(String sessionId) {
     if (!mounted) return;
     setState(() {
@@ -570,6 +651,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
   }
 
   Future<void> _loadPendingPermissions() async {
+    final settings = ref.read(settingsProvider);
+    if (settings.activeServerType == ServerType.codex) return;
     final project = ref.read(selectedProjectProvider);
     final session = ref.read(selectedSessionProvider);
     if (project == null || session == null) return;
@@ -591,6 +674,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
   }
 
   Future<void> _loadPendingQuestions() async {
+    final settings = ref.read(settingsProvider);
+    if (settings.activeServerType == ServerType.codex) return;
     final project = ref.read(selectedProjectProvider);
     final session = ref.read(selectedSessionProvider);
     if (project == null || session == null) return;
@@ -670,6 +755,21 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     PermissionRequest request,
     String reply,
   ) async {
+    final settings = ref.read(settingsProvider);
+    if (settings.activeServerType == ServerType.codex) {
+      try {
+        await ref
+            .read(codexAppServerServiceProvider)
+            .respondPermission(request.id, reply);
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text('Permission failed: $e')));
+        }
+      }
+      return;
+    }
     final project = ref.read(selectedProjectProvider);
     if (project == null) return;
     try {
@@ -692,6 +792,21 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     QuestionRequest request,
     List<List<String>> answers,
   ) async {
+    final settings = ref.read(settingsProvider);
+    if (settings.activeServerType == ServerType.codex) {
+      try {
+        await ref
+            .read(codexAppServerServiceProvider)
+            .respondQuestion(request.id, answers);
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text('Question reply failed: $e')));
+        }
+      }
+      return;
+    }
     final project = ref.read(selectedProjectProvider);
     if (project == null) return;
     try {
@@ -711,6 +826,21 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
   }
 
   Future<void> _rejectQuestion(QuestionRequest request) async {
+    final settings = ref.read(settingsProvider);
+    if (settings.activeServerType == ServerType.codex) {
+      try {
+        await ref
+            .read(codexAppServerServiceProvider)
+            .respondQuestion(request.id, const [], rejected: true);
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text('Question reject failed: $e')));
+        }
+      }
+      return;
+    }
     final project = ref.read(selectedProjectProvider);
     if (project == null) return;
     try {
@@ -976,7 +1106,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     required String messageId,
     required String text,
     required List<Map<String, dynamic>>? fileParts,
-    required Map<String, dynamic> model,
+    required Map<String, dynamic>? model,
     required String mode,
   }) {
     final created = DateTime.now().millisecondsSinceEpoch;
@@ -986,8 +1116,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
       time: MessageTime(created: created, completed: created),
       agent: mode,
       model: MessageModel(
-        providerID: model['providerID']?.toString() ?? '',
-        modelID: model['modelID']?.toString() ?? '',
+        providerID: model?['providerID']?.toString() ?? 'codex',
+        modelID: model?['modelID']?.toString() ?? '',
       ),
     );
 
@@ -1708,8 +1838,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
   }) async {
     final session = ref.read(selectedSessionProvider);
     if (session == null) return false;
+    final settings = ref.read(settingsProvider);
+    final isCodex = settings.activeServerType == ServerType.codex;
 
-    final model = ref.read(activeModelProvider);
+    var model = ref.read(activeModelProvider);
     final mode = ref.read(sessionModeProvider);
 
     final parts = <Map<String, dynamic>>[];
@@ -1720,7 +1852,29 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
 
     parts.add({'type': 'text', 'text': text});
 
-    if (model == null) {
+    if (model == null && isCodex) {
+      final fallback = await _firstAvailableModel();
+      if (fallback != null) {
+        ref.read(selectedModelProvider.notifier).state = fallback;
+        model = fallback;
+        AppLogger.info(
+          'chat.send',
+          'model:fallbackSelected',
+          data: {
+            'sessionId': session.id,
+            'providerID': fallback['providerID'],
+            'modelID': fallback['modelID'],
+          },
+        );
+      }
+    }
+
+    if (model == null && !isCodex) {
+      AppLogger.warn(
+        'chat.send',
+        'blocked:noModel',
+        data: {'sessionId': session.id, 'isCodex': isCodex},
+      );
       if (mounted) {
         AppSnackBar.showWarning(
           context,
@@ -1732,7 +1886,21 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
 
     final messageId = _optimisticId();
     final currentCount = ref.read(messagesProvider).messages.length;
+    final providerId = model?['providerID']?.toString();
+    final modelId = model?['modelID']?.toString();
     try {
+      AppLogger.info(
+        'chat.send',
+        'start',
+        data: {
+          'sessionId': session.id,
+          'isCodex': isCodex,
+          'providerID': providerId,
+          'modelID': modelId,
+          'textLength': text.length,
+          'parts': parts.length,
+        },
+      );
       final optimistic = _buildOptimisticMessage(
         sessionId: session.id,
         messageId: messageId,
@@ -1741,26 +1909,49 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
         model: model,
         mode: mode,
       );
+      if (isCodex) {
+        final notifier = ref.read(messagesProvider.notifier);
+        notifier.upsertMessage(optimistic.info);
+        for (final part in optimistic.parts) {
+          notifier.upsertPart(part);
+        }
+      }
       if (mounted) {
-        setState(() {
-          _optimisticMessages.add(optimistic);
-          _optimisticBaseCount = currentCount;
-          _optimisticMessageId = messageId;
-        });
+        if (!isCodex) {
+          setState(() {
+            _optimisticMessages.add(optimistic);
+            _optimisticBaseCount = currentCount;
+            _optimisticMessageId = messageId;
+          });
+        }
         _scrollToBottom();
       }
       setState(() => _isBusy = true);
       _markSessionActive();
+      if (isCodex) {
+        ref.read(sessionStatusProvider.notifier).upsertStatus(session.id, {
+          'type': 'active',
+          'message': 'Waiting for response...',
+        });
+      }
 
       final messageService = ref.read(messageServiceProvider);
       await messageService.sendMessageAsync(
         session.id,
         parts: parts,
-        providerID: model['providerID'],
-        modelID: model['modelID'],
+        providerID: providerId,
+        modelID: modelId,
         agent: mode,
         directory: session.directory,
       );
+      AppLogger.info(
+        'chat.send',
+        'accepted',
+        data: {'sessionId': session.id, 'isCodex': isCodex},
+      );
+      if (isCodex) {
+        _scheduleCodexRefresh(session.id);
+      }
 
       if (currentCount == 0) {
         ref.invalidate(projectsProvider);
@@ -1768,6 +1959,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
       _scrollToBottom();
       return true;
     } catch (e) {
+      AppLogger.error(
+        'chat.send',
+        'error',
+        data: {'sessionId': session.id, 'error': e.toString()},
+      );
       if (mounted) {
         setState(() {
           _isBusy = false;
@@ -1778,11 +1974,28 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
           _optimisticBaseCount = null;
           _optimisticMessageId = null;
         });
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Failed to send: $e')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to send: ${userFriendlyError(e)}')),
+        );
       }
       return false;
+    }
+  }
+
+  void _scheduleCodexRefresh(String sessionId) {
+    final delays = <Duration>[
+      const Duration(milliseconds: 400),
+      const Duration(seconds: 1),
+      const Duration(seconds: 2),
+      const Duration(seconds: 4),
+    ];
+    for (final delay in delays) {
+      Future<void>.delayed(delay, () async {
+        if (!mounted) return;
+        final selected = ref.read(selectedSessionProvider);
+        if (selected == null || selected.id != sessionId) return;
+        await ref.read(messagesProvider.notifier).loadForSession(selected);
+      });
     }
   }
 
@@ -1961,29 +2174,61 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
   }
 
   Future<void> _loadSessionModel(String sessionId) async {
+    final settings = ref.read(settingsProvider);
     final prefs = ref.read(preferencesServiceProvider);
-    final savedModel = await prefs.getSessionModel(sessionId);
-    // Logic:
-    // If we have a saved model for this session, set it as selected.
-    // If NOT, we ensure selectedModelProvider is null so it falls back to default.
-    // IMPORTANT: We only set state if it's different to avoid loops if this is called repeatedly.
-    // But since this is a one-off load, we can just set it.
+    Map<String, String>? resolvedModel;
 
-    // However, if the user explicitly cleared it in this session before (in memory), we might overwrite?
-    // But since _loadSessionModel is intended to be called on session switch, it's fine.
+    if (settings.activeServerType == ServerType.codex) {
+      try {
+        resolvedModel = await ref
+            .read(codexAppServerServiceProvider)
+            .resolveSessionModel(sessionId);
+      } catch (_) {
+        // ignore and fallback to local preference/default
+      }
+
+      resolvedModel ??= await prefs.getSessionModel(sessionId);
+      resolvedModel ??= await _firstAvailableModel();
+    } else {
+      resolvedModel = await prefs.getSessionModel(sessionId);
+    }
 
     final current = ref.read(selectedModelProvider);
-    if (savedModel == null) {
+    if (resolvedModel == null) {
       if (current != null) {
         ref.read(selectedModelProvider.notifier).state = null;
       }
       return;
     }
+
     if (current == null ||
-        current['providerID'] != savedModel['providerID'] ||
-        current['modelID'] != savedModel['modelID']) {
-      ref.read(selectedModelProvider.notifier).state = savedModel;
+        current['providerID'] != resolvedModel['providerID'] ||
+        current['modelID'] != resolvedModel['modelID']) {
+      ref.read(selectedModelProvider.notifier).state = resolvedModel;
     }
+
+    await prefs.saveSessionModel(
+      sessionId,
+      resolvedModel['providerID']!,
+      resolvedModel['modelID']!,
+    );
+  }
+
+  Future<Map<String, String>?> _firstAvailableModel() async {
+    try {
+      final response = await ref.read(providersListProvider.future);
+      for (final provider in response.providers) {
+        if (provider.models.isEmpty) continue;
+        final firstModel = provider.models.first;
+        return <String, String>{
+          'providerID': provider.id,
+          'modelID': firstModel.id,
+        };
+      }
+    } catch (_) {
+      // no-op
+    }
+    return null;
   }
 
   Future<void> _loadProjectModel(String projectId, String sessionId) async {
@@ -2199,6 +2444,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
 
   @override
   Widget build(BuildContext context) {
+    final settings = ref.watch(settingsProvider);
+    final isCodex = settings.activeServerType == ServerType.codex;
     final session = ref.watch(selectedSessionProvider);
     final messagesState = ref.watch(messagesProvider);
     final mode = ref.watch(sessionModeProvider);
@@ -2211,7 +2458,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     final activeRun = activeRunId != null ? commandRuns[activeRunId] : null;
 
     final messages = messagesState.messages;
-    final baseMessages = _cachedMessages.isNotEmpty
+    final hasCachedForSession = _cachedSessionId == session?.id;
+    final baseMessages = hasCachedForSession && _cachedMessages.isNotEmpty
         ? _cachedMessages
         : messages;
     final displayMessages = _optimisticMessages.isNotEmpty
@@ -2347,9 +2595,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
             onSelected: (value) {
               switch (value) {
                 case 'sidebar':
+                  if (isCodex) return;
                   setState(() => _isSidebarOpen = !_isSidebarOpen);
                   break;
                 case 'tools':
+                  if (isCodex) return;
                   _showToolsMenu(context);
                   break;
                 case 'models':
@@ -2357,55 +2607,65 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
                   break;
               }
             },
-            itemBuilder: (context) => [
-              PopupMenuItem<String>(
-                value: 'sidebar',
-                child: Row(
-                  children: [
-                    Icon(
-                      _isSidebarOpen
-                          ? Icons.view_sidebar
-                          : Icons.view_sidebar_outlined,
-                      size: 18,
-                      color: AppTheme.textSecondary,
+            itemBuilder: (context) {
+              final items = <PopupMenuEntry<String>>[];
+              if (!isCodex) {
+                items.add(
+                  PopupMenuItem<String>(
+                    value: 'sidebar',
+                    child: Row(
+                      children: [
+                        Icon(
+                          _isSidebarOpen
+                              ? Icons.view_sidebar
+                              : Icons.view_sidebar_outlined,
+                          size: 18,
+                          color: AppTheme.textSecondary,
+                        ),
+                        const SizedBox(width: 12),
+                        Text(
+                          _isSidebarOpen ? 'Hide Sidebar' : 'Show Sidebar',
+                          style: const TextStyle(fontSize: 13),
+                        ),
+                      ],
                     ),
-                    const SizedBox(width: 12),
-                    Text(
-                      _isSidebarOpen ? 'Hide Sidebar' : 'Show Sidebar',
-                      style: const TextStyle(fontSize: 13),
+                  ),
+                );
+                items.add(
+                  const PopupMenuItem<String>(
+                    value: 'tools',
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.build_circle_outlined,
+                          size: 18,
+                          color: AppTheme.textSecondary,
+                        ),
+                        SizedBox(width: 12),
+                        Text('Tools', style: TextStyle(fontSize: 13)),
+                      ],
                     ),
-                  ],
+                  ),
+                );
+              }
+              items.add(
+                const PopupMenuItem<String>(
+                  value: 'models',
+                  child: Row(
+                    children: [
+                      Icon(
+                        Icons.swap_horiz,
+                        size: 18,
+                        color: AppTheme.textSecondary,
+                      ),
+                      SizedBox(width: 12),
+                      Text('Models', style: TextStyle(fontSize: 13)),
+                    ],
+                  ),
                 ),
-              ),
-              const PopupMenuItem<String>(
-                value: 'tools',
-                child: Row(
-                  children: [
-                    Icon(
-                      Icons.build_circle_outlined,
-                      size: 18,
-                      color: AppTheme.textSecondary,
-                    ),
-                    SizedBox(width: 12),
-                    Text('Tools', style: TextStyle(fontSize: 13)),
-                  ],
-                ),
-              ),
-              const PopupMenuItem<String>(
-                value: 'models',
-                child: Row(
-                  children: [
-                    Icon(
-                      Icons.swap_horiz,
-                      size: 18,
-                      color: AppTheme.textSecondary,
-                    ),
-                    SizedBox(width: 12),
-                    Text('Models', style: TextStyle(fontSize: 13)),
-                  ],
-                ),
-              ),
-            ],
+              );
+              return items;
+            },
           ),
         ],
       ),
@@ -2423,7 +2683,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
                     extraParts: commandParts,
                   ),
                 ),
-                if (_isSidebarOpen)
+                if (_isSidebarOpen && !isCodex)
                   _buildSidebar(
                     errorState: errorState,
                     activeRunId: activeRunId,

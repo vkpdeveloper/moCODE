@@ -9,7 +9,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../models/models.dart' hide HealthInfo, ProviderListResponse;
 import '../models/app_models.dart' as app_models;
 import '../models/provider.dart';
+import '../models/server_type.dart';
 import '../config/app_env.dart';
+import '../config/app_features.dart';
 
 import '../services/api_client.dart';
 import '../services/account_api_client.dart';
@@ -31,41 +33,77 @@ import '../services/todo_service.dart';
 import '../services/pty_service.dart';
 import '../services/in_app_update_service.dart';
 import '../services/asr_service.dart';
+import '../services/codex_rpc_service.dart';
+import '../services/codex_app_server_service.dart';
+import '../utils/app_logger.dart';
+import '../utils/user_friendly_error.dart';
 
 // ---------------------------------------------------------------------------
 // Settings
 // ---------------------------------------------------------------------------
 
 class SettingsState {
+  final ServerType serverType;
+  final ServerType? connectedServerType;
   final String serverUrl;
   final String serverHost;
   final int serverPort;
+  final String codexHost;
+  final int codexPort;
+  final String codexWorkspace;
+  final List<String> codexRecentWorkspaces;
   final bool isLoaded;
   final bool useNerdFont;
 
   const SettingsState({
+    this.serverType = ServerType.openCode,
+    this.connectedServerType,
     this.serverUrl = 'http://127.0.0.1:4096',
     this.serverHost = '127.0.0.1',
     this.serverPort = 4096,
+    this.codexHost = '127.0.0.1',
+    this.codexPort = 4222,
+    this.codexWorkspace = '/',
+    this.codexRecentWorkspaces = const ['/'],
     this.isLoaded = false,
     this.useNerdFont = true,
   });
 
   SettingsState copyWith({
+    ServerType? serverType,
+    ServerType? connectedServerType,
+    bool clearConnectedServerType = false,
     String? serverUrl,
     String? serverHost,
     int? serverPort,
+    String? codexHost,
+    int? codexPort,
+    String? codexWorkspace,
+    List<String>? codexRecentWorkspaces,
     bool? isLoaded,
     bool? useNerdFont,
   }) {
     return SettingsState(
+      serverType: serverType ?? this.serverType,
+      connectedServerType: clearConnectedServerType
+          ? null
+          : (connectedServerType ?? this.connectedServerType),
       serverUrl: serverUrl ?? this.serverUrl,
       serverHost: serverHost ?? this.serverHost,
       serverPort: serverPort ?? this.serverPort,
+      codexHost: codexHost ?? this.codexHost,
+      codexPort: codexPort ?? this.codexPort,
+      codexWorkspace: codexWorkspace ?? this.codexWorkspace,
+      codexRecentWorkspaces:
+          codexRecentWorkspaces ?? this.codexRecentWorkspaces,
       isLoaded: isLoaded ?? this.isLoaded,
       useNerdFont: useNerdFont ?? this.useNerdFont,
     );
   }
+
+  bool get hasActiveConnection => connectedServerType != null;
+
+  ServerType get activeServerType => connectedServerType ?? serverType;
 }
 
 class SettingsNotifier extends StateNotifier<SettingsState> {
@@ -92,24 +130,86 @@ class SettingsNotifier extends StateNotifier<SettingsState> {
     final prefs = await SharedPreferences.getInstance();
     final host = prefs.getString('server_host') ?? '127.0.0.1';
     final port = prefs.getInt('server_port') ?? 4096;
+    var serverType = ServerTypeX.fromStorage(prefs.getString('server_type'));
+    var connectedServerType = ServerTypeX.fromStorageNullable(
+      prefs.getString('connected_server_type'),
+    );
+    if (kCodexOnlyMode) {
+      serverType = ServerType.codex;
+      if (connectedServerType == ServerType.openCode) {
+        connectedServerType = null;
+      }
+    }
+    final codexHost = prefs.getString('codex_host') ?? '127.0.0.1';
+    final codexPort = prefs.getInt('codex_port') ?? 4222;
+    final codexWorkspace = prefs.getString('codex_workspace') ?? '/';
+    final recents = prefs.getStringList('codex_recent_workspaces') ?? [];
+    final codexRecentWorkspaces = <String>{
+      codexWorkspace,
+      ...recents.where((e) => e.trim().isNotEmpty),
+    }.toList();
     final useNerdFont = prefs.getBool('use_nerd_font') ?? true;
     state = SettingsState(
+      serverType: serverType,
+      connectedServerType: connectedServerType,
       serverHost: host,
       serverPort: port,
       serverUrl: 'http://$host:$port',
+      codexHost: codexHost,
+      codexPort: codexPort,
+      codexWorkspace: codexWorkspace,
+      codexRecentWorkspaces: codexRecentWorkspaces.isEmpty
+          ? const ['/']
+          : codexRecentWorkspaces,
       isLoaded: true,
       useNerdFont: useNerdFont,
     );
   }
 
-  Future<void> updateServer(String host, int port) async {
+  Future<void> updateServer(
+    String host,
+    int port, {
+    ServerType? serverType,
+    String? codexHost,
+    int? codexPort,
+    String? codexWorkspace,
+  }) async {
     final prefs = await SharedPreferences.getInstance();
+    var resolvedType = serverType ?? state.serverType;
+    if (kCodexOnlyMode) {
+      resolvedType = ServerType.codex;
+    }
+    final resolvedCodexHost = codexHost ?? state.codexHost;
+    final resolvedCodexPort = codexPort ?? state.codexPort;
+    final resolvedWorkspace = (codexWorkspace ?? state.codexWorkspace).trim();
+
     await prefs.setString('server_host', host);
     await prefs.setInt('server_port', port);
+    await prefs.setString('server_type', resolvedType.storageValue);
+    await prefs.setString('connected_server_type', resolvedType.storageValue);
+    await prefs.setString('codex_host', resolvedCodexHost);
+    await prefs.setInt('codex_port', resolvedCodexPort);
+    await prefs.setString(
+      'codex_workspace',
+      resolvedWorkspace.isEmpty ? '/' : resolvedWorkspace,
+    );
+
+    final nextRecents = <String>{
+      resolvedWorkspace.isEmpty ? '/' : resolvedWorkspace,
+      ...state.codexRecentWorkspaces,
+    }.toList();
+    await prefs.setStringList('codex_recent_workspaces', nextRecents);
+
     state = SettingsState(
+      serverType: resolvedType,
+      connectedServerType: resolvedType,
       serverHost: host,
       serverPort: port,
       serverUrl: 'http://$host:$port',
+      codexHost: resolvedCodexHost,
+      codexPort: resolvedCodexPort,
+      codexWorkspace: resolvedWorkspace.isEmpty ? '/' : resolvedWorkspace,
+      codexRecentWorkspaces: nextRecents,
       isLoaded: true,
       useNerdFont: state.useNerdFont,
     );
@@ -140,6 +240,22 @@ final apiClientProvider = Provider<ApiClient>((ref) {
     client.updateBaseUrl(next.serverUrl);
   });
   return client;
+});
+
+final codexRpcServiceProvider = Provider<CodexRpcService>((ref) {
+  final settings = ref.watch(settingsProvider);
+  final rpc = CodexRpcService(
+    host: settings.codexHost,
+    port: settings.codexPort,
+  );
+  ref.onDispose(() {
+    unawaited(rpc.dispose());
+  });
+  return rpc;
+});
+
+final codexAppServerServiceProvider = Provider<CodexAppServerService>((ref) {
+  return CodexAppServerService(ref.watch(codexRpcServiceProvider));
 });
 
 final accountApiClientProvider = Provider<AccountApiClient>((ref) {
@@ -227,19 +343,40 @@ final accessGateStatusProvider = Provider<AccessGateStatus>((ref) {
 // ---------------------------------------------------------------------------
 
 final appServiceProvider = Provider<AppService>((ref) {
-  return AppService(ref.watch(apiClientProvider));
+  final settings = ref.watch(settingsProvider);
+  return AppService(
+    ref.watch(apiClientProvider),
+    serverType: settings.activeServerType,
+    codex: ref.watch(codexAppServerServiceProvider),
+  );
 });
 
 final sessionServiceProvider = Provider<SessionService>((ref) {
-  return SessionService(ref.watch(apiClientProvider));
+  final settings = ref.watch(settingsProvider);
+  return SessionService(
+    ref.watch(apiClientProvider),
+    serverType: settings.activeServerType,
+    codex: ref.watch(codexAppServerServiceProvider),
+  );
 });
 
 final messageServiceProvider = Provider<MessageService>((ref) {
-  return MessageService(ref.watch(apiClientProvider));
+  final settings = ref.watch(settingsProvider);
+  return MessageService(
+    ref.watch(apiClientProvider),
+    serverType: settings.activeServerType,
+    codex: ref.watch(codexAppServerServiceProvider),
+  );
 });
 
 final projectServiceProvider = Provider<ProjectService>((ref) {
-  return ProjectService(ref.watch(apiClientProvider));
+  final settings = ref.watch(settingsProvider);
+  return ProjectService(
+    ref.watch(apiClientProvider),
+    serverType: settings.activeServerType,
+    codex: ref.watch(codexAppServerServiceProvider),
+    workspaceProvider: () => ref.read(settingsProvider).codexWorkspace,
+  );
 });
 
 final pathServiceProvider = Provider<PathService>((ref) {
@@ -251,11 +388,21 @@ final fileServiceProvider = Provider<FileService>((ref) {
 });
 
 final providerServiceProvider = Provider<ProviderService>((ref) {
-  return ProviderService(ref.watch(apiClientProvider));
+  final settings = ref.watch(settingsProvider);
+  return ProviderService(
+    ref.watch(apiClientProvider),
+    serverType: settings.activeServerType,
+    codex: ref.watch(codexAppServerServiceProvider),
+  );
 });
 
 final eventServiceProvider = Provider<EventService>((ref) {
-  return EventService(ref.watch(apiClientProvider));
+  final settings = ref.watch(settingsProvider);
+  return EventService(
+    ref.watch(apiClientProvider),
+    serverType: settings.activeServerType,
+    codex: ref.watch(codexAppServerServiceProvider),
+  );
 });
 
 class _NormalizedEvent {
@@ -271,6 +418,7 @@ class GlobalEventCoordinator {
       {};
   Set<String> _directories = const {};
   Timer? _sessionsRefreshTimer;
+  final Map<String, Timer> _messageRefreshTimers = {};
 
   GlobalEventCoordinator(this._ref);
 
@@ -303,6 +451,10 @@ class GlobalEventCoordinator {
 
   void dispose() {
     _sessionsRefreshTimer?.cancel();
+    for (final timer in _messageRefreshTimers.values) {
+      timer.cancel();
+    }
+    _messageRefreshTimers.clear();
     for (final subscription in _subscriptions.values) {
       subscription.cancel();
     }
@@ -331,6 +483,10 @@ class GlobalEventCoordinator {
     }
     if (event.type == 'session.idle') {
       _handleSessionIdle(event.properties);
+      return;
+    }
+    if (event.type == 'session.turn.updated') {
+      _handleSessionTurnUpdated(event.properties);
       return;
     }
     if (event.type == 'message.updated') {
@@ -459,12 +615,52 @@ class GlobalEventCoordinator {
     _ref
         .read(sessionStatusProvider.notifier)
         .upsertStatus(sessionID, properties['status']);
+    _scheduleMessageRefreshForSelectedSession(sessionID);
   }
 
   void _handleSessionIdle(Map<String, dynamic> properties) {
     final sessionID = properties['sessionID']?.toString();
     if (sessionID == null || sessionID.isEmpty) return;
     _ref.read(sessionStatusProvider.notifier).markIdle(sessionID);
+    _scheduleMessageRefreshForSelectedSession(sessionID, immediate: true);
+  }
+
+  void _handleSessionTurnUpdated(Map<String, dynamic> properties) {
+    final selected = _ref.read(selectedSessionProvider);
+    if (selected == null) return;
+    final sessionID = properties['sessionID']?.toString();
+    if (sessionID != null && sessionID.isNotEmpty && sessionID != selected.id) {
+      return;
+    }
+    _scheduleMessageRefreshForSelectedSession(selected.id, immediate: true);
+  }
+
+  void _scheduleMessageRefreshForSelectedSession(
+    String sessionID, {
+    bool immediate = false,
+  }) {
+    final selected = _ref.read(selectedSessionProvider);
+    if (selected == null || selected.id != sessionID) return;
+
+    final existing = _messageRefreshTimers.remove(sessionID);
+    existing?.cancel();
+
+    if (immediate) {
+      unawaited(_ref.read(messagesProvider.notifier).loadForSession(selected));
+      return;
+    }
+
+    _messageRefreshTimers[sessionID] = Timer(
+      const Duration(milliseconds: 300),
+      () {
+        _messageRefreshTimers.remove(sessionID);
+        final latestSelected = _ref.read(selectedSessionProvider);
+        if (latestSelected == null || latestSelected.id != sessionID) return;
+        unawaited(
+          _ref.read(messagesProvider.notifier).loadForSession(latestSelected),
+        );
+      },
+    );
   }
 
   void _handleMessageUpdated(Map<String, dynamic> properties) {
@@ -474,7 +670,19 @@ class GlobalEventCoordinator {
       final info = MessageInfo.fromJson(Map<String, dynamic>.from(infoRaw));
       final selected = _ref.read(selectedSessionProvider);
       if (selected == null || selected.id != info.sessionID) return;
-      _ref.read(messagesProvider.notifier).upsertMessage(info);
+      final notifier = _ref.read(messagesProvider.notifier);
+      notifier.upsertMessage(info);
+      final partsRaw = properties['parts'];
+      if (partsRaw is List) {
+        for (final raw in partsRaw.whereType<Map>()) {
+          try {
+            final part = Part.fromJson(Map<String, dynamic>.from(raw));
+            notifier.upsertPart(part);
+          } catch (_) {
+            // ignore malformed part payload
+          }
+        }
+      }
     } catch (error) {
       debugPrint('[GlobalEventCoordinator] message parse error: $error');
     }
@@ -544,8 +752,9 @@ class GlobalEventCoordinator {
   void _handleSessionError(Map<String, dynamic> properties) {
     final sessionID = properties['sessionID']?.toString();
     final selected = _ref.read(selectedSessionProvider);
-    if (selected != null && sessionID != null && selected.id != sessionID)
+    if (selected != null && sessionID != null && selected.id != sessionID) {
       return;
+    }
     final error = properties['error'];
     String? message;
     String? name;
@@ -556,6 +765,16 @@ class GlobalEventCoordinator {
         message = data['message']?.toString();
       }
     }
+    AppLogger.error(
+      'provider.session',
+      'event:sessionError',
+      data: {
+        'sessionId': sessionID,
+        'name': name,
+        'message': message,
+        'properties': properties,
+      },
+    );
     _ref
         .read(sessionErrorProvider.notifier)
         .setError(sessionID: sessionID, message: message, name: name);
@@ -600,6 +819,13 @@ final globalEventCoordinatorProvider = Provider<GlobalEventCoordinator>((ref) {
   final coordinator = GlobalEventCoordinator(ref);
 
   Set<String> computeDirectories() {
+    final settings = ref.read(settingsProvider);
+    if (!settings.hasActiveConnection) {
+      return const <String>{};
+    }
+    if (settings.activeServerType == ServerType.codex) {
+      return const <String>{'__codex__'};
+    }
     final directories = <String>{};
     final selectedProject = ref.read(selectedProjectProvider);
     if (selectedProject != null) {
@@ -635,15 +861,27 @@ final questionServiceProvider = Provider<QuestionService>((ref) {
 });
 
 final sessionDiffServiceProvider = Provider<SessionDiffService>((ref) {
-  return SessionDiffService(ref.watch(apiClientProvider));
+  final settings = ref.watch(settingsProvider);
+  return SessionDiffService(
+    ref.watch(apiClientProvider),
+    serverType: settings.activeServerType,
+  );
 });
 
 final todoServiceProvider = Provider<TodoService>((ref) {
-  return TodoService(ref.watch(apiClientProvider));
+  final settings = ref.watch(settingsProvider);
+  return TodoService(
+    ref.watch(apiClientProvider),
+    serverType: settings.activeServerType,
+  );
 });
 
 final ptyServiceProvider = Provider<PtyService>((ref) {
-  return PtyService(ref.watch(apiClientProvider));
+  final settings = ref.watch(settingsProvider);
+  return PtyService(
+    ref.watch(apiClientProvider),
+    serverType: settings.activeServerType,
+  );
 });
 
 final preferencesServiceProvider = Provider<PreferencesService>((ref) {
@@ -660,9 +898,89 @@ final updateAvailableProvider = StateProvider<bool>((ref) => false);
 // Projects
 // ---------------------------------------------------------------------------
 
+String _codexProjectIdFromCwd(String cwd) => 'codex:${cwd.hashCode.abs()}';
+
+String _projectNameFromPath(String path) {
+  final trimmed = path.trim();
+  if (trimmed.isEmpty || trimmed == '/') return 'Root';
+  final segments = trimmed.split('/').where((segment) => segment.isNotEmpty);
+  return segments.isEmpty ? trimmed : segments.last;
+}
+
+List<Project> _codexProjectsFromSessions(List<Session> sessions) {
+  final byCwd = <String, Project>{};
+
+  for (final session in sessions) {
+    final cwd = session.directory.trim();
+    if (cwd.isEmpty) continue;
+
+    final existing = byCwd[cwd];
+    if (existing == null) {
+      byCwd[cwd] = Project(
+        id: _codexProjectIdFromCwd(cwd),
+        worktree: cwd,
+        name: _projectNameFromPath(cwd),
+        time: ProjectTime(
+          created: session.time.created,
+          updated: session.time.updated,
+          initialized: session.time.created,
+        ),
+      );
+      continue;
+    }
+
+    final currentUpdated = existing.time.updated ?? existing.time.created;
+    final nextUpdated = session.time.updated;
+    if (nextUpdated > currentUpdated) {
+      byCwd[cwd] = Project(
+        id: existing.id,
+        worktree: cwd,
+        name: existing.name,
+        time: ProjectTime(
+          created: existing.time.created,
+          updated: nextUpdated,
+          initialized: existing.time.initialized,
+        ),
+      );
+    }
+  }
+
+  return byCwd.values.toList();
+}
+
 final projectsProvider = FutureProvider<List<Project>>((ref) {
+  final settings = ref.read(settingsProvider);
+  if (!settings.hasActiveConnection) {
+    AppLogger.debug('provider.projects', 'load:skipped:disconnected');
+    return Future<List<Project>>.value(const []);
+  }
+  AppLogger.debug(
+    'provider.projects',
+    'load:start',
+    data: {'serverType': settings.activeServerType.storageValue},
+  );
+  if (settings.activeServerType == ServerType.codex) {
+    final sessionService = ref.watch(sessionServiceProvider);
+    return sessionService.listSessions().then((sessions) {
+      final projects = _codexProjectsFromSessions(sessions);
+      AppLogger.debug(
+        'provider.projects',
+        'load:done:codex',
+        data: {'sessions': sessions.length, 'projects': projects.length},
+      );
+      return projects;
+    });
+  }
+
   final projectService = ref.watch(projectServiceProvider);
-  return projectService.listProjects();
+  return projectService.listProjects().then((projects) {
+    AppLogger.debug(
+      'provider.projects',
+      'load:done',
+      data: {'count': projects.length},
+    );
+    return projects;
+  });
 });
 
 final sortedProjectsProvider = Provider<AsyncValue<List<Project>>>((ref) {
@@ -716,8 +1034,29 @@ final selectedProjectProvider = StateProvider<Project?>((ref) => null);
 
 final sessionsProvider = FutureProvider<List<Session>>((ref) {
   final selectedProject = ref.watch(selectedProjectProvider);
+  final settings = ref.read(settingsProvider);
+  if (!settings.hasActiveConnection) {
+    AppLogger.debug('provider.sessions', 'load:skipped:disconnected');
+    return Future<List<Session>>.value(const []);
+  }
+  AppLogger.debug(
+    'provider.sessions',
+    'load:start',
+    data: {
+      'serverType': settings.activeServerType.storageValue,
+      'project': selectedProject?.worktree,
+    },
+  );
   final sessionService = ref.watch(sessionServiceProvider);
-  return sessionService.listSessions(directory: selectedProject?.worktree);
+  final directory = selectedProject?.worktree;
+  return sessionService.listSessions(directory: directory).then((sessions) {
+    AppLogger.debug(
+      'provider.sessions',
+      'load:done',
+      data: {'count': sessions.length},
+    );
+    return sessions;
+  });
 });
 
 final selectedSessionProvider = StateProvider<Session?>((ref) => null);
@@ -794,7 +1133,8 @@ final sessionStatusProvider =
     >((ref) {
       final notifier = SessionStatusNotifier(ref.watch(sessionServiceProvider));
       ref.listen<Project?>(selectedProjectProvider, (previous, next) {
-        unawaited(notifier.loadForDirectory(next?.worktree));
+        final directory = next?.worktree;
+        unawaited(notifier.loadForDirectory(directory));
       }, fireImmediately: true);
 
       final timer = Timer.periodic(const Duration(seconds: 4), (_) {
@@ -1188,17 +1528,26 @@ class MessagesNotifier extends StateNotifier<MessagesState> {
   final MessageService _messageService;
   int _loadToken = 0;
   final Map<String, List<_PendingPartUpdate>> _pendingPartsByMessage = {};
+  String? _loadedSessionId;
 
   MessagesNotifier(this._messageService) : super(const MessagesState());
 
   Future<void> loadForSession(Session? session) async {
     final token = ++_loadToken;
     if (session == null) {
+      _loadedSessionId = null;
       state = const MessagesState();
       return;
     }
 
-    state = state.copyWith(isLoading: true, error: null);
+    final switchingSession = _loadedSessionId != session.id;
+    _loadedSessionId = session.id;
+    if (switchingSession) {
+      _pendingPartsByMessage.clear();
+      state = const MessagesState(isLoading: true, messages: [], error: null);
+    } else {
+      state = state.copyWith(isLoading: true, error: null);
+    }
     try {
       final messages = await _messageService.getMessages(
         session.id,
@@ -1209,12 +1558,15 @@ class MessagesNotifier extends StateNotifier<MessagesState> {
       state = state.copyWith(messages: messages, isLoading: false, error: null);
     } catch (e) {
       if (!mounted || token != _loadToken) return;
-      state = state.copyWith(isLoading: false, error: e.toString());
+      state = state.copyWith(isLoading: false, error: userFriendlyError(e));
     }
   }
 
   void upsertMessage(MessageInfo info) {
     final current = List<MessageWrapper>.from(state.messages);
+    if (info is UserMessageInfo) {
+      _dropOneOptimisticUserMessage(current);
+    }
     final index = current.indexWhere((message) => message.info.id == info.id);
     if (index >= 0) {
       current[index] = MessageWrapper(info: info, parts: current[index].parts);
@@ -1235,9 +1587,32 @@ class MessagesNotifier extends StateNotifier<MessagesState> {
       (message) => message.info.id == part.messageID,
     );
     if (messageIndex < 0) {
-      _pendingPartsByMessage
-          .putIfAbsent(part.messageID, () => [])
-          .add(_PendingPartUpdate(part: part, delta: delta));
+      // Create a synthetic assistant message so streaming deltas are visible
+      // immediately even before the corresponding message.info update arrives.
+      final createdAt = DateTime.now().millisecondsSinceEpoch;
+      final info = AssistantMessageInfo(
+        id: part.messageID,
+        sessionID: part.sessionID,
+        time: MessageTime(created: createdAt),
+        modelID: '',
+        providerID: '',
+        mode: 'build',
+        cost: 0,
+        tokens: MessageTokens(
+          input: 0,
+          output: 0,
+          reasoning: 0,
+          cache: MessageCacheTokens(read: 0, write: 0),
+        ),
+      );
+      current.add(
+        MessageWrapper(info: info, parts: <Part>[_applyDelta(part, delta)]),
+      );
+      current.sort(
+        (a, b) =>
+            _messageCreatedAt(a.info).compareTo(_messageCreatedAt(b.info)),
+      );
+      state = state.copyWith(messages: current, error: null);
       return;
     }
 
@@ -1277,8 +1652,16 @@ class MessagesNotifier extends StateNotifier<MessagesState> {
 
   Part _mergePart(Part previous, Part incoming, String? delta) {
     if (previous is TextPart && incoming is TextPart) {
-      if (incoming.text.isNotEmpty && incoming.text != previous.text) {
+      if (incoming.text.isNotEmpty) {
+        // Prefer server-authoritative full text when present.
+        // This makes repeated message.part.updated deliveries idempotent and
+        // avoids appending the same delta chunk multiple times.
         return incoming;
+      }
+      if (incoming.text.isEmpty && (delta == null || delta.isEmpty)) {
+        // Keep the existing text instead of blanking out optimistic/user text
+        // when a server update omits text content.
+        return previous;
       }
       if (delta == null || delta.isEmpty) return incoming;
       return TextPart(
@@ -1293,6 +1676,19 @@ class MessagesNotifier extends StateNotifier<MessagesState> {
       );
     }
     return _applyDelta(incoming, delta);
+  }
+
+  void _dropOneOptimisticUserMessage(List<MessageWrapper> messages) {
+    final optimisticIndexes = <int>[];
+    for (var i = 0; i < messages.length; i++) {
+      final msg = messages[i];
+      if (msg.info is! UserMessageInfo) continue;
+      if (!msg.info.id.startsWith('optimistic_')) continue;
+      optimisticIndexes.add(i);
+    }
+    if (optimisticIndexes.isEmpty) return;
+    final indexToRemove = optimisticIndexes.first;
+    messages.removeAt(indexToRemove);
   }
 
   Part _applyDelta(Part incoming, String? delta) {
@@ -1434,8 +1830,27 @@ final activeSessionsProvider =
 // ---------------------------------------------------------------------------
 
 final healthProvider = FutureProvider<app_models.HealthInfo>((ref) {
+  final settings = ref.read(settingsProvider);
+  if (!settings.hasActiveConnection) {
+    AppLogger.debug('provider.health', 'load:skipped:disconnected');
+    return Future<app_models.HealthInfo>.value(
+      const app_models.HealthInfo(healthy: false, version: 'disconnected'),
+    );
+  }
+  AppLogger.debug(
+    'provider.health',
+    'load:start',
+    data: {'serverType': settings.activeServerType.storageValue},
+  );
   final appService = ref.watch(appServiceProvider);
-  return appService.getHealth();
+  return appService.getHealth().then((health) {
+    AppLogger.debug(
+      'provider.health',
+      'load:done',
+      data: {'healthy': health.healthy, 'version': health.version},
+    );
+    return health;
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -1443,6 +1858,12 @@ final healthProvider = FutureProvider<app_models.HealthInfo>((ref) {
 // ---------------------------------------------------------------------------
 
 final vcsInfoProvider = FutureProvider<app_models.VcsInfo>((ref) {
+  final settings = ref.read(settingsProvider);
+  if (!settings.hasActiveConnection) {
+    return Future<app_models.VcsInfo>.value(
+      const app_models.VcsInfo(branch: null, commit: null, dirty: null),
+    );
+  }
   final project = ref.watch(selectedProjectProvider);
   final appService = ref.watch(appServiceProvider);
   return appService.getVcsInfo(directory: project?.worktree);
@@ -1453,6 +1874,10 @@ final vcsInfoProvider = FutureProvider<app_models.VcsInfo>((ref) {
 // ---------------------------------------------------------------------------
 
 final commandsProvider = FutureProvider<List<app_models.Command>>((ref) {
+  final settings = ref.read(settingsProvider);
+  if (!settings.hasActiveConnection) {
+    return Future<List<app_models.Command>>.value(const []);
+  }
   final project = ref.watch(selectedProjectProvider);
   final appService = ref.watch(appServiceProvider);
   return appService.listCommands(directory: project?.worktree);
@@ -1463,8 +1888,30 @@ final commandsProvider = FutureProvider<List<app_models.Command>>((ref) {
 // ---------------------------------------------------------------------------
 
 final providersListProvider = FutureProvider<ProviderListResponse>((ref) {
+  final settings = ref.read(settingsProvider);
+  if (!settings.hasActiveConnection) {
+    AppLogger.debug('provider.models', 'load:skipped:disconnected');
+    return Future<ProviderListResponse>.value(
+      const ProviderListResponse(providers: [], connected: []),
+    );
+  }
+  AppLogger.debug(
+    'provider.models',
+    'load:start',
+    data: {'serverType': settings.activeServerType.storageValue},
+  );
   final providerService = ref.watch(providerServiceProvider);
-  return providerService.listProviders();
+  return providerService.listProviders().then((response) {
+    AppLogger.debug(
+      'provider.models',
+      'load:done',
+      data: {
+        'providers': response.providers.length,
+        'connected': response.connected.length,
+      },
+    );
+    return response;
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -1739,10 +2186,27 @@ final activeModelProvider = Provider<Map<String, String>?>((ref) {
 // ---------------------------------------------------------------------------
 
 final appPreloadProvider = FutureProvider<bool>((ref) async {
+  AppLogger.info('provider.preload', 'start');
   final settingsNotifier = ref.read(settingsProvider.notifier);
   await settingsNotifier.ensureLoaded();
   final settings = ref.read(settingsProvider);
   if (!settings.isLoaded) return true;
+  AppLogger.info(
+    'provider.preload',
+    'settingsLoaded',
+    data: {
+      'serverType': settings.activeServerType.storageValue,
+      'host': settings.serverHost,
+      'port': settings.serverPort,
+      'codexHost': settings.codexHost,
+      'codexPort': settings.codexPort,
+    },
+  );
+
+  if (!settings.hasActiveConnection) {
+    AppLogger.info('provider.preload', 'skipNetwork:noActiveConnection');
+    return false;
+  }
 
   ref.read(apiClientProvider);
   ref.read(pathInfoProvider);
@@ -1774,6 +2238,7 @@ final appPreloadProvider = FutureProvider<bool>((ref) async {
     safe(ref.read(billingStatusProvider.future)),
   ]);
 
+  AppLogger.info('provider.preload', 'done', data: {'hadError': hadError});
   return hadError;
 });
 

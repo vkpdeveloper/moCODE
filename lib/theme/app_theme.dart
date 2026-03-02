@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/cupertino.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 class AppTheme {
@@ -35,6 +36,14 @@ class AppTheme {
         onPrimary: Colors.white,
         outline: border,
         outlineVariant: borderLight,
+      ),
+      cupertinoOverrideTheme: const CupertinoThemeData(
+        primaryColor: accent,
+      ),
+      textSelectionTheme: TextSelectionThemeData(
+        cursorColor: accent,
+        selectionColor: accent.withValues(alpha: 0.35),
+        selectionHandleColor: accent,
       ),
       textTheme: GoogleFonts.jetBrainsMonoTextTheme(
         const TextTheme(

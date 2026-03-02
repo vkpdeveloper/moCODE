@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../extensions/async_value_extensions.dart';
 import '../providers/providers.dart';
 import '../providers/ssh_provider.dart';
+import '../models/server_type.dart';
 import '../services/error_handler.dart';
 import '../theme/app_theme.dart';
 import '../widgets/connection_choice_sheet.dart';
@@ -37,6 +38,8 @@ class ProjectsScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final projectsAsync = ref.watch(sortedProjectsProvider);
     final healthAsync = ref.watch(healthProvider);
+    final settings = ref.watch(settingsProvider);
+    final isCodex = settings.activeServerType == ServerType.codex;
 
     return Scaffold(
       appBar: AppBar(
@@ -101,7 +104,7 @@ class ProjectsScreen extends ConsumerWidget {
           IconButton(
             icon: const Icon(Icons.build_circle_outlined, size: 20),
             tooltip: 'Tools',
-            onPressed: () => _showToolsMenu(context, ref),
+            onPressed: isCodex ? null : () => _showToolsMenu(context, ref),
           ),
           IconButton(
             icon: const Icon(Icons.settings_outlined),
@@ -157,7 +160,7 @@ class ProjectsScreen extends ConsumerWidget {
                         ),
                         const SizedBox(height: 16),
                         Text(
-                          'No projects found',
+                          isCodex ? 'No workspace configured' : 'No projects found',
                           style: TextStyle(
                             color: AppTheme.textSecondary,
                             fontSize: 14,
@@ -165,18 +168,21 @@ class ProjectsScreen extends ConsumerWidget {
                         ),
                         const SizedBox(height: 8),
                         Text(
-                          'Start moCODE in a project directory',
+                          isCodex
+                              ? 'Set Codex workspace in Settings'
+                              : 'Start moCODE in a project directory',
                           style: TextStyle(
                             color: AppTheme.textTertiary,
                             fontSize: 12,
                           ),
                         ),
                         const SizedBox(height: 20),
-                        ElevatedButton.icon(
-                          onPressed: () => context.push('/projects/open'),
-                          icon: const Icon(Icons.add, size: 16),
-                          label: const Text('OPEN PROJECT'),
-                        ),
+                        if (!isCodex)
+                          ElevatedButton.icon(
+                            onPressed: () => context.push('/projects/open'),
+                            icon: const Icon(Icons.add, size: 16),
+                            label: const Text('OPEN PROJECT'),
+                          ),
                       ],
                     ),
                   );
@@ -191,10 +197,10 @@ class ProjectsScreen extends ConsumerWidget {
                   },
                   child: ListView.separated(
                     padding: const EdgeInsets.all(16),
-                    itemCount: projects.length + 1,
+                    itemCount: projects.length + (isCodex ? 0 : 1),
                     separatorBuilder: (_, _) => const SizedBox(height: 8),
                     itemBuilder: (context, index) {
-                      if (index == 0) {
+                      if (!isCodex && index == 0) {
                         return GestureDetector(
                           onTap: () => context.push('/projects/open'),
                           child: Container(
@@ -232,7 +238,7 @@ class ProjectsScreen extends ConsumerWidget {
                         );
                       }
 
-                      final project = projects[index - 1];
+                      final project = projects[index - (isCodex ? 0 : 1)];
                       final projectName =
                           project.name ?? project.worktree.split('/').last;
 

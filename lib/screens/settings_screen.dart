@@ -1,12 +1,16 @@
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../extensions/async_value_extensions.dart';
+import '../config/app_features.dart';
+import '../models/server_type.dart';
 import '../providers/providers.dart';
 import '../theme/app_theme.dart';
+import '../utils/app_logger.dart';
 import '../utils/app_snackbar.dart';
 
 class SettingsScreen extends ConsumerStatefulWidget {
@@ -21,6 +25,11 @@ class SettingsScreen extends ConsumerStatefulWidget {
 class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   late TextEditingController _hostController;
   late TextEditingController _portController;
+  late TextEditingController _codexHostController;
+  late TextEditingController _codexPortController;
+  late TextEditingController _codexWorkspaceController;
+  ServerType _serverType = ServerType.openCode;
+  bool _serverTypeDirty = false;
   bool _authLoading = false;
   bool _checkoutLoading = false;
   bool _paymentRefreshLoading = false;
@@ -30,9 +39,17 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   void initState() {
     super.initState();
     final settings = ref.read(settingsProvider);
+    _serverType = settings.activeServerType;
     _hostController = TextEditingController(text: settings.serverHost);
     _portController = TextEditingController(
       text: settings.serverPort.toString(),
+    );
+    _codexHostController = TextEditingController(text: settings.codexHost);
+    _codexPortController = TextEditingController(
+      text: settings.codexPort.toString(),
+    );
+    _codexWorkspaceController = TextEditingController(
+      text: settings.codexWorkspace,
     );
   }
 
@@ -40,6 +57,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   void dispose() {
     _hostController.dispose();
     _portController.dispose();
+    _codexHostController.dispose();
+    _codexPortController.dispose();
+    _codexWorkspaceController.dispose();
     super.dispose();
   }
 
@@ -53,6 +73,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     }
 
     final settings = ref.watch(settingsProvider);
+    if (!_serverTypeDirty && _serverType != settings.activeServerType) {
+      _serverType = settings.activeServerType;
+    }
     final healthAsync = ref.watch(healthProvider);
     final defaultModel = ref.watch(defaultModelProvider);
     final authState = ref.watch(authStateProvider);
@@ -104,6 +127,65 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             const Text(
+                              'Server Type',
+                              style: TextStyle(
+                                color: AppTheme.textSecondary,
+                                fontSize: 11,
+                              ),
+                            ),
+                            const SizedBox(height: 6),
+                            if (kCodexOnlyMode)
+                              Container(
+                                width: double.infinity,
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                  vertical: 10,
+                                ),
+                                decoration: BoxDecoration(
+                                  border: Border.all(color: AppTheme.border),
+                                ),
+                                child: const Text(
+                                  'Codex (WebSocket)',
+                                  style: TextStyle(
+                                    color: AppTheme.textPrimary,
+                                    fontSize: 13,
+                                  ),
+                                ),
+                              )
+                            else
+                              DropdownButtonFormField<ServerType>(
+                                initialValue: _serverType,
+                                decoration: const InputDecoration(
+                                  isDense: true,
+                                ),
+                                items: const [
+                                  DropdownMenuItem(
+                                    value: ServerType.openCode,
+                                    child: Text('OpenCode (HTTP/SSE)'),
+                                  ),
+                                  DropdownMenuItem(
+                                    value: ServerType.codex,
+                                    child: Text('Codex (WebSocket)'),
+                                  ),
+                                ],
+                                onChanged: (value) {
+                                  if (value == null) return;
+                                  setState(() {
+                                    _serverType = value;
+                                    _serverTypeDirty = true;
+                                  });
+                                },
+                              ),
+                            const SizedBox(height: 8),
+                            const Text(
+                              'Only one server can be active at a time. Saving will switch the active server.',
+                              style: TextStyle(
+                                color: AppTheme.textTertiary,
+                                fontSize: 11,
+                              ),
+                            ),
+                            const SizedBox(height: 14),
+                            const Text(
                               'Host',
                               style: TextStyle(
                                 color: AppTheme.textSecondary,
@@ -112,7 +194,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                             ),
                             const SizedBox(height: 6),
                             TextField(
-                              controller: _hostController,
+                              controller: _serverType == ServerType.codex
+                                  ? _codexHostController
+                                  : _hostController,
                               style: const TextStyle(
                                 color: AppTheme.textPrimary,
                                 fontSize: 13,
@@ -132,7 +216,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                             ),
                             const SizedBox(height: 6),
                             TextField(
-                              controller: _portController,
+                              controller: _serverType == ServerType.codex
+                                  ? _codexPortController
+                                  : _portController,
                               keyboardType: TextInputType.number,
                               style: const TextStyle(
                                 color: AppTheme.textPrimary,
@@ -178,7 +264,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                             ),
                             const Spacer(),
                             Text(
-                              settings.serverUrl,
+                              _serverType == ServerType.codex
+                                  ? 'ws://${settings.codexHost}:${settings.codexPort}'
+                                  : settings.serverUrl,
                               style: const TextStyle(
                                 color: AppTheme.textSecondary,
                                 fontSize: 11,
@@ -230,7 +318,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     ),
                     Switch(
                       value: settings.useNerdFont,
-                      activeColor: AppTheme.accent,
+                      activeThumbColor: AppTheme.accent,
                       onChanged: (value) {
                         ref
                             .read(settingsProvider.notifier)
@@ -528,6 +616,52 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                             context.push('/models', extra: {'mode': 'default'});
                           },
                         ),
+                        const Divider(height: 1),
+                        ListTile(
+                          leading: const Icon(
+                            Icons.content_copy,
+                            color: AppTheme.textSecondary,
+                            size: 20,
+                          ),
+                          title: const Text(
+                            'Copy Debug Logs',
+                            style: TextStyle(fontSize: 13),
+                          ),
+                          subtitle: const Text(
+                            'Copy runtime Codex/OpenCode logs to clipboard',
+                            style: TextStyle(
+                              color: AppTheme.textTertiary,
+                              fontSize: 11,
+                            ),
+                          ),
+                          trailing: const Icon(
+                            Icons.chevron_right,
+                            color: AppTheme.textTertiary,
+                            size: 18,
+                          ),
+                          onTap: _copyDebugLogs,
+                        ),
+                        const Divider(height: 1),
+                        ListTile(
+                          leading: const Icon(
+                            Icons.delete_outline,
+                            color: AppTheme.textSecondary,
+                            size: 20,
+                          ),
+                          title: const Text(
+                            'Clear Debug Logs',
+                            style: TextStyle(fontSize: 13),
+                          ),
+                          trailing: const Icon(
+                            Icons.chevron_right,
+                            color: AppTheme.textTertiary,
+                            size: 18,
+                          ),
+                          onTap: () {
+                            AppLogger.clear();
+                            AppSnackBar.showInfo(context, 'Debug logs cleared');
+                          },
+                        ),
                       ],
                     ),
                   ),
@@ -556,7 +690,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     ),
                     SizedBox(height: 4),
                     Text(
-                      'Connect with your OpenCode server',
+                      'Connect with your app server',
                       style: TextStyle(
                         color: AppTheme.textTertiary,
                         fontSize: 11,
@@ -693,16 +827,124 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     );
   }
 
-  void _saveSettings() {
+  Future<void> _saveSettings() async {
+    final previousSettings = ref.read(settingsProvider);
     final host = _hostController.text.trim();
-    final port = int.tryParse(_portController.text.trim()) ?? 3000;
-    ref.read(settingsProvider.notifier).updateServer(host, port);
-    ref.read(settingsReloadProvider.future);
-    ref.invalidate(healthProvider);
-    ref.invalidate(projectsProvider);
+    final port = int.tryParse(_portController.text.trim()) ?? 4096;
+    final codexHost = _codexHostController.text.trim();
+    final codexPort = int.tryParse(_codexPortController.text.trim()) ?? 4222;
+    const codexWorkspace = '/';
+    final activeHost = _serverType == ServerType.codex ? codexHost : host;
+    final activePort = _serverType == ServerType.codex ? codexPort : port;
+
+    if (activeHost.isEmpty) {
+      AppSnackBar.showWarning(context, 'Host is required');
+      return;
+    }
+    if (activePort < 1 || activePort > 65535) {
+      AppSnackBar.showWarning(context, 'Port must be between 1 and 65535');
+      return;
+    }
+
+    AppLogger.info(
+      'settings',
+      'save',
+      data: {
+        'serverType': _serverType.storageValue,
+        'host': host,
+        'port': port,
+        'codexHost': codexHost,
+        'codexPort': codexPort,
+        'codexWorkspace': codexWorkspace,
+      },
+    );
+    await ref
+        .read(settingsProvider.notifier)
+        .updateServer(
+          host,
+          port,
+          serverType: _serverType,
+          codexHost: codexHost,
+          codexPort: codexPort,
+          codexWorkspace: codexWorkspace,
+        );
+
+    await _resetServerScopedState(previousSettings: previousSettings);
+    final updatedSettings = ref.read(settingsProvider);
+    if (mounted) {
+      setState(() {
+        _serverType = updatedSettings.activeServerType;
+        _serverTypeDirty = false;
+      });
+    }
+    if (!mounted) return;
     ScaffoldMessenger.of(
       context,
     ).showSnackBar(const SnackBar(content: Text('Settings saved')));
+  }
+
+  Future<void> _resetServerScopedState({
+    required SettingsState previousSettings,
+  }) async {
+    final nextSettings = ref.read(settingsProvider);
+    final switchedServer =
+        previousSettings.connectedServerType !=
+        nextSettings.connectedServerType;
+    AppLogger.info(
+      'settings',
+      'resetServerScopedState',
+      data: {
+        'previousConnected': previousSettings.connectedServerType?.storageValue,
+        'nextConnected': nextSettings.connectedServerType?.storageValue,
+        'switchedServer': switchedServer,
+      },
+    );
+
+    await ref.read(activeSessionsProvider.notifier).clearAllActive();
+
+    ref.read(selectedProjectProvider.notifier).state = null;
+    ref.read(selectedSessionProvider.notifier).state = null;
+    ref.read(selectedModelProvider.notifier).state = null;
+    ref.read(activeCommandRunProvider.notifier).state = null;
+    ref.read(vcsBranchProvider.notifier).state = null;
+
+    ref.read(todosProvider.notifier).clear();
+    ref.read(sessionDiffProvider.notifier).clear();
+    ref.read(ptyProvider.notifier).clear();
+    ref.read(sessionErrorProvider.notifier).clear();
+    ref.read(commandRunsProvider.notifier).clear();
+
+    ref.invalidate(globalEventCoordinatorProvider);
+    ref.invalidate(eventServiceProvider);
+    ref.invalidate(codexRpcServiceProvider);
+    ref.invalidate(codexAppServerServiceProvider);
+    ref.invalidate(apiClientProvider);
+    ref.invalidate(appServiceProvider);
+    ref.invalidate(projectServiceProvider);
+    ref.invalidate(sessionServiceProvider);
+    ref.invalidate(messageServiceProvider);
+    ref.invalidate(providerServiceProvider);
+    ref.invalidate(todoServiceProvider);
+    ref.invalidate(sessionDiffServiceProvider);
+    ref.invalidate(ptyServiceProvider);
+
+    ref.invalidate(messagesProvider);
+    ref.invalidate(sessionStatusProvider);
+    ref.invalidate(projectsProvider);
+    ref.invalidate(sessionsProvider);
+    ref.invalidate(providersListProvider);
+    ref.invalidate(healthProvider);
+    ref.invalidate(vcsInfoProvider);
+    ref.invalidate(commandsProvider);
+    ref.invalidate(projectModelProvider);
+    ref.invalidate(defaultModelProvider);
+  }
+
+  Future<void> _copyDebugLogs() async {
+    final logs = AppLogger.dump();
+    await Clipboard.setData(ClipboardData(text: logs));
+    if (!mounted) return;
+    AppSnackBar.showInfo(context, 'Debug logs copied');
   }
 
   Future<void> _signInWithGoogle() async {

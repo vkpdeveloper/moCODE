@@ -1,14 +1,26 @@
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 
+import '../models/server_type.dart';
 import '../models/session.dart';
 import '../utils/json_parser.dart';
+import '../utils/app_logger.dart';
 import 'api_client.dart';
+import 'codex_app_server_service.dart';
 
 class SessionService {
   final ApiClient _apiClient;
+  final ServerType _serverType;
+  final CodexAppServerService? _codex;
 
-  SessionService(this._apiClient);
+  SessionService(
+    this._apiClient, {
+    ServerType serverType = ServerType.openCode,
+    CodexAppServerService? codex,
+  }) : _serverType = serverType,
+       _codex = codex;
+
+  bool get _useCodex => _serverType == ServerType.codex;
 
   Future<List<Session>> listSessions({
     String? directory,
@@ -17,6 +29,16 @@ class SessionService {
     String? search,
     int limit = 55,
   }) async {
+    if (_useCodex) {
+      AppLogger.debug(
+        'service.session',
+        'listSessions:codex',
+        data: {'workspace': directory},
+      );
+      return (_codex ?? (throw StateError('Codex service missing')))
+          .listSessions(workspace: directory);
+    }
+
     try {
       final response = await _apiClient.dio.get(
         '/session',
@@ -53,6 +75,16 @@ class SessionService {
     String? title,
     String? directory,
   }) async {
+    if (_useCodex) {
+      AppLogger.debug(
+        'service.session',
+        'createSession:codex',
+        data: {'workspace': directory},
+      );
+      return (_codex ?? (throw StateError('Codex service missing')))
+          .createSession(workspace: directory);
+    }
+
     try {
       final payload = <String, dynamic>{};
       if (parentID != null) payload['parentID'] = parentID;
@@ -71,6 +103,15 @@ class SessionService {
   }
 
   Future<Map<String, dynamic>> getSessionStatus({String? directory}) async {
+    if (_useCodex) {
+      final sessions = await listSessions(directory: directory);
+      final map = <String, dynamic>{};
+      for (final s in sessions) {
+        map[s.id] = {'type': 'idle'};
+      }
+      return map;
+    }
+
     try {
       final response = await _apiClient.dio.get(
         '/session/status',
@@ -83,6 +124,17 @@ class SessionService {
   }
 
   Future<Session> getSession(String sessionID, {String? directory}) async {
+    if (_useCodex) {
+      AppLogger.debug(
+        'service.session',
+        'getSession:codex',
+        data: {'sessionId': sessionID},
+      );
+      return (_codex ?? (throw StateError('Codex service missing'))).getSession(
+        sessionID,
+      );
+    }
+
     try {
       final response = await _apiClient.dio.get(
         '/session/$sessionID',
@@ -96,6 +148,12 @@ class SessionService {
   }
 
   Future<bool> deleteSession(String sessionID, {String? directory}) async {
+    if (_useCodex) {
+      await (_codex ?? (throw StateError('Codex service missing')))
+          .archiveThread(sessionID);
+      return true;
+    }
+
     try {
       await _apiClient.dio.delete(
         '/session/$sessionID',
@@ -113,6 +171,23 @@ class SessionService {
     int? archived,
     String? directory,
   }) async {
+    if (_useCodex) {
+      if (title != null && title.isNotEmpty) {
+        await (_codex ?? (throw StateError('Codex service missing')))
+            .setThreadName(sessionID, title);
+      }
+      if (archived != null) {
+        if (archived == 1) {
+          await (_codex ?? (throw StateError('Codex service missing')))
+              .archiveThread(sessionID);
+        } else {
+          await (_codex ?? (throw StateError('Codex service missing')))
+              .unarchiveThread(sessionID);
+        }
+      }
+      return getSession(sessionID, directory: directory);
+    }
+
     try {
       final response = await _apiClient.dio.patch(
         '/session/$sessionID',
@@ -130,6 +205,8 @@ class SessionService {
     String sessionID, {
     String? directory,
   }) async {
+    if (_useCodex) return const [];
+
     try {
       final response = await _apiClient.dio.get(
         '/session/$sessionID/children',
@@ -159,6 +236,12 @@ class SessionService {
     String? messageID,
     String? directory,
   }) async {
+    if (_useCodex) {
+      return (_codex ?? (throw StateError('Codex service missing'))).forkThread(
+        sessionID,
+      );
+    }
+
     try {
       final response = await _apiClient.dio.post(
         '/session/$sessionID/fork',
@@ -173,6 +256,12 @@ class SessionService {
   }
 
   Future<bool> abortSession(String sessionID, {String? directory}) async {
+    if (_useCodex) {
+      await (_codex ?? (throw StateError('Codex service missing')))
+          .interruptTurn(sessionID);
+      return true;
+    }
+
     try {
       await _apiClient.dio.post(
         '/session/$sessionID/abort',
@@ -185,6 +274,9 @@ class SessionService {
   }
 
   Future<Session> shareSession(String sessionID, {String? directory}) async {
+    if (_useCodex) {
+      return getSession(sessionID, directory: directory);
+    }
     try {
       final response = await _apiClient.dio.post(
         '/session/$sessionID/share',
@@ -198,6 +290,10 @@ class SessionService {
   }
 
   Future<Session> unshareSession(String sessionID, {String? directory}) async {
+    if (_useCodex) {
+      return getSession(sessionID, directory: directory);
+    }
+
     try {
       final response = await _apiClient.dio.delete(
         '/session/$sessionID/share',
@@ -217,6 +313,8 @@ class SessionService {
     bool? auto_,
     String? directory,
   }) async {
+    if (_useCodex) return false;
+
     try {
       await _apiClient.dio.post(
         '/session/$sessionID/summarize',
@@ -235,6 +333,12 @@ class SessionService {
     String? partID,
     String? directory,
   }) async {
+    if (_useCodex) {
+      await (_codex ?? (throw StateError('Codex service missing')))
+          .rollbackThread(sessionID);
+      return getSession(sessionID, directory: directory);
+    }
+
     try {
       final response = await _apiClient.dio.post(
         '/session/$sessionID/revert',
@@ -249,6 +353,10 @@ class SessionService {
   }
 
   Future<Session> unrevertSession(String sessionID, {String? directory}) async {
+    if (_useCodex) {
+      return getSession(sessionID, directory: directory);
+    }
+
     try {
       final response = await _apiClient.dio.post(
         '/session/$sessionID/unrevert',

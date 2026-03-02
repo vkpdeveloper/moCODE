@@ -182,5 +182,11 @@ CommandOutputPart _commandOutput(String id) {
 }
 
 TextPart _text(String id, String text) {
-  return TextPart(id: id, sessionID: 's', messageID: 'm', text: text);
+  return TextPart(
+    id: id,
+    sessionID: 's',
+    messageID: 'm',
+    synthetic: false,
+    text: text,
+  );
 }
