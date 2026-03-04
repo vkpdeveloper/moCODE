@@ -3,6 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../extensions/async_value_extensions.dart';
+import '../models/project.dart';
+import '../models/session.dart';
 import '../providers/providers.dart';
 import '../providers/ssh_provider.dart';
 import '../services/error_handler.dart';
@@ -12,6 +14,48 @@ import '../widgets/connection_error_view.dart';
 import '../widgets/ssh_connection_dialog.dart';
 import 'sftp_page.dart';
 import 'terminal_page.dart';
+
+final sessionProjectsProvider = FutureProvider<List<Project>>((ref) async {
+  final sessionService = ref.watch(sessionServiceProvider);
+  final sessions = await sessionService.listSessions(limit: 200, roots: false);
+
+  final latestByDirectory = <String, Session>{};
+  for (final session in sessions) {
+    final directory = session.directory.trim();
+    if (directory.isEmpty) continue;
+    final existing = latestByDirectory[directory];
+    if (existing == null || session.time.updated > existing.time.updated) {
+      latestByDirectory[directory] = session;
+    }
+  }
+
+  final projects =
+      latestByDirectory.entries.map((entry) {
+          final session = entry.value;
+          final directory = entry.key;
+          return Project(
+            id: session.projectID,
+            worktree: directory,
+            name: _directoryName(directory),
+            time: ProjectTime(
+              created: session.time.created,
+              updated: session.time.updated,
+            ),
+          );
+        }).toList()
+        ..sort((a, b) => (b.time.updated ?? 0).compareTo(a.time.updated ?? 0));
+
+  return projects;
+});
+
+String _directoryName(String directory) {
+  final normalized = directory.endsWith('/') && directory.length > 1
+      ? directory.substring(0, directory.length - 1)
+      : directory;
+  final parts = normalized.split('/').where((part) => part.isNotEmpty).toList();
+  if (parts.isEmpty) return normalized;
+  return parts.last;
+}
 
 class ProjectsScreen extends ConsumerWidget {
   const ProjectsScreen({super.key});
@@ -35,7 +79,7 @@ class ProjectsScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final projectsAsync = ref.watch(sortedProjectsProvider);
+    final projectsAsync = ref.watch(sessionProjectsProvider);
     final healthAsync = ref.watch(healthProvider);
 
     return Scaffold(
@@ -186,7 +230,7 @@ class ProjectsScreen extends ConsumerWidget {
                   color: AppTheme.accent,
                   backgroundColor: AppTheme.surface,
                   onRefresh: () async {
-                    ref.invalidate(projectsProvider);
+                    ref.invalidate(sessionProjectsProvider);
                     ref.invalidate(healthProvider);
                   },
                   child: ListView.separated(
@@ -365,7 +409,7 @@ class ProjectsScreen extends ConsumerWidget {
                 final apiError = ErrorHandler.parseError(error);
                 return ConnectionErrorView(
                   error: apiError,
-                  onRetry: () => ref.invalidate(projectsProvider),
+                  onRetry: () => ref.invalidate(sessionProjectsProvider),
                   showConfigureButton: apiError.shouldShowConfigure,
                 );
               },

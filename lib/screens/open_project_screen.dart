@@ -3,150 +3,46 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/legacy.dart';
 import 'package:go_router/go_router.dart';
 
+import '../models/file_node.dart';
 import '../models/project.dart';
 import '../models/session.dart';
-import '../services/project_service.dart';
 import '../providers/providers.dart';
+import '../services/file_service.dart';
+import '../services/project_service.dart';
 import '../theme/app_theme.dart';
 
 final openProjectPathProvider = StateProvider<String?>((ref) => null);
 final openProjectSearchProvider = StateProvider<String>((ref) => '');
 final openProjectSearchResetProvider = StateProvider<int>((ref) => 0);
 
-class FileTreeNodeState {
-  final bool expanded;
-  final bool loaded;
-  final bool loading;
-  final String? error;
-  final List<String> children;
+final openProjectDirectoryListProvider = FutureProvider.autoDispose
+    .family<List<FileNode>, String>((ref, directory) async {
+      if (directory.trim().isEmpty) return const [];
+      final fileService = ref.watch(fileServiceProvider);
+      return fileService.listDirectory(path: '', directory: directory);
+    });
 
-  const FileTreeNodeState({
-    this.expanded = false,
-    this.loaded = false,
-    this.loading = false,
-    this.error,
-    this.children = const [],
-  });
-
-  FileTreeNodeState copyWith({
-    bool? expanded,
-    bool? loaded,
-    bool? loading,
-    String? error,
-    List<String>? children,
-  }) {
-    return FileTreeNodeState(
-      expanded: expanded ?? this.expanded,
-      loaded: loaded ?? this.loaded,
-      loading: loading ?? this.loading,
-      error: error,
-      children: children ?? this.children,
-    );
-  }
-}
-
-class FileTreeState {
-  final Map<String, FileTreeNodeState> nodes;
-
-  const FileTreeState({this.nodes = const {}});
-
-  FileTreeState copyWith({Map<String, FileTreeNodeState>? nodes}) {
-    return FileTreeState(nodes: nodes ?? this.nodes);
-  }
-
-  FileTreeNodeState node(String path) {
-    return nodes[path] ?? const FileTreeNodeState();
-  }
-}
-
-class FileTreeNotifier extends StateNotifier<FileTreeState> {
-  FileTreeNotifier(this.ref, this.root) : super(const FileTreeState()) {
-    if (root.isNotEmpty) {
-      load(root);
-    }
-  }
-
-  final Ref ref;
-  final String root;
-  final Map<String, Future<void>> _inflight = {};
-
-  Future<void> load(String directory, {bool force = false}) async {
-    if (directory.isEmpty) return;
-    final current = state.node(directory);
-    if (!force && current.loaded) return;
-    final inflight = _inflight[directory];
-    if (inflight != null) return inflight;
-
-    _setNode(directory, current.copyWith(loading: true, error: null));
-
-    final promise = ref
-        .read(fileListProvider((path: '/', directory: directory)).future)
-        .then((entries) {
-          final children = _normalizeEntries(directory, entries);
-          _setNode(
-            directory,
-            current.copyWith(
-              loaded: true,
-              loading: false,
-              error: null,
-              children: children,
-            ),
-          );
-        })
-        .catchError((error) {
-          _setNode(
-            directory,
-            current.copyWith(loading: false, error: error.toString()),
-          );
-        })
-        .whenComplete(() {
-          _inflight.remove(directory);
-        });
-
-    _inflight[directory] = promise;
-    return promise;
-  }
-
-  void toggle(String directory) {
-    final current = state.node(directory);
-    final nextExpanded = !current.expanded;
-    _setNode(directory, current.copyWith(expanded: nextExpanded));
-    if (nextExpanded) {
-      load(directory);
-    }
-  }
-
-  void expand(String directory) {
-    final current = state.node(directory);
-    if (current.expanded) return;
-    _setNode(directory, current.copyWith(expanded: true));
-    load(directory);
-  }
-
-  void collapse(String directory) {
-    final current = state.node(directory);
-    if (!current.expanded) return;
-    _setNode(directory, current.copyWith(expanded: false));
-  }
-
-  void _setNode(String directory, FileTreeNodeState node) {
-    final next = Map<String, FileTreeNodeState>.from(state.nodes);
-    next[directory] = node;
-    state = state.copyWith(nodes: next);
-  }
-}
-
-final fileTreeProvider =
-    StateNotifierProvider.family<FileTreeNotifier, FileTreeState, String>(
-      (ref, root) => FileTreeNotifier(ref, root),
-    );
-
-class _TreeEntry {
-  final String path;
-  final int depth;
-
-  const _TreeEntry({required this.path, required this.depth});
-}
+final openProjectSearchResultsProvider = FutureProvider.autoDispose
+    .family<List<String>, ({String directory, String query})>((
+      ref,
+      args,
+    ) async {
+      final query = args.query.trim();
+      if (query.isEmpty || args.directory.trim().isEmpty) return const [];
+      final fileService = ref.watch(fileServiceProvider);
+      if (query.contains('/')) {
+        return _searchDirectoryPath(
+          fileService: fileService,
+          rootDirectory: args.directory,
+          query: query,
+        );
+      }
+      return fileService.searchDirectories(
+        query: query,
+        directory: args.directory,
+        limit: 200,
+      );
+    });
 
 class OpenProjectScreen extends ConsumerWidget {
   const OpenProjectScreen({super.key});
@@ -161,10 +57,17 @@ class OpenProjectScreen extends ConsumerWidget {
     final searchText = ref.watch(openProjectSearchProvider).trim();
     final searchReset = ref.watch(openProjectSearchResetProvider);
 
-    final filesAsync = currentPath.isEmpty
-        ? const AsyncValue<List<String>>.loading()
+    final directoryListAsync = currentPath.isEmpty
+        ? const AsyncValue<List<FileNode>>.loading()
+        : ref.watch(openProjectDirectoryListProvider(currentPath));
+
+    final searchResultsAsync = searchText.isEmpty || currentPath.isEmpty
+        ? const AsyncValue<List<String>>.data([])
         : ref.watch(
-            fileListProvider((path: searchText, directory: currentPath)),
+            openProjectSearchResultsProvider((
+              directory: currentPath,
+              query: searchText,
+            )),
           );
 
     if (pathAsync.hasError && pathInfo == null) {
@@ -234,7 +137,7 @@ class OpenProjectScreen extends ConsumerWidget {
                     ref.read(openProjectSearchProvider.notifier).state = value;
                   },
                   decoration: const InputDecoration(
-                    hintText: 'Type to jump into a subfolder',
+                    hintText: 'Search directories',
                     prefixIcon: Icon(Icons.search, size: 18),
                   ),
                 ),
@@ -247,41 +150,15 @@ class OpenProjectScreen extends ConsumerWidget {
                     ref: ref,
                     currentPath: currentPath,
                     searchText: searchText,
-                    filesAsync: filesAsync,
+                    resultsAsync: searchResultsAsync,
                   )
-                : _buildTree(ref: ref, currentPath: currentPath),
+                : _buildDirectoryList(
+                    ref: ref,
+                    currentPath: currentPath,
+                    filesAsync: directoryListAsync,
+                  ),
           ),
         ],
-      ),
-      bottomNavigationBar: Container(
-        padding: const EdgeInsets.fromLTRB(16, 10, 16, 16),
-        decoration: BoxDecoration(
-          color: AppTheme.background,
-          border: Border(top: BorderSide(color: AppTheme.border)),
-        ),
-        child: Row(
-          children: [
-            Expanded(
-              child: Text(
-                currentPath.isEmpty ? 'No folder selected' : currentPath,
-                style: const TextStyle(
-                  color: AppTheme.textTertiary,
-                  fontSize: 10,
-                ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-            const SizedBox(width: 12),
-            ElevatedButton.icon(
-              onPressed: currentPath.isEmpty
-                  ? null
-                  : () => _selectFolder(context, ref, currentPath),
-              icon: const Icon(Icons.check, size: 16),
-              label: const Text('SELECT'),
-            ),
-          ],
-        ),
       ),
     );
   }
@@ -312,34 +189,27 @@ Widget _buildPathRow({
   );
 }
 
-Widget _buildSearchResults({
+Widget _buildDirectoryList({
   required WidgetRef ref,
   required String currentPath,
-  required String searchText,
-  required AsyncValue<List<String>> filesAsync,
+  required AsyncValue<List<FileNode>> filesAsync,
 }) {
+  if (currentPath.isEmpty) {
+    return const Center(
+      child: CircularProgressIndicator(color: AppTheme.accent),
+    );
+  }
+
   return filesAsync.when(
     data: (nodes) {
-      final directories = nodes.toList()..sort((a, b) => a.compareTo(b));
+      final directories =
+          nodes.where((node) => node.isDirectory && !node.ignored).toList()
+            ..sort(
+              (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()),
+            );
 
       if (directories.isEmpty) {
-        return Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                Icons.folder_off_outlined,
-                size: 40,
-                color: AppTheme.textTertiary,
-              ),
-              const SizedBox(height: 12),
-              const Text(
-                'No folders found',
-                style: TextStyle(color: AppTheme.textSecondary, fontSize: 12),
-              ),
-            ],
-          ),
-        );
+        return _buildEmptyState();
       }
 
       return ListView.separated(
@@ -348,38 +218,27 @@ Widget _buildSearchResults({
         separatorBuilder: (context, index) => const SizedBox(height: 6),
         itemBuilder: (context, index) {
           final node = directories[index];
-          return GestureDetector(
-            onTap: () => _enterDirectory(ref, node, currentPath),
-            child: Container(
-              decoration: BoxDecoration(
-                color: AppTheme.surface,
-                border: Border.all(color: AppTheme.border),
+          return _DirectoryTile(
+            title: Text(
+              node.name,
+              style: const TextStyle(
+                color: AppTheme.textPrimary,
+                fontSize: 14,
+                fontWeight: FontWeight.w500,
               ),
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-              child: Row(
-                children: [
-                  Icon(Icons.folder_outlined, color: AppTheme.accent, size: 18),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Text(
-                      node,
-                      style: const TextStyle(
-                        color: AppTheme.textPrimary,
-                        fontSize: 13,
-                        fontWeight: FontWeight.w500,
-                      ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                  const Icon(
-                    Icons.chevron_right,
-                    color: AppTheme.textTertiary,
-                    size: 18,
-                  ),
-                ],
-              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
             ),
+            subtitle: Text(
+              _compactPath(node.absolute),
+              style: const TextStyle(
+                color: AppTheme.textTertiary,
+                fontSize: 11,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+            onTap: () => _openProjectFromDirectory(context, ref, node.absolute),
           );
         },
       );
@@ -400,8 +259,86 @@ Widget _buildSearchResults({
           const SizedBox(height: 12),
           OutlinedButton(
             onPressed: () {
+              ref.invalidate(openProjectDirectoryListProvider(currentPath));
+            },
+            child: const Text('RETRY'),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+Widget _buildSearchResults({
+  required WidgetRef ref,
+  required String currentPath,
+  required String searchText,
+  required AsyncValue<List<String>> resultsAsync,
+}) {
+  return resultsAsync.when(
+    data: (nodes) {
+      final directories = nodes.toSet().toList()
+        ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+
+      if (directories.isEmpty) {
+        return _buildEmptyState();
+      }
+
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Padding(
+            padding: EdgeInsets.fromLTRB(16, 12, 16, 8),
+            child: Text(
+              'Search Results',
+              style: TextStyle(color: AppTheme.textSecondary, fontSize: 12),
+            ),
+          ),
+          Expanded(
+            child: ListView.separated(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+              itemCount: directories.length,
+              separatorBuilder: (context, index) => const SizedBox(height: 6),
+              itemBuilder: (context, index) {
+                final node = directories[index];
+                final destination = _resolveSearchPath(currentPath, node);
+                final displayPath = _displaySearchPath(
+                  currentPath,
+                  destination,
+                );
+                final searchTail = _searchTail(searchText);
+                return _DirectoryTile(
+                  title: _buildHighlightedPathLabel(displayPath, searchTail),
+                  onTap: () =>
+                      _openProjectFromDirectory(context, ref, destination),
+                );
+              },
+            ),
+          ),
+        ],
+      );
+    },
+    loading: () =>
+        const Center(child: CircularProgressIndicator(color: AppTheme.accent)),
+    error: (error, _) => Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.error_outline, size: 40, color: AppTheme.error),
+          const SizedBox(height: 12),
+          Text(
+            error.toString(),
+            style: const TextStyle(color: AppTheme.textTertiary, fontSize: 12),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 12),
+          OutlinedButton(
+            onPressed: () {
               ref.invalidate(
-                fileListProvider((path: searchText, directory: currentPath)),
+                openProjectSearchResultsProvider((
+                  directory: currentPath,
+                  query: searchText,
+                )),
               );
             },
             child: const Text('RETRY'),
@@ -412,172 +349,148 @@ Widget _buildSearchResults({
   );
 }
 
-Widget _buildTree({required WidgetRef ref, required String currentPath}) {
-  if (currentPath.isEmpty) {
-    return const Center(
-      child: CircularProgressIndicator(color: AppTheme.accent),
-    );
-  }
+Widget _buildHighlightedPathLabel(String path, String queryTail) {
+  final normalized = _trimTrailingSlash(path);
+  final slash = normalized.lastIndexOf('/');
+  final prefix = slash == -1 ? '' : normalized.substring(0, slash + 1);
+  final leaf = slash == -1 ? normalized : normalized.substring(slash + 1);
+  final leafLower = leaf.toLowerCase();
+  final queryLower = queryTail.toLowerCase();
+  final matchIndex = queryLower.isEmpty ? -1 : leafLower.indexOf(queryLower);
 
-  final treeState = ref.watch(fileTreeProvider(currentPath));
-  final treeNotifier = ref.read(fileTreeProvider(currentPath).notifier);
-  final rootState = treeState.node(currentPath);
-  final visibleNodes = _buildVisibleNodes(currentPath, treeState);
-
-  if (rootState.loaded && visibleNodes.isEmpty) {
-    return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
+  if (matchIndex < 0) {
+    return Text.rich(
+      TextSpan(
         children: [
-          Icon(
-            Icons.folder_off_outlined,
-            size: 40,
-            color: AppTheme.textTertiary,
+          TextSpan(
+            text: prefix,
+            style: const TextStyle(color: AppTheme.textTertiary, fontSize: 13),
           ),
-          const SizedBox(height: 12),
-          const Text(
-            'No folders found',
-            style: TextStyle(color: AppTheme.textSecondary, fontSize: 12),
+          TextSpan(
+            text: leaf,
+            style: const TextStyle(
+              color: AppTheme.textPrimary,
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const TextSpan(
+            text: '/',
+            style: TextStyle(color: AppTheme.textTertiary, fontSize: 13),
           ),
         ],
       ),
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
     );
   }
 
-  return ListView.builder(
-    padding: const EdgeInsets.all(12),
-    itemCount: visibleNodes.length,
-    itemBuilder: (context, index) {
-      final entry = visibleNodes[index];
-      final nodeState = treeState.node(entry.path);
-      final depth = entry.depth;
-      return Column(
-        key: ValueKey(entry.path),
-        children: [
-          Container(
-            decoration: BoxDecoration(
-              color: AppTheme.surface,
-              border: Border.all(color: AppTheme.border),
-            ),
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-            margin: const EdgeInsets.only(bottom: 6),
-            child: Row(
-              children: [
-                SizedBox(width: depth * 16),
-                IconButton(
-                  icon: Icon(
-                    nodeState.expanded
-                        ? Icons.expand_more
-                        : Icons.chevron_right,
-                    size: 18,
-                    color: AppTheme.textTertiary,
-                  ),
-                  onPressed: () => treeNotifier.toggle(entry.path),
-                  visualDensity: VisualDensity.compact,
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(
-                    minWidth: 24,
-                    minHeight: 24,
-                  ),
-                ),
-                Icon(Icons.folder_outlined, color: AppTheme.accent, size: 18),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    _leafName(entry.path),
-                    style: const TextStyle(
-                      color: AppTheme.textPrimary,
-                      fontSize: 13,
-                      fontWeight: FontWeight.w500,
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-                TextButton(
-                  onPressed: () => _selectDirectory(ref, entry.path),
-                  child: const Text('SELECT'),
-                ),
-              ],
-            ),
+  return Text.rich(
+    TextSpan(
+      children: [
+        TextSpan(
+          text: prefix,
+          style: const TextStyle(color: AppTheme.textTertiary, fontSize: 13),
+        ),
+        TextSpan(
+          text: leaf.substring(0, matchIndex),
+          style: const TextStyle(
+            color: AppTheme.textPrimary,
+            fontSize: 14,
+            fontWeight: FontWeight.w500,
           ),
-          if (nodeState.expanded && nodeState.loading)
-            Padding(
-              padding: EdgeInsets.only(left: (depth + 1) * 16, bottom: 8),
-              child: const Align(
-                alignment: Alignment.centerLeft,
-                child: SizedBox(
-                  width: 16,
-                  height: 16,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    color: AppTheme.accent,
-                  ),
-                ),
-              ),
-            ),
-          if (nodeState.expanded && nodeState.error != null)
-            Padding(
-              padding: EdgeInsets.only(left: (depth + 1) * 16, bottom: 8),
-              child: Row(
-                children: [
-                  const Icon(
-                    Icons.error_outline,
-                    size: 16,
-                    color: AppTheme.error,
-                  ),
-                  const SizedBox(width: 6),
-                  Expanded(
-                    child: Text(
-                      nodeState.error ?? 'Failed to load folder',
-                      style: const TextStyle(
-                        color: AppTheme.textTertiary,
-                        fontSize: 11,
-                      ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                  TextButton(
-                    onPressed: () => treeNotifier.load(entry.path, force: true),
-                    child: const Text('RETRY'),
-                  ),
-                ],
-              ),
-            ),
-        ],
-      );
-    },
+        ),
+        TextSpan(
+          text: leaf.substring(matchIndex, matchIndex + queryTail.length),
+          style: const TextStyle(
+            color: AppTheme.accent,
+            fontSize: 14,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        TextSpan(
+          text: leaf.substring(matchIndex + queryTail.length),
+          style: const TextStyle(
+            color: AppTheme.textPrimary,
+            fontSize: 14,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+        const TextSpan(
+          text: '/',
+          style: TextStyle(color: AppTheme.textTertiary, fontSize: 13),
+        ),
+      ],
+    ),
+    maxLines: 1,
+    overflow: TextOverflow.ellipsis,
   );
 }
 
-List<_TreeEntry> _buildVisibleNodes(String root, FileTreeState state) {
-  final result = <_TreeEntry>[];
+class _DirectoryTile extends StatelessWidget {
+  const _DirectoryTile({
+    required this.title,
+    this.subtitle,
+    required this.onTap,
+  });
 
-  void visit(String dir, int depth) {
-    final node = state.node(dir);
-    for (final child in node.children) {
-      result.add(_TreeEntry(path: child, depth: depth));
-      final childState = state.node(child);
-      if (childState.expanded) {
-        visit(child, depth + 1);
-      }
-    }
+  final Widget title;
+  final Widget? subtitle;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        decoration: BoxDecoration(
+          color: AppTheme.surface,
+          border: Border.all(color: AppTheme.border),
+        ),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        child: Row(
+          children: [
+            Icon(Icons.folder_outlined, color: AppTheme.accent, size: 18),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  title,
+                  if (subtitle != null) ...[
+                    const SizedBox(height: 2),
+                    subtitle!,
+                  ],
+                ],
+              ),
+            ),
+            const Icon(
+              Icons.chevron_right,
+              color: AppTheme.textTertiary,
+              size: 18,
+            ),
+          ],
+        ),
+      ),
+    );
   }
-
-  visit(root, 0);
-  return result;
 }
 
-void _selectDirectory(WidgetRef ref, String directory) {
-  ref.read(openProjectPathProvider.notifier).state = directory;
-  _clearSearch(ref);
-}
-
-void _enterDirectory(WidgetRef ref, String node, String currentPath) {
-  final nextPath = node.startsWith('/') ? node : _joinPath(currentPath, node);
-  ref.read(openProjectPathProvider.notifier).state = nextPath;
-  _clearSearch(ref);
+Widget _buildEmptyState() {
+  return Center(
+    child: Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(Icons.folder_off_outlined, size: 40, color: AppTheme.textTertiary),
+        const SizedBox(height: 12),
+        const Text(
+          'No folders found',
+          style: TextStyle(color: AppTheme.textSecondary, fontSize: 12),
+        ),
+      ],
+    ),
+  );
 }
 
 void _goUp(WidgetRef ref, String currentPath, String fallback) {
@@ -621,47 +534,95 @@ String _trimTrailingSlash(String path) {
   return path.endsWith('/') ? path.substring(0, path.length - 1) : path;
 }
 
-String _leafName(String path) {
-  final normalized = _trimTrailingSlash(path);
-  final index = normalized.lastIndexOf('/');
-  if (index == -1) return normalized;
-  return normalized.substring(index + 1);
+String _resolveSearchPath(String currentPath, String searchResult) {
+  final normalized = _trimTrailingSlash(searchResult.trim());
+  if (normalized.startsWith('/')) {
+    return normalized;
+  }
+  return _joinPath(currentPath, normalized);
 }
 
-List<String> _normalizeEntries(String directory, List<String> entries) {
-  final out = <String>{};
-  for (final entry in entries) {
-    var relative = entry.trim();
-    if (relative.isEmpty) continue;
+String _searchTail(String searchText) {
+  final normalized = searchText.trim().replaceAll('\\', '/');
+  final parts = normalized.split('/');
+  return parts.isEmpty ? normalized : parts.last.trim();
+}
 
-    if (relative.startsWith('/')) {
-      final absolute = _trimTrailingSlash(relative);
-      if (!absolute.startsWith(directory)) continue;
-      relative = absolute.substring(directory.length);
-      if (relative.startsWith('/')) {
-        relative = relative.substring(1);
+String _displaySearchPath(String currentPath, String destination) {
+  final base = _trimTrailingSlash(currentPath);
+  final path = _trimTrailingSlash(destination);
+  if (path.startsWith('$base/')) {
+    return path.substring(base.length + 1);
+  }
+  if (path.startsWith('/')) {
+    return path.substring(1);
+  }
+  return path;
+}
+
+String _compactPath(String absolutePath) {
+  if (absolutePath.startsWith('/home/')) {
+    final segments = absolutePath.split('/');
+    if (segments.length >= 4) {
+      return '~/${segments.sublist(3).join('/')}';
+    }
+  }
+  return absolutePath;
+}
+
+Future<List<String>> _searchDirectoryPath({
+  required FileService fileService,
+  required String rootDirectory,
+  required String query,
+}) async {
+  final normalized = query.trim().replaceAll('\\', '/');
+  final parts = normalized
+      .split('/')
+      .map((part) => part.trim())
+      .where((part) => part.isNotEmpty)
+      .toList();
+  if (parts.isEmpty) return const [];
+
+  var current = _trimTrailingSlash(rootDirectory);
+  for (var i = 0; i < parts.length - 1; i++) {
+    final segment = parts[i];
+    final entries = await fileService.listDirectory(
+      path: '',
+      directory: current,
+    );
+    final directories = entries
+        .where((node) => node.isDirectory && !node.ignored)
+        .toList();
+    FileNode? next;
+    for (final node in directories) {
+      if (node.name.toLowerCase() == segment.toLowerCase()) {
+        next = node;
+        break;
       }
     }
-
-    relative = _trimTrailingSlash(relative);
-    if (relative.isEmpty) continue;
-
-    final firstSlash = relative.indexOf('/');
-    final immediate = firstSlash == -1
-        ? relative
-        : relative.substring(0, firstSlash);
-    if (immediate.isEmpty) continue;
-
-    final child = _joinPath(directory, immediate);
-    if (child == directory) continue;
-    out.add(child);
+    next ??= directories.cast<FileNode?>().firstWhere(
+      (node) =>
+          node != null &&
+          node.name.toLowerCase().startsWith(segment.toLowerCase()),
+      orElse: () => null,
+    );
+    if (next == null) return const [];
+    current = _trimTrailingSlash(next.absolute);
   }
-  final list = out.toList();
-  list.sort((a, b) => _leafName(a).compareTo(_leafName(b)));
-  return list;
+
+  final tail = parts.last.toLowerCase();
+  final candidates = await fileService.listDirectory(
+    path: '',
+    directory: current,
+  );
+  return candidates
+      .where((node) => node.isDirectory && !node.ignored)
+      .where((node) => node.name.toLowerCase().contains(tail))
+      .map((node) => node.absolute)
+      .toList();
 }
 
-Future<void> _selectFolder(
+Future<void> _openProjectFromDirectory(
   BuildContext context,
   WidgetRef ref,
   String directory,
