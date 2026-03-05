@@ -427,7 +427,7 @@ app.post("/api/early-access", async (c) => {
       isNewSignup = true;
 
       const seatsResult = await db
-        .select({ availableSeats: earlyAccessSeats.availableSeats })
+        .select({ id: earlyAccessSeats.id, availableSeats: earlyAccessSeats.availableSeats })
         .from(earlyAccessSeats)
         .limit(1);
 
