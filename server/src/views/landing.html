@@ -159,13 +159,12 @@
             voice-to-text at real-time speed.
           </p>
           <form class="hero-early-access" id="early-access-form">
-            <p class="hero-early-access-text">
-              Get your early access
-              <span
-                id="early-access-count"
-                class="hero-early-access-count"
-              ></span>
-            </p>
+            <div class="hero-early-access-header">
+              <p class="hero-early-access-title">Get Your <span class="accent">100% Free Lifetime</span> Early Access</p>
+              <p class="hero-early-access-subtitle">
+                <span id="available-seats" class="hero-early-access-seats" data-seats="15">15</span> free lifetime seats remaining — claim yours before they're gone!
+              </p>
+            </div>
             <div class="hero-early-access-input-group">
               <input
                 type="email"
@@ -179,7 +178,7 @@
                 type="submit"
                 class="btn btn-primary hero-early-access-btn"
               >
-                Join
+                Claim Free Seat
               </button>
             </div>
             <p id="early-access-message" class="hero-early-access-message"></p>
@@ -409,11 +408,19 @@
         "early-access-message",
       );
       const earlyAccessCountEl = document.getElementById("early-access-count");
+      const availableSeatsEl = document.getElementById("available-seats");
 
       if (earlyAccessCountEl) {
         const count = parseInt(earlyAccessCountEl.dataset.count, 10);
         if (!isNaN(count)) {
           earlyAccessCountEl.textContent = count.toLocaleString() + " joined";
+        }
+      }
+
+      if (availableSeatsEl) {
+        const seats = parseInt(availableSeatsEl.dataset.seats, 10);
+        if (!isNaN(seats)) {
+          availableSeatsEl.textContent = seats;
         }
       }
 
@@ -450,6 +457,13 @@
           earlyAccessForm.reset();
           earlyAccessMessage.textContent =
             data.message || "You're on the list!";
+
+          if (data.seatsAvailable && availableSeatsEl) {
+            const currentSeats = parseInt(availableSeatsEl.textContent, 10);
+            if (!isNaN(currentSeats) && currentSeats > 0) {
+              availableSeatsEl.textContent = (currentSeats - 1).toString();
+            }
+          }
         } catch (error) {
           earlyAccessMessage.textContent = "Network error. Please try again.";
         } finally {
