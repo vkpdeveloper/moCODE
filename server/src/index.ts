@@ -1,6 +1,7 @@
 import { and, count, desc, eq, gte } from "drizzle-orm";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
+import { logger } from "hono/logger";
 import { secureHeaders } from "hono/secure-headers";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -54,6 +55,8 @@ const earlyAccessSchema = z.object({
 });
 
 const app = new Hono<{ Variables: Variables }>();
+
+app.use("*", logger());
 
 const isHttpsAppBaseUrl = env.APP_BASE_URL.startsWith("https://");
 
@@ -393,15 +396,30 @@ app.post("/api/early-access", async (c) => {
   }
 
   try {
-    await db.insert(earlyAccessEmails).values({
-      email: input.data.email,
-    });
+    const existing = await db
+      .select({ email: earlyAccessEmails.email })
+      .from(earlyAccessEmails)
+      .where(eq(earlyAccessEmails.email, input.data.email))
+      .limit(1);
 
-    sendEarlyAccessEmail({ to: input.data.email }).catch(console.error);
+    if (!existing.length) {
+      await db.insert(earlyAccessEmails).values({
+        email: input.data.email,
+      });
+    }
 
-    return c.json({ ok: true, message: "You're on the list!" });
+    sendEarlyAccessEmail({ to: input.data.email })
+      .then(() => console.log(`Early access email sent to ${input.data.email}`))
+      .catch((err) => console.error(`Failed to send early access email to ${input.data.email}:`, err));
+
+    const message = existing.length
+      ? "You're already on the list! We'll keep you updated."
+      : "You're on the list!";
+
+    return c.json({ ok: true, message });
   } catch (error) {
-    return c.json({ ok: true, message: "You're already on the list!" });
+    console.error("Early access error:", error);
+    return c.json({ error: "Failed to join early access" }, 500);
   }
 });
 
