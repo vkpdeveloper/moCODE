@@ -69,6 +69,14 @@ export const earlyAccessEmails = pgTable('early_access_emails', {
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 });
 
+export const earlyAccessSeats = pgTable('early_access_seats', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  totalSeats: integer('total_seats').notNull().default(15),
+  availableSeats: integer('available_seats').notNull().default(15),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+});
+
 export const aiModelUsages = pgTable(
   'ai_model_usages',
   {

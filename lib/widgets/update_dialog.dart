@@ -13,8 +13,7 @@ class UpdateDialog extends ConsumerStatefulWidget {
 
 class _UpdateDialogState extends ConsumerState<UpdateDialog> {
   bool _isLoading = false;
-  bool _isDownloading = false;
-  double _downloadProgress = 0.0;
+  String? _errorMessage;
 
   @override
   void initState() {
@@ -23,11 +22,17 @@ class _UpdateDialogState extends ConsumerState<UpdateDialog> {
   }
 
   Future<void> _startImmediateUpdate() async {
-    setState(() => _isLoading = true);
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
     final updateService = ref.read(inAppUpdateServiceProvider);
     await updateService.performImmediateUpdate();
     if (mounted) {
-      setState(() => _isLoading = false);
+      setState(() {
+        _isLoading = false;
+        _errorMessage = updateService.errorMessage;
+      });
     }
   }
 
@@ -68,22 +73,20 @@ class _UpdateDialogState extends ConsumerState<UpdateDialog> {
                 style: TextStyle(color: AppTheme.textSecondary, fontSize: 13),
               ),
               const SizedBox(height: 20),
-              if (_isLoading || _isDownloading)
+              if (_isLoading)
                 Column(
                   children: [
                     LinearProgressIndicator(
-                      value: _isDownloading ? _downloadProgress : null,
+                      value: null,
                       backgroundColor: AppTheme.background,
                       valueColor: const AlwaysStoppedAnimation<Color>(
                         AppTheme.accent,
                       ),
                     ),
                     const SizedBox(height: 8),
-                    Text(
-                      _isDownloading
-                          ? 'Downloading update... ${(_downloadProgress * 100).toInt()}%'
-                          : 'Starting update...',
-                      style: const TextStyle(
+                    const Text(
+                      'Starting update...',
+                      style: TextStyle(
                         color: AppTheme.textTertiary,
                         fontSize: 12,
                       ),
@@ -91,14 +94,39 @@ class _UpdateDialogState extends ConsumerState<UpdateDialog> {
                   ],
                 )
               else
-                const Text(
-                  'The update will start automatically. If not, please try again.',
-                  style: TextStyle(color: AppTheme.textTertiary, fontSize: 12),
+                Text(
+                  _errorMessage == null
+                      ? 'The update will start automatically. If not, please try again.'
+                      : 'Could not start in-app update. Use Retry or open the Play Store.',
+                  style: const TextStyle(
+                    color: AppTheme.textTertiary,
+                    fontSize: 12,
+                  ),
                 ),
+              if (_errorMessage != null) ...[
+                const SizedBox(height: 8),
+                Text(
+                  _errorMessage!,
+                  style: const TextStyle(color: Colors.redAccent, fontSize: 12),
+                ),
+              ],
               const SizedBox(height: 24),
               Row(
                 mainAxisAlignment: MainAxisAlignment.end,
                 children: [
+                  if (!_isLoading)
+                    TextButton(
+                      onPressed: () async {
+                        final updateService = ref.read(
+                          inAppUpdateServiceProvider,
+                        );
+                        await updateService.openPlayStoreListing();
+                      },
+                      child: const Text(
+                        'Open Play Store',
+                        style: TextStyle(color: AppTheme.textSecondary),
+                      ),
+                    ),
                   if (!_isLoading)
                     TextButton(
                       onPressed: _startImmediateUpdate,

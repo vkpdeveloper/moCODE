@@ -1,6 +1,7 @@
 import { and, count, desc, eq, gte } from "drizzle-orm";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
+import { logger } from "hono/logger";
 import { secureHeaders } from "hono/secure-headers";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -14,6 +15,7 @@ import {
   accountDeletionRequests,
   checkoutSessions,
   earlyAccessEmails,
+  earlyAccessSeats,
   entitlements,
 } from "./db/schema";
 import { corsOrigins, env } from "./lib/env";
@@ -54,6 +56,8 @@ const earlyAccessSchema = z.object({
 });
 
 const app = new Hono<{ Variables: Variables }>();
+
+app.use("*", logger());
 
 const isHttpsAppBaseUrl = env.APP_BASE_URL.startsWith("https://");
 
@@ -103,10 +107,24 @@ app.get("/", async (c) => {
     .from(earlyAccessEmails);
   const earlyAccessCount = (earlyAccessCountResult[0]?.count ?? 0) + 100;
 
-  const html = landingHtml.replace(
-    'id="early-access-count"',
-    `id="early-access-count" data-count="${earlyAccessCount}"`,
-  );
+  let availableSeats = 15;
+  const seatsResult = await db
+    .select({ availableSeats: earlyAccessSeats.availableSeats })
+    .from(earlyAccessSeats)
+    .limit(1);
+  if (seatsResult.length > 0) {
+    availableSeats = seatsResult[0].availableSeats;
+  }
+
+  const html = landingHtml
+    .replace(
+      'id="early-access-count"',
+      `id="early-access-count" data-count="${earlyAccessCount}"`,
+    )
+    .replace(
+      'id="available-seats"',
+      `id="available-seats" data-seats="${availableSeats}"`,
+    );
   return c.html(html);
 });
 
@@ -393,15 +411,53 @@ app.post("/api/early-access", async (c) => {
   }
 
   try {
-    await db.insert(earlyAccessEmails).values({
-      email: input.data.email,
-    });
+    const existing = await db
+      .select({ email: earlyAccessEmails.email })
+      .from(earlyAccessEmails)
+      .where(eq(earlyAccessEmails.email, input.data.email))
+      .limit(1);
 
-    sendEarlyAccessEmail({ to: input.data.email }).catch(console.error);
+    let isNewSignup = false;
+    let seatsAvailable = false;
 
-    return c.json({ ok: true, message: "You're on the list!" });
+    if (!existing.length) {
+      await db.insert(earlyAccessEmails).values({
+        email: input.data.email,
+      });
+      isNewSignup = true;
+
+      const seatsResult = await db
+        .select({ id: earlyAccessSeats.id, availableSeats: earlyAccessSeats.availableSeats })
+        .from(earlyAccessSeats)
+        .limit(1);
+
+      if (seatsResult.length > 0 && seatsResult[0].availableSeats > 0) {
+        await db
+          .update(earlyAccessSeats)
+          .set({ availableSeats: seatsResult[0].availableSeats - 1 })
+          .where(eq(earlyAccessSeats.id, seatsResult[0].id));
+        seatsAvailable = true;
+      }
+    }
+
+    sendEarlyAccessEmail({ to: input.data.email })
+      .then(() => console.log(`Early access email sent to ${input.data.email}`))
+      .catch((err) => console.error(`Failed to send early access email to ${input.data.email}:`, err));
+
+    let message = existing.length
+      ? "You're already on the list! We'll keep you updated."
+      : "You're on the list!";
+
+    if (isNewSignup && seatsAvailable) {
+      message += " 🎉 You've claimed a free lifetime seat!";
+    } else if (isNewSignup && !seatsAvailable) {
+      message += " You've been added to the waitlist.";
+    }
+
+    return c.json({ ok: true, message, seatsAvailable });
   } catch (error) {
-    return c.json({ ok: true, message: "You're already on the list!" });
+    console.error("Early access error:", error);
+    return c.json({ error: "Failed to join early access" }, 500);
   }
 });
 

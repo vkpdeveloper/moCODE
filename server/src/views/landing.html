@@ -139,15 +139,7 @@
           <a href="#features" class="nav-link">Features</a>
           <a href="#screenshots" class="nav-link">Screenshots</a>
           <a href="#setup" class="nav-link">Setup</a>
-          <a
-            href="https://play.google.com/store/apps/details?id=com.ordinity.mocode"
-            targe="_blank"
-            rel="noopener noreferrer"
-            class="btn btn-primary"
-            style="padding: 10px 20px; font-size: 14px"
-          >
-            Get the App
-          </a>
+
         </nav>
       </div>
     </header>
@@ -166,26 +158,13 @@
             device. Write, review, and ship code from anywhere with direct
             voice-to-text at real-time speed.
           </p>
-          <div class="hero-actions">
-            <a
-              href="https://play.google.com/store/apps/details?id=com.ordinity.mocode"
-              target="_blank"
-              rel="noopener noreferrer"
-              class="btn btn-primary"
-            >
-              <span class="btn-icon">▶</span>
-              Join Google Play Tester
-            </a>
-            <a href="#features" class="btn btn-secondary">See Features</a>
-          </div>
           <form class="hero-early-access" id="early-access-form">
-            <p class="hero-early-access-text">
-              Get early access updates
-              <span
-                id="early-access-count"
-                class="hero-early-access-count"
-              ></span>
-            </p>
+            <div class="hero-early-access-header">
+              <p class="hero-early-access-title">Get Your <span class="accent">100% Free Lifetime</span> Early Access</p>
+              <p class="hero-early-access-subtitle">
+                <span id="available-seats" class="hero-early-access-seats" data-seats="15">15</span> free lifetime seats remaining — claim yours before they're gone!
+              </p>
+            </div>
             <div class="hero-early-access-input-group">
               <input
                 type="email"
@@ -199,7 +178,7 @@
                 type="submit"
                 class="btn btn-primary hero-early-access-btn"
               >
-                Join
+                Claim Free Seat
               </button>
             </div>
             <p id="early-access-message" class="hero-early-access-message"></p>
@@ -413,41 +392,6 @@
       </div>
     </section>
 
-    <section class="cta">
-      <div class="container">
-        <div class="cta-content">
-          <h2 class="cta-title">Ready to Code on the Go?</h2>
-          <p class="cta-description">
-            Join our Google Play Tester program and be the first to experience
-            new features. Your feedback shapes the future of moCODE.
-          </p>
-          <div class="cta-buttons">
-            <a
-              href="https://play.google.com/store/apps/details?id=com.ordinity.mocode"
-              target="_blank"
-              rel="noopener noreferrer"
-              class="play-store-badge"
-            >
-              <svg
-                class="play-store-icon"
-                viewBox="0 0 24 24"
-                fill="currentColor"
-                aria-hidden="true"
-              >
-                <path
-                  d="M3.609 1.814L13.792 12 3.61 22.186a.996.996 0 01-.61-.92V2.734a1 1 0 01.609-.92zm10.89 10.893l2.302 2.302-10.937 6.333 8.635-8.635zm3.199-3.198l2.807 1.626a1 1 0 010 1.73l-2.808 1.626L15.206 12l2.492-2.491zM5.864 2.658L16.8 8.99l-2.302 2.302-8.634-8.634z"
-                ></path>
-              </svg>
-              <div class="play-store-text">
-                <div class="play-store-text-small">Join Google Play</div>
-                <div class="play-store-text-big">Tester Program</div>
-              </div>
-            </a>
-          </div>
-        </div>
-      </div>
-    </section>
-
     <footer class="footer">
       <div class="container footer-content">
         <p class="footer-text">© 2026 moCODE. Built for developers.</p>
@@ -464,11 +408,19 @@
         "early-access-message",
       );
       const earlyAccessCountEl = document.getElementById("early-access-count");
+      const availableSeatsEl = document.getElementById("available-seats");
 
       if (earlyAccessCountEl) {
         const count = parseInt(earlyAccessCountEl.dataset.count, 10);
         if (!isNaN(count)) {
           earlyAccessCountEl.textContent = count.toLocaleString() + " joined";
+        }
+      }
+
+      if (availableSeatsEl) {
+        const seats = parseInt(availableSeatsEl.dataset.seats, 10);
+        if (!isNaN(seats)) {
+          availableSeatsEl.textContent = seats;
         }
       }
 
@@ -483,6 +435,11 @@
           return;
         }
 
+        const submitBtn = earlyAccessForm.querySelector('button[type="submit"]');
+        const originalBtnText = submitBtn.textContent;
+        submitBtn.disabled = true;
+        submitBtn.innerHTML = '<span class="btn-loader"></span>';
+
         try {
           const response = await fetch("/api/early-access", {
             method: "POST",
@@ -493,13 +450,25 @@
           if (!response.ok) {
             earlyAccessMessage.textContent =
               data.error || "Failed to join early access.";
+            submitBtn.disabled = false;
+            submitBtn.textContent = originalBtnText;
             return;
           }
           earlyAccessForm.reset();
           earlyAccessMessage.textContent =
             data.message || "You're on the list!";
+
+          if (data.seatsAvailable && availableSeatsEl) {
+            const currentSeats = parseInt(availableSeatsEl.textContent, 10);
+            if (!isNaN(currentSeats) && currentSeats > 0) {
+              availableSeatsEl.textContent = (currentSeats - 1).toString();
+            }
+          }
         } catch (error) {
           earlyAccessMessage.textContent = "Network error. Please try again.";
+        } finally {
+          submitBtn.disabled = false;
+          submitBtn.textContent = originalBtnText;
         }
       });
     </script>

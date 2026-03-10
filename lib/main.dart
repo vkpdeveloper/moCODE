@@ -59,6 +59,8 @@ class MoCODEApp extends ConsumerStatefulWidget {
 
 class _MoCODEAppState extends ConsumerState<MoCODEApp>
     with WidgetsBindingObserver {
+  bool _isCheckingForUpdates = false;
+
   @override
   void initState() {
     super.initState();
@@ -80,13 +82,18 @@ class _MoCODEAppState extends ConsumerState<MoCODEApp>
   }
 
   Future<void> _checkForUpdates() async {
-    if (!Platform.isAndroid || !kReleaseMode) return;
+    if (!Platform.isAndroid || !kReleaseMode || _isCheckingForUpdates) return;
 
+    _isCheckingForUpdates = true;
     final updateService = ref.read(inAppUpdateServiceProvider);
-    await updateService.checkForUpdate();
-
-    if (updateService.status == UpdateStatus.updateAvailable) {
-      ref.read(updateAvailableProvider.notifier).state = true;
+    try {
+      await updateService.checkForUpdate();
+      final mustUpdate =
+          updateService.status == UpdateStatus.updateAvailable ||
+          updateService.status == UpdateStatus.updateDownloaded;
+      ref.read(updateAvailableProvider.notifier).state = mustUpdate;
+    } finally {
+      _isCheckingForUpdates = false;
     }
   }
 

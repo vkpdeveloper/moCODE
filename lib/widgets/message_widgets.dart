@@ -73,11 +73,7 @@ class UserMessageWidget extends StatelessWidget {
         continue;
       }
 
-      if (part is TextPart && !part.synthetic) {
-        final text = part.text.trim();
-        if (text.isNotEmpty) {
-          finalUserText = part;
-        }
+      if (part is TextPart) {
         continue;
       }
 
@@ -87,6 +83,8 @@ class UserMessageWidget extends StatelessWidget {
 
       other.add(part);
     }
+
+    finalUserText = _pickFinalUserText(source);
 
     final merged = <Part>[...files, ...other];
     if (finalUserText != null) {
@@ -105,20 +103,36 @@ class UserMessageWidget extends StatelessWidget {
       }
 
       if (part is TextPart) {
-        final text = part.text.trim();
-        if (text.isNotEmpty) {
-          finalUserText = part;
-        }
         continue;
       }
 
       filtered.add(part);
     }
 
+    finalUserText = _pickFinalUserText(source);
+
     if (finalUserText != null) {
       filtered.add(finalUserText);
     }
     return filtered;
+  }
+
+  TextPart? _pickFinalUserText(List<Part> source) {
+    TextPart? finalNonSynthetic;
+    TextPart? finalSynthetic;
+
+    for (final part in source) {
+      if (part is! TextPart) continue;
+      final text = part.text.trim();
+      if (text.isEmpty) continue;
+      if (part.synthetic) {
+        finalSynthetic = part;
+      } else {
+        finalNonSynthetic = part;
+      }
+    }
+
+    return finalNonSynthetic ?? finalSynthetic;
   }
 
   Widget _buildPartWidget(BuildContext context, Part part) {
@@ -129,7 +143,7 @@ class UserMessageWidget extends StatelessWidget {
       );
     }
 
-    if (part is TextPart && !part.synthetic) {
+    if (part is TextPart) {
       return _buildTextContent(context, part);
     }
 

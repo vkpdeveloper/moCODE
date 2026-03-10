@@ -3,6 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../extensions/async_value_extensions.dart';
+import '../models/project.dart';
+import '../models/session.dart';
 import '../providers/providers.dart';
 import '../providers/ssh_provider.dart';
 import '../models/server_type.dart';
@@ -13,6 +15,92 @@ import '../widgets/connection_error_view.dart';
 import '../widgets/ssh_connection_dialog.dart';
 import 'sftp_page.dart';
 import 'terminal_page.dart';
+
+final mergedProjectsProvider = FutureProvider<List<Project>>((ref) async {
+  final projectService = ref.watch(projectServiceProvider);
+  final sessionService = ref.watch(sessionServiceProvider);
+  final results = await Future.wait([
+    projectService.listProjects(),
+    sessionService.listSessions(limit: 200, roots: false),
+  ]);
+  final projects = results[0] as List<Project>;
+  final sessions = results[1] as List<Session>;
+
+  final mergedByDirectory = <String, Project>{};
+  for (final project in projects) {
+    final normalizedDirectory = _normalizeDirectory(project.worktree);
+    if (normalizedDirectory.isEmpty) continue;
+    mergedByDirectory[normalizedDirectory] = project;
+  }
+
+  final latestSessionByDirectory = <String, Session>{};
+  for (final session in sessions) {
+    final normalizedDirectory = _normalizeDirectory(session.directory);
+    if (normalizedDirectory.isEmpty) continue;
+    final existing = latestSessionByDirectory[normalizedDirectory];
+    if (existing == null || session.time.updated > existing.time.updated) {
+      latestSessionByDirectory[normalizedDirectory] = session;
+    }
+  }
+
+  for (final entry in latestSessionByDirectory.entries) {
+    final normalizedDirectory = entry.key;
+    final session = entry.value;
+    final existingProject = mergedByDirectory[normalizedDirectory];
+
+    if (existingProject != null) {
+      final projectUpdated = existingProject.time.updated ?? 0;
+      final latestUpdated = session.time.updated > projectUpdated
+          ? session.time.updated
+          : projectUpdated;
+      mergedByDirectory[normalizedDirectory] = Project(
+        id: existingProject.id,
+        worktree: existingProject.worktree,
+        vcs: existingProject.vcs,
+        name: existingProject.name ?? _directoryName(existingProject.worktree),
+        icon: existingProject.icon,
+        commands: existingProject.commands,
+        sandboxes: existingProject.sandboxes,
+        time: ProjectTime(
+          created: existingProject.time.created,
+          updated: latestUpdated,
+          initialized: existingProject.time.initialized,
+        ),
+      );
+      continue;
+    }
+
+    mergedByDirectory[normalizedDirectory] = Project(
+      id: session.projectID,
+      worktree: normalizedDirectory,
+      name: _directoryName(normalizedDirectory),
+      time: ProjectTime(
+        created: session.time.created,
+        updated: session.time.updated,
+      ),
+    );
+  }
+
+  final merged = mergedByDirectory.values.toList()
+    ..sort((a, b) => (b.time.updated ?? 0).compareTo(a.time.updated ?? 0));
+  return merged;
+});
+
+String _normalizeDirectory(String directory) {
+  final trimmed = directory.trim();
+  if (trimmed.isEmpty) return '';
+  if (trimmed.length > 1 && trimmed.endsWith('/')) {
+    return trimmed.substring(0, trimmed.length - 1);
+  }
+  return trimmed;
+}
+
+String _directoryName(String directory) {
+  final normalized = _normalizeDirectory(directory);
+  final parts = normalized.split('/').where((part) => part.isNotEmpty).toList();
+  if (parts.isEmpty) return normalized;
+  return parts.last;
+}
 
 class ProjectsScreen extends ConsumerWidget {
   const ProjectsScreen({super.key});
@@ -36,7 +124,7 @@ class ProjectsScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final projectsAsync = ref.watch(sortedProjectsProvider);
+    final projectsAsync = ref.watch(mergedProjectsProvider);
     final healthAsync = ref.watch(healthProvider);
     final settings = ref.watch(settingsProvider);
     final isCodex = settings.activeServerType == ServerType.codex;
@@ -192,7 +280,7 @@ class ProjectsScreen extends ConsumerWidget {
                   color: AppTheme.accent,
                   backgroundColor: AppTheme.surface,
                   onRefresh: () async {
-                    ref.invalidate(projectsProvider);
+                    ref.invalidate(mergedProjectsProvider);
                     ref.invalidate(healthProvider);
                   },
                   child: ListView.separated(
@@ -371,7 +459,7 @@ class ProjectsScreen extends ConsumerWidget {
                 final apiError = ErrorHandler.parseError(error);
                 return ConnectionErrorView(
                   error: apiError,
-                  onRetry: () => ref.invalidate(projectsProvider),
+                  onRetry: () => ref.invalidate(mergedProjectsProvider),
                   showConfigureButton: apiError.shouldShowConfigure,
                 );
               },
