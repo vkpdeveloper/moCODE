@@ -6,6 +6,7 @@
   "scripts": {
     "env:check": "bun run src/scripts/check-env.ts",
     "dev": "bun run env:check && bun run src/dev.ts",
+    "lint": "bun run env:check && bun run typecheck",
     "build": "bun run env:check && bun run typecheck",
     "typecheck": "tsc --noEmit",
     "db:generate": "drizzle-kit generate",
@@ -29,6 +30,7 @@
     "zod": "^4.1.11"
   },
   "devDependencies": {
+    "@types/node": "^24.5.2",
     "@types/nodemailer": "^7.0.10",
     "drizzle-kit": "^0.31.6",
     "typescript": "^5.9.3"

@@ -1,4 +1,5 @@
-server/node_modules
+node_modules
+package-lock.json
 
 # Miscellaneous
 *.class
@@ -32,8 +33,8 @@ migrate_working_dir/
 .flutter-plugins-dependencies
 .pub-cache/
 .pub/
-/build/
-/coverage/
+build/
+coverage/
 
 # Symbolication related
 app.*.symbols
@@ -42,25 +43,25 @@ app.*.symbols
 app.*.map.json
 
 # Android Studio will place build artifacts here
-/android/app/debug
-/android/app/profile
-/android/app/release
+**/android/app/debug
+**/android/app/profile
+**/android/app/release
 
 # Server env files
-server/.env
-server/.env.local
+apps/server/.env
+apps/server/.env.local
 
 google-services.json
 GoogleService-Info.plist
 .vercel
 
 # App env
-/.env
-/.dev.env
-/.prod.env
+/apps/mobile/.env
+/apps/mobile/.dev.env
+/apps/mobile/.prod.env
 
 # Android signing keys
-/keys/
-/android/key.properties
+/apps/mobile/keys/
+/apps/mobile/android/key.properties
 
 codex-schema

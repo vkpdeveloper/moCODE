@@ -5,12 +5,11 @@ Hono + Bun API for Vercel with Firebase Google auth, Dodo Payments one-time chec
 ## 1) Setup
 
 ```bash
-cd server
 bun install
-cp .env.example .env
+cp apps/server/.env.example apps/server/.env
 ```
 
-Fill `.env` with:
+Fill `apps/server/.env` with:
 
 - Postgres `DATABASE_URL`
 - Dodo credentials (`DODO_PAYMENTS_API_KEY`, `DODO_WEBHOOK_SECRET`)
@@ -30,10 +29,10 @@ bun run dev
 
 `bun run dev` validates env vars first and then starts the server.
 
-To validate env vars during build/typecheck:
+To validate env vars during lint/typecheck:
 
 ```bash
-bun run build
+bun run server:lint
 ```
 
 Server listens on `http://localhost:3000` locally and exposes:
@@ -46,8 +45,8 @@ Server listens on `http://localhost:3000` locally and exposes:
 
 ## 4) Deploy to Vercel (Bun runtime)
 
-- Keep `server/vercel.json` with `"bunVersion": "1.x"`
-- Set project root to `server`
+- Keep `apps/server/vercel.json` with `"bunVersion": "1.x"`
+- Set project root to `apps/server`
 - Configure env vars from `.env.example`
 
 ## Notes on one-time access
