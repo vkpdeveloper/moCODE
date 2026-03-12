@@ -11,6 +11,7 @@ import 'package:path_provider/path_provider.dart';
 
 import '../providers/providers.dart';
 import '../models/app_models.dart' as app_models;
+import '../services/app_logger.dart';
 import '../theme/app_theme.dart';
 import '../utils/app_snackbar.dart';
 import '../constants/file_icons.dart';
@@ -358,7 +359,7 @@ class _ChatInputState extends ConsumerState<ChatInput> {
       return;
     }
 
-    final insertion = commandName == 'run' ? '/run ' : '/$commandName ';
+    final insertion = '/$commandName ';
     final needsSpace = after.isNotEmpty && !after.startsWith(' ');
     final next = '$before$insertion${needsSpace ? ' ' : ''}$after';
     _controller.text = next;
@@ -609,27 +610,39 @@ class _ChatInputState extends ConsumerState<ChatInput> {
   }
 
   Future<void> _startRecording() async {
-    debugPrint('[Voice] Starting recording process...');
+    AppLogger.instance.info('Starting voice recording flow', scope: 'voice');
 
     // First check using permission_handler to see current status
     final currentStatus = await Permission.microphone.status;
-    debugPrint(
-      '[Voice] Current permission status (permission_handler): $currentStatus',
+    AppLogger.instance.debug(
+      'Current microphone permission status',
+      scope: 'voice',
+      data: {'permissionStatus': currentStatus.toString()},
     );
 
     // Use the record package's hasPermission method
     final hasPermission = await _audioRecorder.hasPermission();
-    debugPrint('[Voice] Record package hasPermission: $hasPermission');
+    AppLogger.instance.debug(
+      'Record package permission check',
+      scope: 'voice',
+      data: {'hasPermission': hasPermission},
+    );
 
     if (!hasPermission) {
       // Request permission using permission_handler
       final status = await Permission.microphone.request();
-      debugPrint('[Voice] After request, permission status: $status');
+      AppLogger.instance.info(
+        'Requested microphone permission',
+        scope: 'voice',
+        data: {'permissionStatus': status.toString()},
+      );
 
       // Check again with record package after requesting
       final hasPermissionAfterRequest = await _audioRecorder.hasPermission();
-      debugPrint(
-        '[Voice] Record package hasPermission after request: $hasPermissionAfterRequest',
+      AppLogger.instance.debug(
+        'Record package permission after request',
+        scope: 'voice',
+        data: {'hasPermission': hasPermissionAfterRequest},
       );
 
       if (!hasPermissionAfterRequest) {
@@ -643,7 +656,10 @@ class _ChatInputState extends ConsumerState<ChatInput> {
       }
     }
 
-    debugPrint('[Voice] Permission granted, starting audio recorder...');
+    AppLogger.instance.info(
+      'Microphone permission granted, starting recorder',
+      scope: 'voice',
+    );
 
     try {
       final tempDir = await getTemporaryDirectory();
@@ -663,6 +679,11 @@ class _ChatInputState extends ConsumerState<ChatInput> {
         _isRecording = true;
       });
     } catch (e) {
+      AppLogger.instance.error(
+        'Failed to start voice recording',
+        scope: 'voice',
+        error: e,
+      );
       if (!mounted) return;
       ScaffoldMessenger.of(
         context,
@@ -1571,15 +1592,7 @@ class _CommandList extends ConsumerWidget {
 
     return commandsAsync.when(
       data: (commands) {
-        final commandsItems = <_CommandSuggestion>[
-          const _CommandSuggestion(
-            name: 'run',
-            description: 'Run a shell command in the project directory',
-            type: 'command',
-            source: 'command',
-            hints: [],
-          ),
-        ];
+        final commandsItems = <_CommandSuggestion>[];
         final skillsItems = <_CommandSuggestion>[];
 
         for (final cmd in commands) {

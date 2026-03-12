@@ -31,7 +31,7 @@ I didn't want to *type* more code on mobile. I wanted to *think* about code, and
 
 ## Enter AI-Assisted TUI
 
-moCode isn't just a mobile IDE. It's a window into AI-powered terminal interfaces like [OpenCode](https://github.com/chaifam/opencode) and [KiloCode](https://github.com/kilocode)
+moCode isn't just a mobile IDE. It's a window into ACP-powered coding agents running through the moCODE CLI on your machine.
 
 The paradigm shift? **You don't write the code. You talk to the agent.**
 
@@ -64,7 +64,7 @@ Smart chat with @file mentions, slash commands, and streaming responses. Markdow
 Browse all your AI providers, star favorites, set defaults per session. Full support for reasoning models when you need deep thinking.
 
 ### Secure by Design
-Connects to your own OpenCode Server. Your code never touches our servers. Works perfectly with Tailscale for private networking.
+Connects to your own moCODE CLI. Your code never touches our servers. Works perfectly with Tailscale for private networking.
 
 ---
 
@@ -80,7 +80,7 @@ That late-night bug fix that sparked the idea? I eventually fixed it from my pho
 
 ## How It Works (3 Minutes to Productivity)
 
-1. **Run your OpenCode Server** locally or on a remote machine (Tailscale makes this beautiful)
+1. **Run the moCODE CLI** locally or on a remote machine (Tailscale makes this beautiful)
 2. **Enter your server address** in moCode settings, sign in with Google
 3. **Start coding**—chat with AI, browse files, run commands, ship features
 
@@ -111,7 +111,7 @@ Your best ideas don't wait for you to be at your computer. Neither should your t
 
 ---
 
-*moCode is free to use during beta. Connect it to your own OpenCode Server and experience AI-assisted coding from anywhere.*
+*moCode is free to use during beta. Connect it to your own moCODE CLI and experience AI-assisted coding from anywhere.*
 
 **Website:** [mocode.ordinity.com](https://mocode.ordinity.com)  
 **Questions?** Drop them in the comments—I'll be here.

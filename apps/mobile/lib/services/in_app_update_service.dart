@@ -3,6 +3,8 @@ import 'package:in_app_update/in_app_update.dart';
 import 'package:flutter/foundation.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import 'app_logger.dart';
+
 enum UpdateStatus { idle, checking, updateAvailable, updateDownloaded, error }
 
 class InAppUpdateService {
@@ -49,7 +51,11 @@ class InAppUpdateService {
       _status = UpdateStatus.error;
       _errorMessage = e.toString();
       if (kDebugMode) {
-        print('InAppUpdate checkForUpdate error: $e');
+        AppLogger.instance.error(
+          'In-app update check failed',
+          scope: 'inAppUpdate',
+          error: e,
+        );
       }
     }
   }
@@ -64,7 +70,11 @@ class InAppUpdateService {
       _status = UpdateStatus.error;
       _errorMessage = e.toString();
       if (kDebugMode) {
-        print('InAppUpdate startFlexibleUpdate error: $e');
+        AppLogger.instance.error(
+          'In-app flexible update start failed',
+          scope: 'inAppUpdate',
+          error: e,
+        );
       }
     }
   }
@@ -79,7 +89,11 @@ class InAppUpdateService {
       _status = UpdateStatus.error;
       _errorMessage = e.toString();
       if (kDebugMode) {
-        print('InAppUpdate completeFlexibleUpdate error: $e');
+        AppLogger.instance.error(
+          'In-app flexible update completion failed',
+          scope: 'inAppUpdate',
+          error: e,
+        );
       }
     }
   }
@@ -118,7 +132,11 @@ class InAppUpdateService {
       _status = UpdateStatus.error;
       _errorMessage = e.toString();
       if (kDebugMode) {
-        print('InAppUpdate performImmediateUpdate error: $e');
+        AppLogger.instance.error(
+          'In-app immediate update failed',
+          scope: 'inAppUpdate',
+          error: e,
+        );
       }
     }
   }

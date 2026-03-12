@@ -1,6 +1,6 @@
 import 'package:dio/dio.dart';
-import 'package:flutter/foundation.dart';
 
+import '../models/acp_models.dart';
 import '../models/message.dart';
 import '../utils/json_parser.dart';
 import 'api_client.dart';
@@ -10,24 +10,31 @@ class MessageService {
 
   MessageService(this._apiClient);
 
+  Future<AcpSessionSnapshot> getSnapshot(String sessionID) async {
+    try {
+      final response = await _apiClient.dio.get('/v1/sessions/$sessionID');
+      final data = parseJsonObjectBytes(response.data as List<int>);
+      final session = sessionFromAcpJson(data['session'] as Map<String, dynamic>);
+      final entries = (data['entries'] as List<dynamic>? ?? const [])
+          .map((item) => AcpSessionEntry.fromJson(item as Map<String, dynamic>))
+          .toList(growable: false);
+      return AcpSessionSnapshot(session: session, entries: entries);
+    } on DioException {
+      rethrow;
+    }
+  }
+
   Future<List<MessageWrapper>> getMessages(
     String sessionID, {
     int? limit,
     String? directory,
   }) async {
-    try {
-      final response = await _apiClient.dio.get(
-        '/session/$sessionID/message',
-        queryParameters: {'limit': limit, 'directory': directory},
-      );
-      final data = parseJsonListBytes(response.data as List<int>);
-      debugPrint(response.requestOptions.uri.toString());
-      return data
-          .map((item) => MessageWrapper.fromJson(item as Map<String, dynamic>))
-          .toList();
-    } on DioException {
-      rethrow;
+    final snapshot = await getSnapshot(sessionID);
+    final messages = messageWrappersFromAcpSnapshot(snapshot);
+    if (limit == null || limit >= messages.length) {
+      return messages;
     }
+    return messages.sublist(messages.length - limit);
   }
 
   Future<MessageWrapper> getMessage(
@@ -35,32 +42,8 @@ class MessageService {
     String messageID, {
     String? directory,
   }) async {
-    try {
-      final response = await _apiClient.dio.get(
-        '/session/$sessionID/message/$messageID',
-        queryParameters: {'directory': ?directory},
-      );
-      final data = parseJsonObjectBytes(response.data as List<int>);
-      return MessageWrapper.fromJson(data);
-    } on DioException {
-      rethrow;
-    }
-  }
-
-  Map<String, dynamic> _buildMessageData({
-    required List<Map<String, dynamic>> parts,
-    String? providerID,
-    String? modelID,
-    String? agent,
-    String? variant,
-  }) {
-    final data = <String, dynamic>{'parts': parts};
-    if (providerID != null && modelID != null) {
-      data['model'] = {'providerID': providerID, 'modelID': modelID};
-    }
-    if (agent != null) data['agent'] = agent;
-    if (variant != null) data['variant'] = variant;
-    return data;
+    final messages = await getMessages(sessionID, directory: directory);
+    return messages.firstWhere((message) => message.info.id == messageID);
   }
 
   Future<Map<String, dynamic>> sendMessage(
@@ -72,23 +55,16 @@ class MessageService {
     String? variant,
     String? directory,
   }) async {
-    try {
-      final response = await _apiClient.dio.post(
-        '/session/$sessionID/message',
-        data: _buildMessageData(
-          parts: parts,
-          providerID: providerID,
-          modelID: modelID,
-          agent: agent,
-          variant: variant,
-        ),
-        queryParameters: {'directory': ?directory},
-        options: Options(receiveTimeout: Duration.zero),
-      );
-      return parseJsonObjectBytes(response.data as List<int>);
-    } on DioException {
-      rethrow;
-    }
+    await sendMessageAsync(
+      sessionID,
+      parts: parts,
+      providerID: providerID,
+      modelID: modelID,
+      agent: agent,
+      variant: variant,
+      directory: directory,
+    );
+    return const {'accepted': true};
   }
 
   Future<void> sendMessageAsync(
@@ -101,16 +77,18 @@ class MessageService {
     String? directory,
   }) async {
     try {
+      final text = parts
+          .map((part) => part['type'] == 'text' ? part['text']?.toString() : '')
+          .where((value) => value != null && value.trim().isNotEmpty)
+          .cast<String>()
+          .join('\n')
+          .trim();
+      if (text.isEmpty) {
+        throw StateError('Message must contain text.');
+      }
       await _apiClient.dio.post(
-        '/session/$sessionID/prompt_async',
-        data: _buildMessageData(
-          parts: parts,
-          providerID: providerID,
-          modelID: modelID,
-          agent: agent,
-          variant: variant,
-        ),
-        queryParameters: {'directory': ?directory},
+        '/v1/sessions/$sessionID/prompt',
+        data: {'text': text},
         options: Options(receiveTimeout: Duration.zero),
       );
     } on DioException {
@@ -127,22 +105,12 @@ class MessageService {
     String? variant,
     String? directory,
   }) async {
-    try {
-      final response = await _apiClient.dio.post(
-        '/session/$sessionID/command',
-        data: {
-          'command': command,
-          'arguments': arguments,
-          'agent': ?agent,
-          'model': ?model,
-          'variant': ?variant,
-        },
-        queryParameters: {'directory': ?directory},
-        options: Options(receiveTimeout: Duration.zero),
-      );
-      return parseJsonObjectBytes(response.data as List<int>);
-    } on DioException {
-      rethrow;
-    }
+    final text = '/$command${arguments.trim().isEmpty ? '' : ' $arguments'}';
+    await _apiClient.dio.post(
+      '/v1/sessions/$sessionID/prompt',
+      data: {'text': text},
+      options: Options(receiveTimeout: Duration.zero),
+    );
+    return const {'accepted': true};
   }
 }

@@ -314,8 +314,18 @@ class SessionsScreen extends ConsumerWidget {
 
     try {
       final sessionService = ref.read(sessionServiceProvider);
+      final selectedAgent = ref.read(selectedAgentProvider);
+      if (!selectedAgent.hasSelection) {
+        if (context.mounted) {
+          AppSnackBar.showWarning(context, 'Pick an agent first.');
+          context.push('/agents');
+        }
+        return;
+      }
       final session = await sessionService.createSession(
+        agentID: selectedAgent.agentId,
         directory: project.worktree,
+        projectID: project.id,
       );
       ref.invalidate(sessionsProvider);
       ref.read(selectedSessionProvider.notifier).state = session;
@@ -517,34 +527,6 @@ class SessionsScreen extends ConsumerWidget {
         }
       },
     );
-  }
-
-  Future<void> _openTerminal(
-    BuildContext context,
-    WidgetRef ref,
-    Project project,
-  ) async {
-    final settings = ref.read(settingsProvider);
-    final sshState = ref.read(sshProvider);
-
-    if (sshState.isConnected) {
-      Navigator.of(
-        context,
-      ).push(MaterialPageRoute(builder: (context) => const TerminalPage()));
-    } else {
-      final connected = await showSshConnectionDialog(
-        context,
-        defaultHost: settings.serverHost,
-        workingDirectory: project.worktree,
-      );
-      if (connected == true) {
-        if (context.mounted) {
-          Navigator.of(
-            context,
-          ).push(MaterialPageRoute(builder: (context) => const TerminalPage()));
-        }
-      }
-    }
   }
 
   Future<void> _confirmDeleteSession(

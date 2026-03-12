@@ -11,7 +11,7 @@ class AppService {
 
   Future<HealthInfo> getHealth() async {
     try {
-      final response = await _apiClient.dio.get('/global/health');
+      final response = await _apiClient.dio.get('/v1/health');
       final data = parseJsonObjectBytes(response.data as List<int>);
       return HealthInfo.fromJson(data);
     } on DioException {
@@ -22,7 +22,7 @@ class AppService {
   Future<VcsInfo> getVcsInfo({String? directory}) async {
     try {
       final response = await _apiClient.dio.get(
-        '/vcs',
+        '/v1/vcs',
         queryParameters: {'directory': ?directory},
       );
       final data = parseJsonObjectBytes(response.data as List<int>);
@@ -33,30 +33,46 @@ class AppService {
   }
 
   Future<List<Command>> listCommands({String? directory}) async {
-    try {
-      final response = await _apiClient.dio.get(
-        '/command',
-        queryParameters: {'directory': ?directory},
-      );
-      final data = parseJsonListBytes(response.data as List<int>);
-      return data
-          .map((item) => Command.fromJson(item as Map<String, dynamic>))
-          .toList();
-    } on DioException {
-      rethrow;
-    }
+    return const [];
   }
 
   Future<List<Agent>> listAgents({String? directory}) async {
     try {
       final response = await _apiClient.dio.get(
-        '/agent',
+        '/v1/agents',
         queryParameters: {'directory': ?directory},
       );
-      final data = parseJsonListBytes(response.data as List<int>);
-      return data
-          .map((item) => Agent.fromJson(item as Map<String, dynamic>))
+      final data = parseJsonObjectBytes(response.data as List<int>);
+      final agents = (data['agents'] as List<dynamic>? ?? const [])
+          .cast<Map<String, dynamic>>()
+          .where(
+            (agent) =>
+                (agent['installState']?.toString() ?? '') != 'unavailable',
+          )
+          .map((agent) {
+            final metadata =
+                (agent['metadata'] as Map<String, dynamic>?) ??
+                const <String, dynamic>{};
+            final kind = agent['kind']?.toString();
+            final source = agent['source']?.toString();
+            final details = [
+              if (kind != null && kind.isNotEmpty) kind,
+              if (source != null && source.isNotEmpty) source,
+            ].join(' via ');
+            final registryDescription =
+                metadata['registryDescription']?.toString();
+            return Agent(
+              name: agent['name']?.toString() ?? '',
+              description: (registryDescription != null &&
+                      registryDescription.isNotEmpty)
+                  ? registryDescription
+                  : (details.isEmpty ? null : details),
+              iconSvg: metadata['iconSvg']?.toString(),
+              mode: agent['id']?.toString(),
+            );
+          })
           .toList();
+      return agents;
     } on DioException {
       rethrow;
     }
@@ -65,7 +81,7 @@ class AppService {
   Future<List<Map<String, dynamic>>> listSkills({String? directory}) async {
     try {
       final response = await _apiClient.dio.get(
-        '/skill',
+        '/v1/skills',
         queryParameters: {'directory': ?directory},
       );
       final data = parseJsonListBytes(response.data as List<int>);
@@ -82,7 +98,7 @@ class AppService {
   }) async {
     try {
       final response = await _apiClient.dio.get(
-        '/find/file',
+        '/v1/files/search',
         queryParameters: {
           'query': query,
           'directory': ?directory,
@@ -97,15 +113,6 @@ class AppService {
   }
 
   Future<AppConfig> getConfig({String? directory}) async {
-    try {
-      final response = await _apiClient.dio.get(
-        '/config',
-        queryParameters: {'directory': ?directory},
-      );
-      final data = parseJsonObjectBytes(response.data as List<int>);
-      return AppConfig.fromJson(data);
-    } on DioException {
-      rethrow;
-    }
+    return const AppConfig(raw: <String, dynamic>{});
   }
 }

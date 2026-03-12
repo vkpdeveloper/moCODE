@@ -19,29 +19,10 @@ class SettingsScreen extends ConsumerStatefulWidget {
 }
 
 class _SettingsScreenState extends ConsumerState<SettingsScreen> {
-  late TextEditingController _hostController;
-  late TextEditingController _portController;
   bool _authLoading = false;
   bool _checkoutLoading = false;
   bool _paymentRefreshLoading = false;
   bool _checkedRefreshOnOpen = false;
-
-  @override
-  void initState() {
-    super.initState();
-    final settings = ref.read(settingsProvider);
-    _hostController = TextEditingController(text: settings.serverHost);
-    _portController = TextEditingController(
-      text: settings.serverPort.toString(),
-    );
-  }
-
-  @override
-  void dispose() {
-    _hostController.dispose();
-    _portController.dispose();
-    super.dispose();
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -54,6 +35,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
     final settings = ref.watch(settingsProvider);
     final healthAsync = ref.watch(healthProvider);
+    final selectedAgent = ref.watch(selectedAgentProvider);
     final defaultModel = ref.watch(defaultModelProvider);
     final authState = ref.watch(authStateProvider);
     final accessStatus = ref.watch(accessGateStatusProvider);
@@ -86,110 +68,92 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           ListView(
             padding: const EdgeInsets.all(16),
             children: [
-              _sectionHeader('SERVER CONNECTION'),
+              _sectionHeader('DEVICE CONNECTION'),
               const SizedBox(height: 8),
-              Opacity(
-                opacity: canAccess ? 1 : 0.45,
-                child: AbsorbPointer(
-                  absorbing: !canAccess,
-                  child: Column(
-                    children: [
-                      Container(
-                        decoration: BoxDecoration(
-                          color: AppTheme.surface,
-                          border: Border.all(color: AppTheme.border),
-                        ),
-                        padding: const EdgeInsets.all(16),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
+              Column(
+                children: [
+                  Container(
+                    decoration: BoxDecoration(
+                      color: AppTheme.surface,
+                      border: Border.all(color: AppTheme.border),
+                    ),
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      children: [
+                        Row(
                           children: [
-                            const Text(
-                              'Host',
-                              style: TextStyle(
-                                color: AppTheme.textSecondary,
-                                fontSize: 11,
+                            Container(
+                              width: 42,
+                              height: 42,
+                              decoration: BoxDecoration(
+                                color: AppTheme.background,
+                                border: Border.all(color: AppTheme.border),
+                              ),
+                              child: const Icon(
+                                Icons.computer_outlined,
+                                color: AppTheme.accent,
                               ),
                             ),
-                            const SizedBox(height: 6),
-                            TextField(
-                              controller: _hostController,
-                              style: const TextStyle(
-                                color: AppTheme.textPrimary,
-                                fontSize: 13,
-                              ),
-                              decoration: const InputDecoration(
-                                hintText: 'localhost',
-                                isDense: true,
-                              ),
-                            ),
-                            const SizedBox(height: 14),
-                            const Text(
-                              'Port',
-                              style: TextStyle(
-                                color: AppTheme.textSecondary,
-                                fontSize: 11,
-                              ),
-                            ),
-                            const SizedBox(height: 6),
-                            TextField(
-                              controller: _portController,
-                              keyboardType: TextInputType.number,
-                              style: const TextStyle(
-                                color: AppTheme.textPrimary,
-                                fontSize: 13,
-                              ),
-                              decoration: const InputDecoration(
-                                hintText: '3000',
-                                isDense: true,
-                              ),
-                            ),
-                            const SizedBox(height: 16),
-                            SizedBox(
-                              width: double.infinity,
-                              child: ElevatedButton(
-                                onPressed: _saveSettings,
-                                child: const Text(
-                                  'SAVE & CONNECT',
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    letterSpacing: 1,
+                            const SizedBox(width: 14),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    settings.connectedDeviceName ??
+                                        'No device selected',
+                                    style: const TextStyle(
+                                      color: AppTheme.textPrimary,
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.w600,
+                                    ),
                                   ),
-                                ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    settings.hasSelectedDevice
+                                        ? '${settings.serverHost}:${settings.serverPort}'
+                                        : 'Open the device picker to select a local machine.',
+                                    style: const TextStyle(
+                                      color: AppTheme.textSecondary,
+                                      fontSize: 11,
+                                    ),
+                                  ),
+                                ],
                               ),
                             ),
                           ],
                         ),
-                      ),
-                      const SizedBox(height: 8),
-                      Container(
-                        decoration: BoxDecoration(
-                          color: AppTheme.surface,
-                          border: Border.all(color: AppTheme.border),
-                        ),
-                        padding: const EdgeInsets.all(12),
-                        child: Row(
-                          children: [
-                            const Text(
-                              'Current URL',
-                              style: TextStyle(
-                                color: AppTheme.textTertiary,
-                                fontSize: 11,
-                              ),
+                        const SizedBox(height: 16),
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: AppTheme.background,
+                            border: Border.all(color: AppTheme.border),
+                          ),
+                          child: const Text(
+                            'To switch devices, schedule a reset here and restart the app. Your previous pairings stay saved.',
+                            style: TextStyle(
+                              color: AppTheme.textTertiary,
+                              fontSize: 11,
                             ),
-                            const Spacer(),
-                            Text(
-                              settings.serverUrl,
-                              style: const TextStyle(
-                                color: AppTheme.textSecondary,
-                                fontSize: 11,
-                              ),
-                            ),
-                          ],
+                          ),
                         ),
-                      ),
-                    ],
+                        const SizedBox(height: 16),
+                        SizedBox(
+                          width: double.infinity,
+                          child: ElevatedButton(
+                            onPressed: _scheduleDeviceChange,
+                            child: const Text(
+                              'CHANGE DEVICE ON NEXT LAUNCH',
+                              style: TextStyle(fontSize: 12, letterSpacing: 1),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
-                ),
+                ],
               ),
 
               const SizedBox(height: 24),
@@ -230,7 +194,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     ),
                     Switch(
                       value: settings.useNerdFont,
-                      activeColor: AppTheme.accent,
+                      activeThumbColor: AppTheme.accent,
                       onChanged: (value) {
                         ref
                             .read(settingsProvider.notifier)
@@ -254,7 +218,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   data: (health) => Column(
                     children: [
                       _statusRow(
-                        'Server',
+                        'CLI',
                         health.healthy ? 'Online' : 'Offline',
                         health.healthy,
                       ),
@@ -271,7 +235,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       ),
                     ),
                   ),
-                  error: (e, _) => _statusRow('Server', 'Offline', false),
+                  error: (e, _) => _statusRow('CLI', 'Offline', false),
                 ),
               ),
 
@@ -496,8 +460,38 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                             ref.invalidate(projectsProvider);
                             ref.invalidate(sessionsProvider);
                             ref.invalidate(providersListProvider);
+                            ref.invalidate(agentsProvider);
                             AppSnackBar.showInfo(context, 'Refreshing...');
                           },
+                        ),
+                        const Divider(height: 1),
+                        ListTile(
+                          leading: const Icon(
+                            Icons.memory_outlined,
+                            color: AppTheme.textSecondary,
+                            size: 20,
+                          ),
+                          title: const Text(
+                            'Active Agent',
+                            style: TextStyle(fontSize: 13),
+                          ),
+                          subtitle: Text(
+                            selectedAgent.agentName ?? 'Choose an agent',
+                            style: const TextStyle(
+                              color: AppTheme.textTertiary,
+                              fontSize: 11,
+                            ),
+                          ),
+                          trailing: const Icon(
+                            Icons.chevron_right,
+                            color: AppTheme.textTertiary,
+                            size: 18,
+                          ),
+                          onTap: settings.hasSelectedDevice
+                              ? () {
+                                  context.push('/agents');
+                                }
+                              : null,
                         ),
                         const Divider(height: 1),
                         ListTile(
@@ -512,7 +506,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                           ),
                           subtitle: defaultModel != null
                               ? Text(
-                                  '${defaultModel['providerID']}/${defaultModel['modelID']}',
+                                  defaultModel['providerID'] == 'local'
+                                      ? 'No model selected'
+                                      : defaultModel['modelID']?.toString() ??
+                                            '',
                                   style: const TextStyle(
                                     color: AppTheme.textTertiary,
                                     fontSize: 11,
@@ -556,7 +553,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     ),
                     SizedBox(height: 4),
                     Text(
-                      'Connect with your OpenCode server',
+                      'Connect with your moCODE CLI',
                       style: TextStyle(
                         color: AppTheme.textTertiary,
                         fontSize: 11,
@@ -693,16 +690,16 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     );
   }
 
-  void _saveSettings() {
-    final host = _hostController.text.trim();
-    final port = int.tryParse(_portController.text.trim()) ?? 3000;
-    ref.read(settingsProvider.notifier).updateServer(host, port);
-    ref.read(settingsReloadProvider.future);
-    ref.invalidate(healthProvider);
-    ref.invalidate(projectsProvider);
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(const SnackBar(content: Text('Settings saved')));
+  Future<void> _scheduleDeviceChange() async {
+    await ref.read(settingsProvider.notifier).requestDeviceChangeOnNextLaunch();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text(
+          'Device change saved. Restart the app to choose a different machine.',
+        ),
+      ),
+    );
   }
 
   Future<void> _signInWithGoogle() async {

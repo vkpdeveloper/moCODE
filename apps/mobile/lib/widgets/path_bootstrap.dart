@@ -16,7 +16,9 @@ class _PathBootstrapState extends ConsumerState<PathBootstrap> {
   @override
   void initState() {
     super.initState();
-    ref.read(pathInfoProvider);
+    if (ref.read(settingsProvider).hasSelectedDevice) {
+      ref.read(pathInfoProvider);
+    }
   }
 
   @override

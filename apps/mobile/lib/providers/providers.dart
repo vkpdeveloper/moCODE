@@ -4,15 +4,17 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/legacy.dart';
 import 'package:google_sign_in/google_sign_in.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/models.dart' hide HealthInfo, ProviderListResponse;
+import '../models/acp_models.dart';
 import '../models/app_models.dart' as app_models;
+import '../models/cli_device.dart';
 import '../models/provider.dart';
 import '../config/app_env.dart';
 
 import '../services/api_client.dart';
 import '../services/account_api_client.dart';
+import '../services/app_logger.dart';
 import '../services/auth_service.dart';
 import '../services/app_service.dart';
 import '../services/account_service.dart';
@@ -28,9 +30,9 @@ import '../services/permission_service.dart';
 import '../services/question_service.dart';
 import '../services/session_diff_service.dart';
 import '../services/todo_service.dart';
-import '../services/pty_service.dart';
 import '../services/in_app_update_service.dart';
 import '../services/asr_service.dart';
+import '../services/lan_discovery_service.dart';
 
 // ---------------------------------------------------------------------------
 // Settings
@@ -40,21 +42,40 @@ class SettingsState {
   final String serverUrl;
   final String serverHost;
   final int serverPort;
+  final String? authToken;
+  final String? connectedDeviceName;
+  final String? connectedDeviceId;
   final bool isLoaded;
   final bool useNerdFont;
 
   const SettingsState({
-    this.serverUrl = 'http://127.0.0.1:4096',
+    this.serverUrl = 'http://127.0.0.1:4058',
     this.serverHost = '127.0.0.1',
-    this.serverPort = 4096,
+    this.serverPort = 4058,
+    this.authToken,
+    this.connectedDeviceName,
+    this.connectedDeviceId,
     this.isLoaded = false,
     this.useNerdFont = true,
   });
+
+  bool get hasSelectedDevice =>
+      connectedDeviceName != null && serverHost.isNotEmpty && serverPort > 0;
+
+  String? get selectedConnectionKey {
+    if (!hasSelectedDevice) {
+      return null;
+    }
+    return connectedDeviceId ?? '$serverHost:$serverPort';
+  }
 
   SettingsState copyWith({
     String? serverUrl,
     String? serverHost,
     int? serverPort,
+    Object? authToken = _settingsNoChange,
+    Object? connectedDeviceName = _settingsNoChange,
+    Object? connectedDeviceId = _settingsNoChange,
     bool? isLoaded,
     bool? useNerdFont,
   }) {
@@ -62,16 +83,28 @@ class SettingsState {
       serverUrl: serverUrl ?? this.serverUrl,
       serverHost: serverHost ?? this.serverHost,
       serverPort: serverPort ?? this.serverPort,
+      authToken: identical(authToken, _settingsNoChange)
+          ? this.authToken
+          : authToken as String?,
+      connectedDeviceName: identical(connectedDeviceName, _settingsNoChange)
+          ? this.connectedDeviceName
+          : connectedDeviceName as String?,
+      connectedDeviceId: identical(connectedDeviceId, _settingsNoChange)
+          ? this.connectedDeviceId
+          : connectedDeviceId as String?,
       isLoaded: isLoaded ?? this.isLoaded,
       useNerdFont: useNerdFont ?? this.useNerdFont,
     );
   }
 }
 
+const Object _settingsNoChange = Object();
+
 class SettingsNotifier extends StateNotifier<SettingsState> {
+  final PreferencesService _preferencesService;
   Future<void>? _loading;
 
-  SettingsNotifier() : super(const SettingsState()) {
+  SettingsNotifier(this._preferencesService) : super(const SettingsState()) {
     ensureLoaded();
   }
 
@@ -89,44 +122,178 @@ class SettingsNotifier extends StateNotifier<SettingsState> {
   }
 
   Future<void> _load() async {
-    final prefs = await SharedPreferences.getInstance();
-    final host = prefs.getString('server_host') ?? '127.0.0.1';
-    final port = prefs.getInt('server_port') ?? 4096;
-    final useNerdFont = prefs.getBool('use_nerd_font') ?? true;
+    await _preferencesService.consumeCliReselectionRequest();
+    await _preferencesService.clearSelectedCliDevice();
+    final useNerdFont = await _preferencesService.getUseNerdFont();
+    AppLogger.instance.info(
+      'Settings loaded',
+      scope: 'settings',
+      data: {'useNerdFont': useNerdFont},
+    );
     state = SettingsState(
-      serverHost: host,
-      serverPort: port,
-      serverUrl: 'http://$host:$port',
       isLoaded: true,
       useNerdFont: useNerdFont,
     );
   }
 
-  Future<void> updateServer(String host, int port) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('server_host', host);
-    await prefs.setInt('server_port', port);
-    state = SettingsState(
-      serverHost: host,
-      serverPort: port,
-      serverUrl: 'http://$host:$port',
+  Future<void> selectCliDevice(DiscoveredCliDevice device) async {
+    final stored = device.toStored();
+    await _preferencesService.savePairedCliDevice(stored);
+    await _preferencesService.selectCliDevice(stored);
+    AppLogger.instance.info(
+      'CLI device selected',
+      scope: 'settings',
+      data: stored,
+    );
+    state = state.copyWith(
+      serverHost: device.host,
+      serverPort: device.port,
+      serverUrl: device.baseUrl,
+      authToken: device.token,
+      connectedDeviceName: device.deviceName,
+      connectedDeviceId: device.pairedDeviceId,
       isLoaded: true,
-      useNerdFont: state.useNerdFont,
+    );
+  }
+
+  Future<void> requestDeviceChangeOnNextLaunch() async {
+    await _preferencesService.requestCliReselectionOnNextLaunch();
+    AppLogger.instance.info(
+      'CLI device reselection requested',
+      scope: 'settings',
     );
   }
 
   Future<void> updateNerdFont(bool useNerdFont) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool('use_nerd_font', useNerdFont);
+    await _preferencesService.setUseNerdFont(useNerdFont);
     state = state.copyWith(useNerdFont: useNerdFont);
   }
 }
 
 final settingsProvider = StateNotifierProvider<SettingsNotifier, SettingsState>(
   (ref) {
-    return SettingsNotifier();
+    return SettingsNotifier(ref.watch(preferencesServiceProvider));
   },
 );
+
+class SelectedAgentState {
+  final String? connectionKey;
+  final String? agentId;
+  final String? agentName;
+  final bool isLoaded;
+
+  const SelectedAgentState({
+    this.connectionKey,
+    this.agentId,
+    this.agentName,
+    this.isLoaded = false,
+  });
+
+  bool get hasSelection => agentId != null && agentId!.isNotEmpty;
+
+  SelectedAgentState copyWith({
+    Object? connectionKey = _settingsNoChange,
+    Object? agentId = _settingsNoChange,
+    Object? agentName = _settingsNoChange,
+    bool? isLoaded,
+  }) {
+    return SelectedAgentState(
+      connectionKey: identical(connectionKey, _settingsNoChange)
+          ? this.connectionKey
+          : connectionKey as String?,
+      agentId: identical(agentId, _settingsNoChange)
+          ? this.agentId
+          : agentId as String?,
+      agentName: identical(agentName, _settingsNoChange)
+          ? this.agentName
+          : agentName as String?,
+      isLoaded: isLoaded ?? this.isLoaded,
+    );
+  }
+}
+
+class SelectedAgentNotifier extends StateNotifier<SelectedAgentState> {
+  SelectedAgentNotifier(this._preferencesService)
+    : super(const SelectedAgentState());
+
+  final PreferencesService _preferencesService;
+  int _loadToken = 0;
+
+  Future<void> loadForConnection(String? connectionKey) async {
+    final token = ++_loadToken;
+    if (connectionKey == null || connectionKey.isEmpty) {
+      state = const SelectedAgentState(isLoaded: true);
+      return;
+    }
+
+    state = SelectedAgentState(connectionKey: connectionKey, isLoaded: false);
+    final selected = await _preferencesService.getSelectedAgent(connectionKey);
+    if (token != _loadToken) {
+      return;
+    }
+
+    state = SelectedAgentState(
+      connectionKey: connectionKey,
+      agentId: selected?['agentId'] as String?,
+      agentName: selected?['agentName'] as String?,
+      isLoaded: true,
+    );
+  }
+
+  Future<void> selectAgent({
+    required String connectionKey,
+    required app_models.Agent agent,
+  }) async {
+    await _preferencesService.saveSelectedAgent(
+      connectionKey,
+      agentId: agent.mode ?? '',
+      agentName: agent.name,
+    );
+    AppLogger.instance.info(
+      'Agent selected',
+      scope: 'agent',
+      data: {
+        'connectionKey': connectionKey,
+        'agentId': agent.mode,
+        'agentName': agent.name,
+      },
+    );
+    state = SelectedAgentState(
+      connectionKey: connectionKey,
+      agentId: agent.mode,
+      agentName: agent.name,
+      isLoaded: true,
+    );
+  }
+
+  Future<void> clearSelection(String? connectionKey) async {
+    if (connectionKey != null && connectionKey.isNotEmpty) {
+      await _preferencesService.clearSelectedAgent(connectionKey);
+    }
+    AppLogger.instance.info(
+      'Agent selection cleared',
+      scope: 'agent',
+      data: {'connectionKey': connectionKey},
+    );
+    state = SelectedAgentState(connectionKey: connectionKey, isLoaded: true);
+  }
+}
+
+final selectedAgentProvider =
+    StateNotifierProvider<SelectedAgentNotifier, SelectedAgentState>((ref) {
+      final notifier = SelectedAgentNotifier(
+        ref.watch(preferencesServiceProvider),
+      );
+      ref.listen<SettingsState>(settingsProvider, (previous, next) {
+        final previousKey = previous?.selectedConnectionKey;
+        final nextKey = next.selectedConnectionKey;
+        if (previousKey == nextKey) {
+          return;
+        }
+        unawaited(notifier.loadForConnection(nextKey));
+      }, fireImmediately: true);
+      return notifier;
+    });
 
 // ---------------------------------------------------------------------------
 // API Client
@@ -134,10 +301,17 @@ final settingsProvider = StateNotifierProvider<SettingsNotifier, SettingsState>(
 
 final apiClientProvider = Provider<ApiClient>((ref) {
   final settings = ref.watch(settingsProvider);
-  final client = ApiClient(baseUrl: settings.serverUrl);
+  final client = ApiClient(
+    baseUrl: settings.serverUrl,
+    bearerToken: settings.authToken,
+  );
   ref.listen<SettingsState>(settingsProvider, (prev, next) {
-    if (prev?.serverUrl == next.serverUrl) return;
-    client.updateBaseUrl(next.serverUrl);
+    if (prev?.serverUrl != next.serverUrl) {
+      client.updateBaseUrl(next.serverUrl);
+    }
+    if (prev?.authToken != next.authToken) {
+      client.updateBearerToken(next.authToken);
+    }
   });
   return client;
 });
@@ -251,136 +425,61 @@ final fileServiceProvider = Provider<FileService>((ref) {
 });
 
 final providerServiceProvider = Provider<ProviderService>((ref) {
-  return ProviderService(ref.watch(apiClientProvider));
+  return ProviderService();
 });
 
 final eventServiceProvider = Provider<EventService>((ref) {
-  return EventService(ref.watch(apiClientProvider));
+  final service = EventService(ref.watch(apiClientProvider));
+  ref.listen<SettingsState>(settingsProvider, (previous, next) {
+    final serverChanged = previous?.serverUrl != next.serverUrl;
+    final tokenChanged = previous?.authToken != next.authToken;
+    if (serverChanged || tokenChanged) {
+      service.resetConnection();
+    }
+  });
+  ref.onDispose(service.dispose);
+  return service;
 });
 
 class _NormalizedEvent {
   final String type;
-  final Map<String, dynamic> properties;
+  final Map<String, dynamic> payload;
 
-  const _NormalizedEvent({required this.type, required this.properties});
+  const _NormalizedEvent({required this.type, required this.payload});
 }
 
 class GlobalEventCoordinator {
   final Ref _ref;
-  final Map<String, StreamSubscription<Map<String, dynamic>>> _subscriptions =
-      {};
-  Set<String> _directories = const {};
+  StreamSubscription<Map<String, dynamic>>? _subscription;
+  Set<String> _sessionIds = const {};
   Timer? _sessionsRefreshTimer;
 
-  GlobalEventCoordinator(this._ref);
+  GlobalEventCoordinator(this._ref) {
+    _subscription = _ref.read(eventServiceProvider).subscribe().listen(
+      _handleRawEvent,
+      onError: (Object error) {
+        AppLogger.instance.error(
+          'Global event stream error',
+          scope: 'events',
+          error: error,
+        );
+      },
+    );
+  }
 
-  void syncDirectories(Set<String> directories) {
-    final next = directories.where((value) => value.isNotEmpty).toSet();
-    if (setEquals(_directories, next)) return;
-    final eventService = _ref.read(eventServiceProvider);
-
-    for (final directory in next) {
-      if (_subscriptions.containsKey(directory)) continue;
-      _subscriptions[directory] = eventService
-          .subscribe(directory: directory)
-          .listen(
-            _handleRawEvent,
-            onError: (Object error) {
-              debugPrint('[GlobalEventCoordinator] stream error: $error');
-            },
-          );
+  void syncSessionIds(Set<String> sessionIds) {
+    final next = sessionIds.where((value) => value.isNotEmpty).toSet();
+    if (setEquals(_sessionIds, next)) {
+      return;
     }
-
-    final toRemove = _subscriptions.keys
-        .where((directory) => !next.contains(directory))
-        .toList();
-    for (final directory in toRemove) {
-      _subscriptions.remove(directory)?.cancel();
-    }
-
-    _directories = next;
+    _ref.read(eventServiceProvider).setSubscribedSessionIds(next);
+    _sessionIds = next;
   }
 
   void dispose() {
     _sessionsRefreshTimer?.cancel();
-    for (final subscription in _subscriptions.values) {
-      subscription.cancel();
-    }
-    _subscriptions.clear();
-  }
-
-  void _handleRawEvent(Map<String, dynamic> raw) {
-    final event = _normalize(raw);
-    if (event == null) return;
-
-    if (event.type == '__reconnected__') {
-      _onReconnected();
-      return;
-    }
-    if (event.type == 'session.created' || event.type == 'session.updated') {
-      _handleSessionUpsert(event.properties);
-      return;
-    }
-    if (event.type == 'session.deleted') {
-      _handleSessionDeleted(event.properties);
-      return;
-    }
-    if (event.type == 'session.status') {
-      _handleSessionStatus(event.properties);
-      return;
-    }
-    if (event.type == 'session.idle') {
-      _handleSessionIdle(event.properties);
-      return;
-    }
-    if (event.type == 'message.updated') {
-      _handleMessageUpdated(event.properties);
-      return;
-    }
-    if (event.type == 'message.part.updated') {
-      _handleMessagePartUpdated(event.properties);
-      return;
-    }
-    if (event.type == 'message.removed') {
-      _handleMessageRemoved(event.properties);
-      return;
-    }
-    if (event.type == 'message.part.removed') {
-      _handleMessagePartRemoved(event.properties);
-      return;
-    }
-    if (event.type == 'todo.updated') {
-      _handleTodoUpdated(event.properties);
-      return;
-    }
-    if (event.type == 'session.diff') {
-      _handleSessionDiff(event.properties);
-      return;
-    }
-    if (event.type == 'session.error') {
-      _handleSessionError(event.properties);
-      return;
-    }
-    if (event.type == 'vcs.branch.updated') {
-      _handleBranchUpdated(event.properties);
-      return;
-    }
-    if (event.type == 'pty.created') {
-      _handlePtyCreated(event.properties);
-      return;
-    }
-    if (event.type == 'pty.updated') {
-      _handlePtyUpdated(event.properties);
-      return;
-    }
-    if (event.type == 'pty.exited') {
-      _handlePtyExited(event.properties);
-      return;
-    }
-    if (event.type == 'pty.deleted') {
-      _handlePtyDeleted(event.properties);
-      return;
-    }
+    _subscription?.cancel();
+    _subscription = null;
   }
 
   _NormalizedEvent? _normalize(Map<String, dynamic> raw) {
@@ -389,19 +488,12 @@ class GlobalEventCoordinator {
         ? payloadRaw
         : payloadRaw is Map
         ? Map<String, dynamic>.from(payloadRaw)
-        : raw;
-
-    final type = payload['type']?.toString();
-    if (type == null || type.isEmpty) return null;
-
-    final propertiesRaw = payload['properties'];
-    final properties = propertiesRaw is Map<String, dynamic>
-        ? propertiesRaw
-        : propertiesRaw is Map
-        ? Map<String, dynamic>.from(propertiesRaw)
         : <String, dynamic>{};
 
-    return _NormalizedEvent(type: type, properties: properties);
+    final type = raw['type']?.toString();
+    if (type == null || type.isEmpty) return null;
+
+    return _NormalizedEvent(type: type, payload: payload);
   }
 
   void _onReconnected() {
@@ -411,213 +503,107 @@ class GlobalEventCoordinator {
     unawaited(_ref.read(messagesProvider.notifier).loadForSession(session));
   }
 
-  void _handleSessionUpsert(Map<String, dynamic> properties) {
-    final infoRaw = properties['info'];
-    if (infoRaw is! Map) return;
-    try {
-      final session = Session.fromJson(Map<String, dynamic>.from(infoRaw));
-      final selected = _ref.read(selectedSessionProvider);
-      if (selected != null && selected.id == session.id) {
-        _ref.read(selectedSessionProvider.notifier).state = session;
-      }
-      _scheduleSessionsRefresh();
-    } catch (error) {
-      debugPrint('[GlobalEventCoordinator] session parse error: $error');
-    }
-  }
-
-  void _handleSessionDeleted(Map<String, dynamic> properties) {
-    final infoRaw = properties['info'];
-    if (infoRaw is! Map) return;
-    final deletedId = infoRaw['id']?.toString();
-    if (deletedId == null || deletedId.isEmpty) return;
-    final selected = _ref.read(selectedSessionProvider);
-    if (selected != null && selected.id == deletedId) {
-      _ref.read(selectedSessionProvider.notifier).state = null;
-      unawaited(_ref.read(messagesProvider.notifier).loadForSession(null));
-    }
-    unawaited(
-      _ref.read(activeSessionsProvider.notifier).clearActive(deletedId),
-    );
-    _scheduleSessionsRefresh();
-  }
-
   void _scheduleSessionsRefresh({bool immediate = false}) {
     _sessionsRefreshTimer?.cancel();
     if (immediate) {
       _ref.invalidate(sessionsProvider);
+      _ref.invalidate(projectsProvider);
       return;
     }
     _sessionsRefreshTimer = Timer(const Duration(milliseconds: 180), () {
       _ref.invalidate(sessionsProvider);
+      _ref.invalidate(projectsProvider);
     });
   }
 
-  void _handleSessionStatus(Map<String, dynamic> properties) {
-    final sessionID = properties['sessionID']?.toString();
-    if (sessionID == null || sessionID.isEmpty) return;
-    _ref
-        .read(sessionStatusProvider.notifier)
-        .upsertStatus(sessionID, properties['status']);
-  }
-
-  void _handleSessionIdle(Map<String, dynamic> properties) {
-    final sessionID = properties['sessionID']?.toString();
-    if (sessionID == null || sessionID.isEmpty) return;
-    _ref.read(sessionStatusProvider.notifier).markIdle(sessionID);
-  }
-
-  void _handleMessageUpdated(Map<String, dynamic> properties) {
-    final infoRaw = properties['info'];
-    if (infoRaw is! Map) return;
-    try {
-      final info = MessageInfo.fromJson(Map<String, dynamic>.from(infoRaw));
-      final selected = _ref.read(selectedSessionProvider);
-      if (selected == null || selected.id != info.sessionID) return;
-      _ref.read(messagesProvider.notifier).upsertMessage(info);
-    } catch (error) {
-      debugPrint('[GlobalEventCoordinator] message parse error: $error');
-    }
-  }
-
-  void _handleMessagePartUpdated(Map<String, dynamic> properties) {
-    final partRaw = properties['part'];
-    if (partRaw is! Map) return;
-    try {
-      final part = Part.fromJson(Map<String, dynamic>.from(partRaw));
-      final selected = _ref.read(selectedSessionProvider);
-      if (selected == null || selected.id != part.sessionID) return;
-      final delta = properties['delta'] is String
-          ? properties['delta'] as String
-          : null;
-      _ref.read(messagesProvider.notifier).upsertPart(part, delta: delta);
-    } catch (error) {
-      debugPrint('[GlobalEventCoordinator] part parse error: $error');
-    }
-  }
-
-  void _handleMessageRemoved(Map<String, dynamic> properties) {
-    final sessionID = properties['sessionID']?.toString();
-    final messageID = properties['messageID']?.toString();
-    if (sessionID == null || messageID == null) return;
-    final selected = _ref.read(selectedSessionProvider);
-    if (selected == null || selected.id != sessionID) return;
-    _ref.read(messagesProvider.notifier).removeMessage(messageID);
-  }
-
-  void _handleMessagePartRemoved(Map<String, dynamic> properties) {
-    final sessionID = properties['sessionID']?.toString();
-    final messageID = properties['messageID']?.toString();
-    final partID = properties['partID']?.toString();
-    if (sessionID == null || messageID == null || partID == null) return;
-    final selected = _ref.read(selectedSessionProvider);
-    if (selected == null || selected.id != sessionID) return;
-    _ref.read(messagesProvider.notifier).removePart(messageID, partID);
-  }
-
-  void _handleTodoUpdated(Map<String, dynamic> properties) {
-    final sessionID = properties['sessionID']?.toString();
-    final todosRaw = properties['todos'];
-    if (sessionID == null || todosRaw is! List) return;
-    final selected = _ref.read(selectedSessionProvider);
-    if (selected == null || selected.id != sessionID) return;
-    final todos = todosRaw
-        .whereType<Map<String, dynamic>>()
-        .map(Todo.fromJson)
-        .toList();
-    _ref.read(todosProvider.notifier).setTodos(sessionID, todos);
-  }
-
-  void _handleSessionDiff(Map<String, dynamic> properties) {
-    final sessionID = properties['sessionID']?.toString();
-    final diffRaw = properties['diff'];
-    if (sessionID == null || diffRaw is! List) return;
-    final selected = _ref.read(selectedSessionProvider);
-    if (selected == null || selected.id != sessionID) return;
-    final diff = diffRaw
-        .whereType<Map<String, dynamic>>()
-        .map(FileDiff.fromJson)
-        .toList();
-    _ref.read(sessionDiffProvider.notifier).setDiff(sessionID, diff);
-  }
-
-  void _handleSessionError(Map<String, dynamic> properties) {
-    final sessionID = properties['sessionID']?.toString();
-    final selected = _ref.read(selectedSessionProvider);
-    if (selected != null && sessionID != null && selected.id != sessionID)
+  void _handleSessionUpdate(Map<String, dynamic> payload) {
+    final sessionId = payload['sessionId']?.toString();
+    final entryRaw = payload['entry'];
+    if (sessionId == null || sessionId.isEmpty || entryRaw is! Map) {
       return;
-    final error = properties['error'];
-    String? message;
-    String? name;
-    if (error is Map<String, dynamic>) {
-      name = error['name']?.toString();
-      final data = error['data'];
-      if (data is Map<String, dynamic>) {
-        message = data['message']?.toString();
+    }
+
+    final entry = AcpSessionEntry.fromJson(Map<String, dynamic>.from(entryRaw));
+    final selected = _ref.read(selectedSessionProvider);
+    if (selected != null && selected.id == sessionId) {
+      _ref.read(messagesProvider.notifier).appendEntry(selected, entry);
+      if (entry.kind == 'session_info_update') {
+        final payload = entry.payload;
+        final entryPayload = payload is Map ? Map<String, dynamic>.from(payload) : null;
+        final update = entryPayload?['update'];
+        final updateObject = update is Map<String, dynamic>
+            ? update
+            : update is Map
+            ? Map<String, dynamic>.from(update)
+            : null;
+        final nextTitle = updateObject?['title']?.toString();
+        if (nextTitle != null && nextTitle.trim().isNotEmpty) {
+          _ref.read(selectedSessionProvider.notifier).state = Session(
+            id: selected.id,
+            slug: selected.slug,
+            projectID: selected.projectID,
+            agentID: selected.agentID,
+            status: selected.status,
+            directory: selected.directory,
+            parentID: selected.parentID,
+            summary: selected.summary,
+            share: selected.share,
+            title: nextTitle,
+            version: selected.version,
+            time: selected.time,
+            revert: selected.revert,
+          );
+        }
       }
     }
-    _ref
-        .read(sessionErrorProvider.notifier)
-        .setError(sessionID: sessionID, message: message, name: name);
+
+    _scheduleSessionsRefresh();
   }
 
-  void _handleBranchUpdated(Map<String, dynamic> properties) {
-    final branch = properties['branch']?.toString();
-    _ref.read(vcsBranchProvider.notifier).state = branch;
+  void _handleDaemonWarning(Map<String, dynamic> payload) {
+    final error = payload['error']?.toString();
+    if (error == null || error.isEmpty) {
+      return;
+    }
+    _ref.read(sessionErrorProvider.notifier).setError(message: error);
   }
 
-  void _handlePtyCreated(Map<String, dynamic> properties) {
-    final info = properties['info'];
-    if (info is! Map<String, dynamic>) return;
-    try {
-      _ref.read(ptyProvider.notifier).upsert(PtyInfo.fromJson(info));
-    } catch (_) {}
-  }
-
-  void _handlePtyUpdated(Map<String, dynamic> properties) {
-    final info = properties['info'];
-    if (info is! Map<String, dynamic>) return;
-    try {
-      _ref.read(ptyProvider.notifier).upsert(PtyInfo.fromJson(info));
-    } catch (_) {}
-  }
-
-  void _handlePtyExited(Map<String, dynamic> properties) {
-    final id = properties['id']?.toString();
-    if (id == null || id.isEmpty) return;
-    final exitCode = (properties['exitCode'] as num?)?.toInt() ?? 0;
-    _ref.read(ptyProvider.notifier).updateExit(id, exitCode);
-  }
-
-  void _handlePtyDeleted(Map<String, dynamic> properties) {
-    final id = properties['id']?.toString();
-    if (id == null || id.isEmpty) return;
-    _ref.read(ptyProvider.notifier).remove(id);
+  void _handleRawEvent(Map<String, dynamic> raw) {
+    final event = _normalize(raw);
+    if (event == null) {
+      return;
+    }
+    switch (event.type) {
+      case '__reconnected__':
+        _onReconnected();
+        break;
+      case 'session_update':
+        _handleSessionUpdate(event.payload);
+        break;
+      case 'daemon_warning':
+        _handleDaemonWarning(event.payload);
+        break;
+    }
   }
 }
 
 final globalEventCoordinatorProvider = Provider<GlobalEventCoordinator>((ref) {
   final coordinator = GlobalEventCoordinator(ref);
 
-  Set<String> computeDirectories() {
-    final directories = <String>{};
-    final selectedProject = ref.read(selectedProjectProvider);
-    if (selectedProject != null) {
-      directories.add(selectedProject.worktree);
-    }
+  Set<String> computeSessionIds() {
+    final sessionIds = <String>{};
     final selectedSession = ref.read(selectedSessionProvider);
     if (selectedSession != null) {
-      directories.add(selectedSession.directory);
+      sessionIds.add(selectedSession.id);
     }
-    directories.addAll(ref.read(activeSessionsProvider).values);
-    return directories;
+    sessionIds.addAll(ref.read(activeSessionsProvider).keys);
+    return sessionIds;
   }
 
   void sync() {
-    coordinator.syncDirectories(computeDirectories());
+    coordinator.syncSessionIds(computeSessionIds());
   }
 
-  ref.listen<Project?>(selectedProjectProvider, (_, _) => sync());
   ref.listen<Session?>(selectedSessionProvider, (_, _) => sync());
   ref.listen<Map<String, String>>(activeSessionsProvider, (_, _) => sync());
   sync();
@@ -631,23 +617,23 @@ final permissionServiceProvider = Provider<PermissionService>((ref) {
 });
 
 final questionServiceProvider = Provider<QuestionService>((ref) {
-  return QuestionService(ref.watch(apiClientProvider));
+  return QuestionService();
 });
 
 final sessionDiffServiceProvider = Provider<SessionDiffService>((ref) {
-  return SessionDiffService(ref.watch(apiClientProvider));
+  return SessionDiffService();
 });
 
 final todoServiceProvider = Provider<TodoService>((ref) {
-  return TodoService(ref.watch(apiClientProvider));
-});
-
-final ptyServiceProvider = Provider<PtyService>((ref) {
-  return PtyService(ref.watch(apiClientProvider));
+  return TodoService();
 });
 
 final preferencesServiceProvider = Provider<PreferencesService>((ref) {
   return PreferencesService();
+});
+
+final lanDiscoveryServiceProvider = Provider<LanDiscoveryService>((ref) {
+  return LanDiscoveryService(ref.watch(preferencesServiceProvider));
 });
 
 final inAppUpdateServiceProvider = Provider<InAppUpdateService>((ref) {
@@ -716,8 +702,20 @@ final selectedProjectProvider = StateProvider<Project?>((ref) => null);
 
 final sessionsProvider = FutureProvider<List<Session>>((ref) {
   final selectedProject = ref.watch(selectedProjectProvider);
+  final selectedAgent = ref.watch(selectedAgentProvider);
   final sessionService = ref.watch(sessionServiceProvider);
-  return sessionService.listSessions(directory: selectedProject?.worktree);
+  return sessionService
+      .listSessions(
+        projectID: selectedProject?.id,
+        directory: selectedProject?.worktree,
+      )
+      .then((sessions) {
+    final agentId = selectedAgent.agentId;
+    if (agentId == null || agentId.isEmpty) {
+      return sessions;
+    }
+    return sessions.where((session) => session.agentID == agentId).toList();
+  });
 });
 
 final selectedSessionProvider = StateProvider<Session?>((ref) => null);
@@ -1002,106 +1000,6 @@ final editedFilesProvider =
     });
 
 // ---------------------------------------------------------------------------
-// Pty Sessions
-// ---------------------------------------------------------------------------
-
-class PtyState {
-  final Map<String, PtyInfo> items;
-
-  const PtyState({this.items = const {}});
-
-  PtyState copyWith({Map<String, PtyInfo>? items}) {
-    return PtyState(items: items ?? this.items);
-  }
-}
-
-class CommandRunsState {
-  final Map<String, CommandRun> items;
-
-  const CommandRunsState({this.items = const {}});
-
-  CommandRunsState copyWith({Map<String, CommandRun>? items}) {
-    return CommandRunsState(items: items ?? this.items);
-  }
-}
-
-class CommandRunsNotifier extends StateNotifier<CommandRunsState> {
-  CommandRunsNotifier() : super(const CommandRunsState());
-
-  void upsert(CommandRun run) {
-    final next = Map<String, CommandRun>.from(state.items);
-    next[run.id] = run;
-    state = state.copyWith(items: next);
-  }
-
-  void appendOutput(String id, String chunk) {
-    if (chunk.isEmpty) return;
-    final existing = state.items[id];
-    if (existing == null) return;
-    upsert(existing.copyWith(output: '${existing.output}$chunk'));
-  }
-
-  void updateStatus(
-    String id, {
-    String? status,
-    int? exitCode,
-    int? completedAt,
-  }) {
-    final existing = state.items[id];
-    if (existing == null) return;
-    upsert(
-      existing.copyWith(
-        status: status ?? existing.status,
-        exitCode: exitCode ?? existing.exitCode,
-        completedAt: completedAt ?? existing.completedAt,
-      ),
-    );
-  }
-
-  void clear() {
-    state = const CommandRunsState();
-  }
-}
-
-final commandRunsProvider =
-    StateNotifierProvider<CommandRunsNotifier, CommandRunsState>((ref) {
-      return CommandRunsNotifier();
-    });
-
-class PtyNotifier extends StateNotifier<PtyState> {
-  PtyNotifier() : super(const PtyState());
-
-  void upsert(PtyInfo info) {
-    final next = Map<String, PtyInfo>.from(state.items);
-    next[info.id] = info;
-    state = state.copyWith(items: next);
-  }
-
-  void updateExit(String id, int exitCode) {
-    final existing = state.items[id];
-    if (existing == null) return;
-    upsert(existing.copyWith(status: 'exited', exitCode: exitCode));
-  }
-
-  void remove(String id) {
-    if (!state.items.containsKey(id)) return;
-    final next = Map<String, PtyInfo>.from(state.items);
-    next.remove(id);
-    state = state.copyWith(items: next);
-  }
-
-  void clear() {
-    state = const PtyState();
-  }
-}
-
-final ptyProvider = StateNotifierProvider<PtyNotifier, PtyState>((ref) {
-  return PtyNotifier();
-});
-
-final activeCommandRunProvider = StateProvider<String?>((ref) => null);
-
-// ---------------------------------------------------------------------------
 // Session Error
 // ---------------------------------------------------------------------------
 
@@ -1187,172 +1085,58 @@ const Object _messagesNoChange = Object();
 class MessagesNotifier extends StateNotifier<MessagesState> {
   final MessageService _messageService;
   int _loadToken = 0;
-  final Map<String, List<_PendingPartUpdate>> _pendingPartsByMessage = {};
+  String? _loadedSessionId;
+  List<AcpSessionEntry> _entries = const [];
 
   MessagesNotifier(this._messageService) : super(const MessagesState());
 
   Future<void> loadForSession(Session? session) async {
     final token = ++_loadToken;
     if (session == null) {
+      _loadedSessionId = null;
+      _entries = const [];
       state = const MessagesState();
       return;
     }
 
     state = state.copyWith(isLoading: true, error: null);
     try {
-      final messages = await _messageService.getMessages(
-        session.id,
-        limit: 58,
-        directory: session.directory,
-      );
+      final snapshot = await _messageService.getSnapshot(session.id);
       if (!mounted || token != _loadToken) return;
-      state = state.copyWith(messages: messages, isLoading: false, error: null);
+      _loadedSessionId = session.id;
+      _entries = snapshot.entries;
+      state = state.copyWith(
+        messages: messageWrappersFromAcpSnapshot(snapshot),
+        isLoading: false,
+        error: null,
+      );
     } catch (e) {
       if (!mounted || token != _loadToken) return;
       state = state.copyWith(isLoading: false, error: e.toString());
     }
   }
 
-  void upsertMessage(MessageInfo info) {
-    final current = List<MessageWrapper>.from(state.messages);
-    final index = current.indexWhere((message) => message.info.id == info.id);
-    if (index >= 0) {
-      current[index] = MessageWrapper(info: info, parts: current[index].parts);
-    } else {
-      current.add(MessageWrapper(info: info, parts: const []));
-      current.sort(
-        (a, b) =>
-            _messageCreatedAt(a.info).compareTo(_messageCreatedAt(b.info)),
-      );
-    }
-    _applyPendingParts(current, info.id);
-    state = state.copyWith(messages: current, error: null);
-  }
-
-  void upsertPart(Part part, {String? delta}) {
-    final current = List<MessageWrapper>.from(state.messages);
-    final messageIndex = current.indexWhere(
-      (message) => message.info.id == part.messageID,
-    );
-    if (messageIndex < 0) {
-      _pendingPartsByMessage
-          .putIfAbsent(part.messageID, () => [])
-          .add(_PendingPartUpdate(part: part, delta: delta));
+  void appendEntry(Session session, AcpSessionEntry entry) {
+    if (_loadedSessionId != session.id) {
       return;
     }
-
-    final existing = current[messageIndex];
-    final parts = List<Part>.from(existing.parts);
-    final partIndex = parts.indexWhere((candidate) => candidate.id == part.id);
-
-    if (partIndex < 0) {
-      parts.add(_applyDelta(part, delta));
+    final existingIndex = _entries.indexWhere((item) => item.id == entry.id);
+    if (existingIndex >= 0) {
+      _entries = [
+        ..._entries.take(existingIndex),
+        entry,
+        ..._entries.skip(existingIndex + 1),
+      ];
     } else {
-      parts[partIndex] = _mergePart(parts[partIndex], part, delta);
+      _entries = [..._entries, entry]..sort((left, right) => left.seq.compareTo(right.seq));
     }
-
-    current[messageIndex] = MessageWrapper(info: existing.info, parts: parts);
-    state = state.copyWith(messages: current, error: null);
-  }
-
-  void removeMessage(String messageID) {
-    final next = state.messages
-        .where((message) => message.info.id != messageID)
-        .toList();
-    _pendingPartsByMessage.remove(messageID);
-    state = state.copyWith(messages: next, error: null);
-  }
-
-  void removePart(String messageID, String partID) {
-    final current = List<MessageWrapper>.from(state.messages);
-    final messageIndex = current.indexWhere(
-      (message) => message.info.id == messageID,
-    );
-    if (messageIndex < 0) return;
-    final existing = current[messageIndex];
-    final parts = existing.parts.where((part) => part.id != partID).toList();
-    current[messageIndex] = MessageWrapper(info: existing.info, parts: parts);
-    state = state.copyWith(messages: current, error: null);
-  }
-
-  Part _mergePart(Part previous, Part incoming, String? delta) {
-    if (previous is TextPart && incoming is TextPart) {
-      if (incoming.text.isNotEmpty && incoming.text != previous.text) {
-        return incoming;
-      }
-      if (delta == null || delta.isEmpty) return incoming;
-      return TextPart(
-        id: incoming.id,
-        sessionID: incoming.sessionID,
-        messageID: incoming.messageID,
-        text: '${previous.text}$delta',
-        synthetic: incoming.synthetic,
-        ignored: incoming.ignored,
-        time: incoming.time,
-        metadata: incoming.metadata,
-      );
-    }
-    return _applyDelta(incoming, delta);
-  }
-
-  Part _applyDelta(Part incoming, String? delta) {
-    if (incoming is! TextPart) {
-      return incoming;
-    }
-    if (incoming.text.isNotEmpty) return incoming;
-    if (delta == null || delta.isEmpty) return incoming;
-
-    return TextPart(
-      id: incoming.id,
-      sessionID: incoming.sessionID,
-      messageID: incoming.messageID,
-      text: incoming.text.isEmpty ? delta : incoming.text,
-      synthetic: incoming.synthetic,
-      ignored: incoming.ignored,
-      time: incoming.time,
-      metadata: incoming.metadata,
+    state = state.copyWith(
+      messages: messageWrappersFromAcpSnapshot(
+        AcpSessionSnapshot(session: session, entries: _entries),
+      ),
+      error: null,
     );
   }
-
-  int _messageCreatedAt(MessageInfo info) {
-    if (info is UserMessageInfo) return info.time.created;
-    if (info is AssistantMessageInfo) return info.time.created;
-    return 0;
-  }
-
-  void _applyPendingParts(List<MessageWrapper> messages, String messageID) {
-    final pending = _pendingPartsByMessage.remove(messageID);
-    if (pending == null || pending.isEmpty) return;
-    final messageIndex = messages.indexWhere(
-      (message) => message.info.id == messageID,
-    );
-    if (messageIndex < 0) return;
-
-    var existing = messages[messageIndex];
-    for (final update in pending) {
-      final parts = List<Part>.from(existing.parts);
-      final partIndex = parts.indexWhere((part) => part.id == update.part.id);
-      if (partIndex < 0) {
-        parts.add(_applyDelta(update.part, update.delta));
-      } else {
-        parts[partIndex] = _mergePart(
-          parts[partIndex],
-          update.part,
-          update.delta,
-        );
-      }
-      existing = MessageWrapper(info: existing.info, parts: parts);
-    }
-
-    messages[messageIndex] = existing;
-  }
-}
-
-class _PendingPartUpdate {
-  final Part part;
-  final String? delta;
-
-  const _PendingPartUpdate({required this.part, required this.delta});
 }
 
 final messagesProvider = StateNotifierProvider<MessagesNotifier, MessagesState>(
@@ -1478,6 +1262,18 @@ final providersListProvider = FutureProvider<ProviderListResponse>((ref) {
 final selectedModelProvider = StateProvider<Map<String, String>?>(
   (ref) => null,
 );
+
+bool _isUsableModelSelection(Map<String, String>? model) {
+  if (model == null) {
+    return false;
+  }
+  final providerId = model['providerID']?.trim() ?? '';
+  final modelId = model['modelID']?.trim() ?? '';
+  if (providerId.isEmpty || modelId.isEmpty) {
+    return false;
+  }
+  return providerId != 'local';
+}
 
 class SessionModeNotifier extends StateNotifier<String> {
   final PreferencesService _preferencesService;
@@ -1721,15 +1517,15 @@ final projectModelProvider =
 final activeModelProvider = Provider<Map<String, String>?>((ref) {
   // 1. Session specific model (if set in current session view)
   final selected = ref.watch(selectedModelProvider);
-  if (selected != null) return selected;
+  if (_isUsableModelSelection(selected)) return selected;
 
   // 2. Project default model (persisted)
   final projectModel = ref.watch(projectModelProvider).model;
-  if (projectModel != null) return projectModel;
+  if (_isUsableModelSelection(projectModel)) return projectModel;
 
   // 3. User default model (persisted)
   final defaultModel = ref.watch(defaultModelProvider);
-  if (defaultModel != null) return defaultModel;
+  if (_isUsableModelSelection(defaultModel)) return defaultModel;
 
   return null;
 });

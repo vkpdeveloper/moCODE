@@ -8,6 +8,10 @@ class PreferencesService {
   static const String _kProjectModelPrefix = 'project_model_';
   static const String _kActiveSessionPrefix = 'active_session_';
   static const String _kUseNerdFont = 'use_nerd_font';
+  static const String _kPairedCliDevices = 'paired_cli_devices';
+  static const String _kSelectedCliDevice = 'selected_cli_device';
+  static const String _kCliResetRequested = 'cli_reset_requested';
+  static const String _kSelectedAgentPrefix = 'selected_agent_';
 
   Future<void> saveDefaultModel(String providerId, String modelId) async {
     final prefs = await SharedPreferences.getInstance();
@@ -201,6 +205,112 @@ class PreferencesService {
   Future<bool> getUseNerdFont() async {
     final prefs = await SharedPreferences.getInstance();
     return prefs.getBool(_kUseNerdFont) ?? true;
+  }
+
+  Future<List<Map<String, dynamic>>> getPairedCliDevices() async {
+    final prefs = await SharedPreferences.getInstance();
+    final stored = prefs.getStringList(_kPairedCliDevices) ?? [];
+    return stored
+        .map(_parseJson)
+        .where((item) => item != null)
+        .cast<Map<String, dynamic>>()
+        .toList();
+  }
+
+  Future<void> savePairedCliDevice(Map<String, dynamic> device) async {
+    final prefs = await SharedPreferences.getInstance();
+    final existing = await getPairedCliDevices();
+    final normalized = <String, dynamic>{
+      'deviceId': device['deviceId'],
+      'deviceName': device['deviceName'],
+      'host': device['host'],
+      'port': device['port'],
+      'token': device['token'],
+    };
+
+    final next =
+        existing
+            .where(
+              (item) =>
+                  item['deviceId'] != normalized['deviceId'] &&
+                  !(item['host'] == normalized['host'] &&
+                      item['port'] == normalized['port']),
+            )
+            .toList()
+          ..add(normalized);
+
+    await prefs.setStringList(
+      _kPairedCliDevices,
+      next.map(_encodeJson).toList(),
+    );
+  }
+
+  Future<Map<String, dynamic>?> getSelectedCliDevice() async {
+    final prefs = await SharedPreferences.getInstance();
+    final stored = prefs.getString(_kSelectedCliDevice);
+    if (stored == null || stored.isEmpty) {
+      return null;
+    }
+    return _parseJson(stored);
+  }
+
+  Future<void> selectCliDevice(Map<String, dynamic> device) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_kSelectedCliDevice, _encodeJson(device));
+  }
+
+  Future<void> clearSelectedCliDevice() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_kSelectedCliDevice);
+  }
+
+  Future<void> saveSelectedAgent(
+    String connectionKey, {
+    required String agentId,
+    required String agentName,
+  }) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+      _agentStorageKey(connectionKey),
+      _encodeJson({
+        'agentId': agentId,
+        'agentName': agentName,
+      }),
+    );
+  }
+
+  Future<Map<String, dynamic>?> getSelectedAgent(String connectionKey) async {
+    final prefs = await SharedPreferences.getInstance();
+    final stored = prefs.getString(_agentStorageKey(connectionKey));
+    if (stored == null || stored.isEmpty) {
+      return null;
+    }
+    return _parseJson(stored);
+  }
+
+  Future<void> clearSelectedAgent(String connectionKey) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_agentStorageKey(connectionKey));
+  }
+
+  Future<void> requestCliReselectionOnNextLaunch() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_kCliResetRequested, true);
+  }
+
+  Future<bool> consumeCliReselectionRequest() async {
+    final prefs = await SharedPreferences.getInstance();
+    final shouldReset = prefs.getBool(_kCliResetRequested) ?? false;
+    if (!shouldReset) {
+      return false;
+    }
+    await prefs.remove(_kCliResetRequested);
+    await clearSelectedCliDevice();
+    return true;
+  }
+
+  String _agentStorageKey(String connectionKey) {
+    return '$_kSelectedAgentPrefix${Uri.encodeComponent(connectionKey)}';
   }
 
   String _encodeJson(Map<String, dynamic> json) {

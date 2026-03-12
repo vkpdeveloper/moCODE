@@ -629,7 +629,20 @@ Future<void> _openProjectFromDirectory(
 ) async {
   try {
     final sessionService = ref.read(sessionServiceProvider);
-    final session = await sessionService.createSession(directory: directory);
+    final selectedAgent = ref.read(selectedAgentProvider);
+    if (!selectedAgent.hasSelection) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Pick an agent first.')),
+        );
+        context.push('/agents');
+      }
+      return;
+    }
+    final session = await sessionService.createSession(
+      agentID: selectedAgent.agentId,
+      directory: directory,
+    );
     final projectService = ref.read(projectServiceProvider);
     final project = await _resolveProject(session, directory, projectService);
     if (project != null) {

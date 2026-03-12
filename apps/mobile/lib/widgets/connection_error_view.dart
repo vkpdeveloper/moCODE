@@ -120,9 +120,9 @@ class ConnectionErrorView extends StatelessWidget {
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton.icon(
-                  onPressed: () => context.push('/settings'),
-                  icon: const Icon(Icons.settings, size: 18),
-                  label: const Text('CONFIGURE SERVER'),
+                  onPressed: () => context.push('/connect'),
+                  icon: const Icon(Icons.settings_input_antenna, size: 18),
+                  label: const Text('CHOOSE DEVICE'),
                   style: ElevatedButton.styleFrom(
                     padding: const EdgeInsets.symmetric(vertical: 12),
                   ),

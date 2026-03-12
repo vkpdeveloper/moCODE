@@ -26,7 +26,7 @@ class ErrorHandler {
           type: ApiErrorType.connection,
           message: 'Unable to connect to server',
           details:
-              'Please check that the OpenCode server is running and the host/port settings are correct.',
+              'Please check that the moCODE CLI is running and the host/port settings are correct.',
         );
 
       case DioExceptionType.connectionTimeout:
@@ -79,7 +79,7 @@ class ErrorHandler {
             type: ApiErrorType.connection,
             message: 'Unable to connect to server',
             details:
-                'Please check that the OpenCode server is running and the host/port settings are correct.',
+                'Please check that the moCODE CLI is running and the host/port settings are correct.',
           );
         }
         return ApiError(

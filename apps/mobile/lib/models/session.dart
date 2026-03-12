@@ -116,6 +116,8 @@ class Session {
   final String id;
   final String slug;
   final String projectID;
+  final String? agentID;
+  final String? status;
   final String directory;
   final String? parentID;
   final SessionSummary? summary;
@@ -129,6 +131,8 @@ class Session {
     required this.id,
     required this.slug,
     required this.projectID,
+    this.agentID,
+    this.status,
     required this.directory,
     this.parentID,
     this.summary,
@@ -144,6 +148,8 @@ class Session {
       id: json['id'] as String,
       slug: json['slug'] as String,
       projectID: json['projectID'] as String,
+      agentID: json['agentID'] as String?,
+      status: json['status'] as String?,
       directory: json['directory'] as String,
       parentID: json['parentID'] as String?,
       summary: json['summary'] != null
@@ -166,6 +172,8 @@ class Session {
       'id': id,
       'slug': slug,
       'projectID': projectID,
+      if (agentID != null) 'agentID': agentID,
+      if (status != null) 'status': status,
       'directory': directory,
       if (parentID != null) 'parentID': parentID,
       if (summary != null) 'summary': summary!.toJson(),

@@ -1,9 +1,10 @@
 import 'package:dio/dio.dart';
-import 'package:flutter/foundation.dart';
 
+import '../models/acp_models.dart';
 import '../models/session.dart';
 import '../utils/json_parser.dart';
 import 'api_client.dart';
+import 'app_logger.dart';
 
 class SessionService {
   final ApiClient _apiClient;
@@ -12,6 +13,7 @@ class SessionService {
 
   Future<List<Session>> listSessions({
     String? directory,
+    String? projectID,
     bool roots = true,
     int? start,
     String? search,
@@ -19,30 +21,32 @@ class SessionService {
   }) async {
     try {
       final response = await _apiClient.dio.get(
-        '/session',
+        '/v1/sessions',
         queryParameters: {
-          'directory': directory,
-          'roots': roots,
-          'start': start,
-          'search': search,
-          'limit': limit,
+          'projectId': projectID,
         },
       );
-      final data = parseJsonListBytes(response.data as List<int>);
-      debugPrint('[SessionService] Received ${data.length} sessions');
-      return data
+      final data = parseJsonObjectBytes(response.data as List<int>);
+      final sessions = (data['sessions'] as List<dynamic>? ?? const [])
           .map((item) {
             try {
-              return Session.fromJson(item as Map<String, dynamic>);
+              return sessionFromAcpJson(item as Map<String, dynamic>);
             } catch (e) {
-              debugPrint(
-                '[SessionService] Failed to parse session: $e\nRaw: $item',
+              AppLogger.instance.error(
+                'Failed to parse session payload',
+                scope: 'sessionService',
+                data: {'raw': item},
+                error: e,
               );
               return null;
             }
           })
           .whereType<Session>()
           .toList();
+      if (directory == null || directory.isEmpty) {
+        return sessions;
+      }
+      return sessions.where((session) => session.directory == directory).toList();
     } on DioException {
       rethrow;
     }
@@ -51,45 +55,64 @@ class SessionService {
   Future<Session> createSession({
     String? parentID,
     String? title,
+    String? agentID,
     String? directory,
+    String? projectID,
   }) async {
     try {
-      final payload = <String, dynamic>{};
-      if (parentID != null) payload['parentID'] = parentID;
-      if (title != null) payload['title'] = title;
+      var resolvedProjectId = projectID;
+      if ((resolvedProjectId == null || resolvedProjectId.isEmpty) &&
+          directory != null &&
+          directory.isNotEmpty) {
+        final openResponse = await _apiClient.dio.post(
+          '/v1/projects/open',
+          data: {'path': directory},
+        );
+        final openData = parseJsonObjectBytes(openResponse.data as List<int>);
+        resolvedProjectId =
+            (openData['project'] as Map<String, dynamic>)['id'] as String?;
+      }
+
+      if (resolvedProjectId == null || resolvedProjectId.isEmpty) {
+        throw StateError('Project is required to create a session.');
+      }
+      if (agentID == null || agentID.isEmpty) {
+        throw StateError('Agent is required to create a session.');
+      }
 
       final response = await _apiClient.dio.post(
-        '/session',
-        data: payload,
-        queryParameters: {'directory': directory},
+        '/v1/sessions',
+        data: {
+          'projectId': resolvedProjectId,
+          'agentId': agentID,
+        },
       );
-      final parsed = parseJsonObjectBytes(response.data as List<int>);
-      return Session.fromJson(parsed);
+      final data = parseJsonObjectBytes(response.data as List<int>);
+      final session = sessionFromAcpJson(data['session'] as Map<String, dynamic>);
+      if (title != null && title.trim().isNotEmpty) {
+        return updateSession(session.id, title: title);
+      }
+      return session;
     } on DioException {
       rethrow;
     }
   }
 
   Future<Map<String, dynamic>> getSessionStatus({String? directory}) async {
-    try {
-      final response = await _apiClient.dio.get(
-        '/session/status',
-        queryParameters: {'directory': directory},
-      );
-      return parseJsonObjectBytes(response.data as List<int>);
-    } on DioException {
-      rethrow;
-    }
+    final sessions = await listSessions(directory: directory, limit: 200);
+    return {
+      for (final session in sessions)
+        session.id: {
+          'type': sessionFromStatus(session),
+        },
+    };
   }
 
   Future<Session> getSession(String sessionID, {String? directory}) async {
     try {
-      final response = await _apiClient.dio.get(
-        '/session/$sessionID',
-        queryParameters: {'directory': directory},
-      );
+      final response = await _apiClient.dio.get('/v1/sessions/$sessionID');
       final data = parseJsonObjectBytes(response.data as List<int>);
-      return Session.fromJson(data);
+      return sessionFromAcpJson(data['session'] as Map<String, dynamic>);
     } on DioException {
       rethrow;
     }
@@ -97,10 +120,7 @@ class SessionService {
 
   Future<bool> deleteSession(String sessionID, {String? directory}) async {
     try {
-      await _apiClient.dio.delete(
-        '/session/$sessionID',
-        queryParameters: {'directory': directory},
-      );
+      await _apiClient.dio.delete('/v1/sessions/$sessionID');
       return true;
     } on DioException {
       rethrow;
@@ -115,12 +135,11 @@ class SessionService {
   }) async {
     try {
       final response = await _apiClient.dio.patch(
-        '/session/$sessionID',
-        data: {'title': title, 'archived': archived},
-        queryParameters: {'directory': directory},
+        '/v1/sessions/$sessionID',
+        data: {'title': title},
       );
       final data = parseJsonObjectBytes(response.data as List<int>);
-      return Session.fromJson(data);
+      return sessionFromAcpJson(data['session'] as Map<String, dynamic>);
     } on DioException {
       rethrow;
     }
@@ -130,28 +149,7 @@ class SessionService {
     String sessionID, {
     String? directory,
   }) async {
-    try {
-      final response = await _apiClient.dio.get(
-        '/session/$sessionID/children',
-        queryParameters: {'directory': directory},
-      );
-      final data = parseJsonListBytes(response.data as List<int>);
-      return data
-          .map((item) {
-            try {
-              return Session.fromJson(item as Map<String, dynamic>);
-            } catch (e) {
-              debugPrint(
-                '[SessionService] Failed to parse child session: $e\nRaw: $item',
-              );
-              return null;
-            }
-          })
-          .whereType<Session>()
-          .toList();
-    } on DioException {
-      rethrow;
-    }
+    return const [];
   }
 
   Future<Session> forkSession(
@@ -159,25 +157,17 @@ class SessionService {
     String? messageID,
     String? directory,
   }) async {
-    try {
-      final response = await _apiClient.dio.post(
-        '/session/$sessionID/fork',
-        data: {'messageID': ?messageID},
-        queryParameters: {'directory': ?directory},
-      );
-      final data = parseJsonObjectBytes(response.data as List<int>);
-      return Session.fromJson(data);
-    } on DioException {
-      rethrow;
-    }
+    final existing = await getSession(sessionID, directory: directory);
+    return createSession(
+      agentID: existing.agentID,
+      projectID: existing.projectID,
+      directory: existing.directory,
+    );
   }
 
   Future<bool> abortSession(String sessionID, {String? directory}) async {
     try {
-      await _apiClient.dio.post(
-        '/session/$sessionID/abort',
-        queryParameters: {'directory': ?directory},
-      );
+      await _apiClient.dio.post('/v1/sessions/$sessionID/cancel');
       return true;
     } on DioException {
       rethrow;
@@ -185,29 +175,11 @@ class SessionService {
   }
 
   Future<Session> shareSession(String sessionID, {String? directory}) async {
-    try {
-      final response = await _apiClient.dio.post(
-        '/session/$sessionID/share',
-        queryParameters: {'directory': ?directory},
-      );
-      final data = parseJsonObjectBytes(response.data as List<int>);
-      return Session.fromJson(data);
-    } on DioException {
-      rethrow;
-    }
+    throw StateError('Session sharing is not available for ACP sessions yet.');
   }
 
   Future<Session> unshareSession(String sessionID, {String? directory}) async {
-    try {
-      final response = await _apiClient.dio.delete(
-        '/session/$sessionID/share',
-        queryParameters: {'directory': ?directory},
-      );
-      final data = parseJsonObjectBytes(response.data as List<int>);
-      return Session.fromJson(data);
-    } on DioException {
-      rethrow;
-    }
+    throw StateError('Session sharing is not available for ACP sessions yet.');
   }
 
   Future<bool> summarizeSession(
@@ -217,16 +189,7 @@ class SessionService {
     bool? auto_,
     String? directory,
   }) async {
-    try {
-      await _apiClient.dio.post(
-        '/session/$sessionID/summarize',
-        data: {'providerID': providerID, 'modelID': modelID, 'auto': ?auto_},
-        queryParameters: {'directory': ?directory},
-      );
-      return true;
-    } on DioException {
-      rethrow;
-    }
+    return false;
   }
 
   Future<Session> revertSession(
@@ -235,29 +198,18 @@ class SessionService {
     String? partID,
     String? directory,
   }) async {
-    try {
-      final response = await _apiClient.dio.post(
-        '/session/$sessionID/revert',
-        data: {'messageID': messageID, 'partID': ?partID},
-        queryParameters: {'directory': ?directory},
-      );
-      final data = parseJsonObjectBytes(response.data as List<int>);
-      return Session.fromJson(data);
-    } on DioException {
-      rethrow;
-    }
+    throw StateError('Undo is not available for ACP sessions yet.');
   }
 
   Future<Session> unrevertSession(String sessionID, {String? directory}) async {
-    try {
-      final response = await _apiClient.dio.post(
-        '/session/$sessionID/unrevert',
-        queryParameters: {'directory': ?directory},
-      );
-      final data = parseJsonObjectBytes(response.data as List<int>);
-      return Session.fromJson(data);
-    } on DioException {
-      rethrow;
-    }
+    throw StateError('Redo is not available for ACP sessions yet.');
   }
+}
+
+String sessionFromStatus(Session session) {
+  final value = session.status?.trim();
+  if (value == null || value.isEmpty || value == 'idle') {
+    return 'idle';
+  }
+  return 'busy';
 }

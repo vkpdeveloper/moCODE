@@ -4,6 +4,7 @@ import { serve } from "@hono/node-server";
 
 import server from "./index";
 import { env } from "./lib/env";
+import { logInfo } from "./lib/logging";
 
 const port = env.PORT;
 
@@ -13,6 +14,6 @@ serve(
     port,
   },
   (info) => {
-    console.log(`mecode-server listening on http://localhost:${info.port}`);
+    logInfo(`mecode-server listening on http://localhost:${info.port}`);
   },
 );

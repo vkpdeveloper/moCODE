@@ -8,6 +8,13 @@ import '../providers/providers.dart';
 import '../theme/app_theme.dart';
 import '../utils/fuzzysort.dart';
 
+Map<String, String>? _normalizeModelSelection(Map<String, String>? model) {
+  if (model == null) {
+    return null;
+  }
+  return model['providerID'] == 'local' ? null : model;
+}
+
 class ModelPickerScreen extends ConsumerStatefulWidget {
   final String? mode;
 
@@ -46,9 +53,11 @@ class _ModelPickerScreenState extends ConsumerState<ModelPickerScreen> {
   Widget build(BuildContext context) {
     final providersAsync = ref.watch(providersListProvider);
     final project = ref.watch(selectedProjectProvider);
-    final defaultModel = ref.watch(defaultModelProvider);
+    final defaultModel = _normalizeModelSelection(
+      ref.watch(defaultModelProvider),
+    );
     final projectModelState = ref.watch(projectModelProvider);
-    final projectModel = projectModelState.model;
+    final projectModel = _normalizeModelSelection(projectModelState.model);
     if (project != null &&
         (projectModelState.isLoading ||
             projectModelState.projectId != project.id)) {
@@ -63,7 +72,9 @@ class _ModelPickerScreenState extends ConsumerState<ModelPickerScreen> {
         }
       });
     }
-    final sessionSelection = ref.watch(selectedModelProvider);
+    final sessionSelection = _normalizeModelSelection(
+      ref.watch(selectedModelProvider),
+    );
     Map<String, String>? currentSelection;
     if (_selectionScope == 'session') {
       currentSelection = sessionSelection;
@@ -186,7 +197,7 @@ class _ModelPickerScreenState extends ConsumerState<ModelPickerScreen> {
                         ),
                         SizedBox(height: 16),
                         Text(
-                          'No providers available',
+                          'No models available',
                           style: TextStyle(color: AppTheme.textSecondary),
                         ),
                       ],

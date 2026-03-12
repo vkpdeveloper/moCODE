@@ -1,5 +1,7 @@
 import 'package:dio/dio.dart';
 
+import 'app_logger.dart';
+
 class AccountApiClient {
   static const String defaultBaseUrl = 'https://mocode.ordinity.com';
 
@@ -17,11 +19,22 @@ class AccountApiClient {
         responseType: ResponseType.bytes,
       ),
     );
+    _dio.interceptors.add(AppLogInterceptor(clientName: 'account'));
+    AppLogger.instance.info(
+      'Account API client initialized',
+      scope: 'accountApiClient',
+      data: {'baseUrl': _baseUrl},
+    );
   }
 
   void updateBaseUrl(String url) {
     _baseUrl = url;
     _dio.options.baseUrl = url;
+    AppLogger.instance.info(
+      'Account API base URL updated',
+      scope: 'accountApiClient',
+      data: {'baseUrl': url},
+    );
   }
 
   String get baseUrl => _baseUrl;

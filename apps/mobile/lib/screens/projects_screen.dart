@@ -16,6 +16,7 @@ import 'sftp_page.dart';
 import 'terminal_page.dart';
 
 final mergedProjectsProvider = FutureProvider<List<Project>>((ref) async {
+  final selectedAgent = ref.watch(selectedAgentProvider);
   final projectService = ref.watch(projectServiceProvider);
   final sessionService = ref.watch(sessionServiceProvider);
   final results = await Future.wait([
@@ -23,7 +24,13 @@ final mergedProjectsProvider = FutureProvider<List<Project>>((ref) async {
     sessionService.listSessions(limit: 200, roots: false),
   ]);
   final projects = results[0] as List<Project>;
-  final sessions = results[1] as List<Session>;
+  final sessions = (results[1] as List<Session>).where((session) {
+    final agentId = selectedAgent.agentId;
+    if (agentId == null || agentId.isEmpty) {
+      return true;
+    }
+    return session.agentID == agentId;
+  }).toList();
 
   final mergedByDirectory = <String, Project>{};
   for (final project in projects) {

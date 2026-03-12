@@ -1,0 +1,27 @@
+{
+  "name": "mocode-cli",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "mocode": "./bin/mocode"
+  },
+  "scripts": {
+    "build": "bun build --compile --outfile ./dist/mocode ./bin/mocode",
+    "dev": "bun ./bin/mocode start",
+    "lint": "bun run typecheck",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@agentclientprotocol/sdk": "^0.16.1",
+    "@clack/prompts": "^1.1.0",
+    "commander": "^14.0.3",
+    "winston": "^3.19.0",
+    "zod": "^4.1.11"
+  },
+  "devDependencies": {
+    "@types/node": "^24.5.2",
+    "bun-types": "^1.3.10",
+    "typescript": "^5.9.3"
+  }
+}

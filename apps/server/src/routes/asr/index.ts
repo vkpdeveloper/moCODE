@@ -7,6 +7,7 @@ import { groq, type GroqTranscriptionModelOptions } from "@ai-sdk/groq";
 import { db } from "../../db/client";
 import { aiModelUsages, users } from "../../db/schema";
 import { firebaseAuth } from "../../lib/firebase-admin";
+import { logError } from "../../lib/logging";
 
 type AuthUser = {
   id: string;
@@ -248,7 +249,7 @@ asrRouter.post("/transcribe", async (c) => {
 
     return c.json(response);
   } catch (error) {
-    console.error("Transcription error:", error);
+    logError("Transcription error:", error);
     return c.json(
       {
         error: "Transcription failed",

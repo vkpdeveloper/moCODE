@@ -1,13 +1,10 @@
 import 'dart:async';
-import 'dart:convert';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:google_fonts/google_fonts.dart';
-import 'package:web_socket_channel/web_socket_channel.dart';
 
+import '../models/acp_models.dart';
 import '../models/message.dart';
 import '../models/permission_request.dart';
 import '../models/question_request.dart';
@@ -15,9 +12,9 @@ import '../models/session.dart';
 import '../models/todo.dart';
 import '../models/file_diff.dart';
 import '../models/part.dart';
-import '../models/command_run.dart';
 import '../providers/providers.dart';
 import '../providers/ssh_provider.dart';
+import '../services/app_logger.dart';
 import '../theme/app_theme.dart';
 import '../utils/app_snackbar.dart';
 import '../widgets/chat_input.dart';
@@ -72,43 +69,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
   String? _todosSessionId;
   String? _diffSessionId;
   String? _vcsSessionId;
-  StreamSubscription? _ptyStreamSub;
-  WebSocketChannel? _ptyChannel;
-  String? _activeRunId;
-
-  AssistantMessageInfo _commandMessageInfo(
-    CommandOutputPart part,
-    String sessionId,
-  ) {
-    return AssistantMessageInfo(
-      id: 'command_${part.id}',
-      sessionID: sessionId,
-      time: MessageTime(
-        created: part.time?.start ?? DateTime.now().millisecondsSinceEpoch,
-        completed: part.time?.end ?? part.time?.start,
-      ),
-      modelID: 'command',
-      providerID: 'local',
-      mode: 'build',
-      cost: 0.0,
-      tokens: MessageTokens(
-        input: 0,
-        output: 0,
-        reasoning: 0,
-        cache: MessageCacheTokens(read: 0, write: 0),
-      ),
-    );
-  }
-
-  MessageWrapper? _buildCommandMessage(List<Part> parts, Session? session) {
-    if (parts.isEmpty || parts.first is! CommandOutputPart) return null;
-    final part = parts.first as CommandOutputPart;
-    final sessionId = session?.id ?? part.sessionID;
-    return MessageWrapper(
-      info: _commandMessageInfo(part, sessionId),
-      parts: parts,
-    );
-  }
 
   @override
   void initState() {
@@ -143,8 +103,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     _statusSub?.close();
     _scrollController.removeListener(_onScroll);
     _scrollController.dispose();
-    _ptyStreamSub?.cancel();
-    _ptyChannel?.sink.close();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -175,17 +133,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
   }
 
   void _subscribeToEvents() {
-    final project = ref.read(selectedProjectProvider);
-    if (project == null) return;
-
     final eventService = ref.read(eventServiceProvider);
-    _eventSub = eventService.subscribe(directory: project.worktree).listen((
-      event,
-    ) {
+    _eventSub = eventService.subscribe().listen((event) {
       try {
         final type = event['type'] as String? ?? '';
-
-        // SSE reconnected — full sync to catch up on missed events
         if (type == '__reconnected__') {
           final session = ref.read(selectedSessionProvider);
           if (session != null) {
@@ -194,38 +145,29 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
           return;
         }
 
-        if (type == 'permission.asked') {
-          final props = event['properties'];
-          if (props is Map<String, dynamic>) {
-            _handlePermissionAsked(props);
+        if (type == 'permission_request') {
+          final payload = event['payload'];
+          if (payload is Map<String, dynamic>) {
+            _handlePermissionRequest(payload);
           }
-        } else if (type == 'permission.updated' ||
-            type == 'permission.replied') {
-          _handlePermissionUpdated(event['properties']);
-        } else if (type == 'question.asked') {
-          final props = event['properties'];
-          if (props is Map<String, dynamic>) {
-            _handleQuestionAsked(props);
+        } else if (type == 'daemon_warning') {
+          final payload = event['payload'];
+          final error = payload is Map<String, dynamic>
+              ? payload['error']?.toString()
+              : null;
+          if (error != null && mounted) {
+            ScaffoldMessenger.of(
+              context,
+            ).showSnackBar(SnackBar(content: Text(error)));
           }
-        } else if (type == 'question.replied' || type == 'question.rejected') {
-          _handleQuestionUpdated(event['properties']);
-        } else if (type == 'session.status') {
-          _handleSessionStatusEvent(event['properties']);
-        } else if (type == 'session.idle') {
-          _handleSessionIdleEvent(event['properties']);
-        } else if (type == 'session.deleted') {
-          _handleSessionDeleted(event['properties']);
-        } else if (type == 'tui.prompt.append') {
-          _handlePromptAppend(event['properties']);
-        } else if (type == 'tui.command.execute') {
-          _handleCommandExecuted(event['properties']);
-        } else if (type == 'command.executed') {
-          _handleCommandExecuted(event['properties']);
-        } else if (type == 'tui.toast.show') {
-          _handleToastEvent(event['properties']);
         }
       } catch (e) {
-        debugPrint('[ChatScreen] Event error: $e\nRaw event: $event');
+        AppLogger.instance.error(
+          'Chat event handling failed',
+          scope: 'chat',
+          data: {'event': event},
+          error: e,
+        );
       }
     });
   }
@@ -290,9 +232,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     _startSync();
     ref.read(todosProvider.notifier).clear();
     ref.read(sessionErrorProvider.notifier).clear();
-    ref.read(ptyProvider.notifier).clear();
-    ref.read(commandRunsProvider.notifier).clear();
-    ref.read(activeCommandRunProvider.notifier).state = null;
     ref.read(sessionDiffProvider.notifier).clear();
     ref.read(vcsBranchProvider.notifier).state = null;
     await _loadProjectModel(session.projectID, session.id);
@@ -561,30 +500,17 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     _didSyncModelFromMessages = false;
     ref.read(sessionModeProvider.notifier).resetMessageHydration(sessionId);
     _didInitialScroll = false;
-    _activeRunId = null;
-    _ptyStreamSub?.cancel();
-    _ptyStreamSub = null;
-    _ptyChannel?.sink.close();
-    _ptyChannel = null;
-    ref.read(commandRunsProvider.notifier).clear();
   }
 
   Future<void> _loadPendingPermissions() async {
-    final project = ref.read(selectedProjectProvider);
     final session = ref.read(selectedSessionProvider);
-    if (project == null || session == null) return;
+    if (session == null) return;
     if (_permissionDialogVisible) return;
     try {
       final permissionService = ref.read(permissionServiceProvider);
-      final pending = await permissionService.listPending(
-        directory: project.worktree,
-      );
+      final pending = await permissionService.listPending(sessionID: session.id);
       if (!mounted || pending.isEmpty) return;
-      final matches = pending
-          .where((request) => request.sessionID == session.id)
-          .toList();
-      if (matches.isEmpty) return;
-      await _showPermissionDialog(matches.first);
+      await _showPermissionDialog(pending.first);
     } catch (_) {
       // ignore permission polling failures
     }
@@ -611,20 +537,19 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     }
   }
 
-  void _handlePermissionAsked(Map<String, dynamic> props) {
+  void _handlePermissionRequest(Map<String, dynamic> payload) {
     final session = ref.read(selectedSessionProvider);
     if (session == null) return;
     if (_permissionDialogVisible) return;
-    if (props['sessionID'] != session.id) return;
-    _showPermissionDialog(PermissionRequest.fromJson(props));
-  }
-
-  void _handlePermissionUpdated(dynamic props) {
-    if (props is! Map<String, dynamic>) return;
-    final session = ref.read(selectedSessionProvider);
-    if (session == null) return;
-    if (props['sessionID'] != session.id) return;
-    _loadPendingPermissions();
+    if (payload['sessionId']?.toString() != session.id) return;
+    final requestRaw = payload['request'];
+    if (requestRaw is! Map) return;
+    final permission = permissionRequestFromAcp(
+      requestId: payload['requestId']?.toString() ?? '',
+      sessionId: session.id,
+      request: Map<String, dynamic>.from(requestRaw),
+    );
+    _showPermissionDialog(permission);
   }
 
   void _handleQuestionAsked(Map<String, dynamic> props) {
@@ -670,14 +595,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     PermissionRequest request,
     String reply,
   ) async {
-    final project = ref.read(selectedProjectProvider);
-    if (project == null) return;
+    final session = ref.read(selectedSessionProvider);
+    if (session == null) return;
     try {
       final permissionService = ref.read(permissionServiceProvider);
       await permissionService.reply(
+        session.id,
         request.id,
         reply: reply,
-        directory: project.worktree,
       );
     } catch (e) {
       if (mounted) {
@@ -976,7 +901,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     required String messageId,
     required String text,
     required List<Map<String, dynamic>>? fileParts,
-    required Map<String, dynamic> model,
+    Map<String, dynamic>? model,
     required String mode,
   }) {
     final created = DateTime.now().millisecondsSinceEpoch;
@@ -985,10 +910,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
       sessionID: sessionId,
       time: MessageTime(created: created, completed: created),
       agent: mode,
-      model: MessageModel(
-        providerID: model['providerID']?.toString() ?? '',
-        modelID: model['modelID']?.toString() ?? '',
-      ),
+      model: model == null
+          ? null
+          : MessageModel(
+              providerID: model['providerID']?.toString() ?? '',
+              modelID: model['modelID']?.toString() ?? '',
+            ),
     );
 
     final parts = <Part>[];
@@ -1031,7 +958,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     required MessagesState messagesState,
     required bool isInitialLoading,
     required String mode,
-    List<Part> extraParts = const [],
   }) {
     final session = ref.watch(selectedSessionProvider);
     final statusAsync = ref.watch(sessionStatusProvider);
@@ -1067,11 +993,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
       return 'Session busy';
     }();
 
-    final hasExtraParts = extraParts.isNotEmpty;
-
     if (messagesState.error != null &&
-        displayMessages.isEmpty &&
-        !hasExtraParts) {
+        displayMessages.isEmpty) {
       return Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -1098,7 +1021,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
       );
     }
 
-    if (displayMessages.isEmpty && !hasExtraParts) {
+    if (displayMessages.isEmpty) {
       if (isInitialLoading && !_isBusy) {
         return const Center(
           child: SizedBox(
@@ -1148,21 +1071,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     }
 
     final items = List<MessageWrapper>.from(displayMessages);
-    if (hasExtraParts) {
-      final commandMessage = _buildCommandMessage(extraParts, session);
-      if (commandMessage != null) {
-        final commandTime = _messageCreatedAt(commandMessage);
-        final insertIndex = items.indexWhere(
-          (msg) => _messageCreatedAt(msg) > commandTime,
-        );
-        if (insertIndex == -1) {
-          items.add(commandMessage);
-        } else {
-          items.insert(insertIndex, commandMessage);
-        }
-      }
-    }
-
     final timelineMessages = _mergeAssistantMessagesByTurn(items);
 
     final listWidget = ListView.builder(
@@ -1331,8 +1239,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
 
   Widget _buildSidebar({
     required SessionErrorState errorState,
-    required String? activeRunId,
-    required Map<String, CommandRun> commandRuns,
   }) {
     final todosState = ref.watch(todosProvider);
     final diffState = ref.watch(sessionDiffProvider);
@@ -1407,159 +1313,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
         setState(() => _isSidebarOpen = !_isSidebarOpen);
       },
       tooltip: 'Sidebar',
-    );
-  }
-
-  Widget _buildTerminalTab({
-    required String? activeRunId,
-    required Map<String, CommandRun> runs,
-  }) {
-    if (activeRunId == null) {
-      return const Center(
-        child: Text(
-          'No running commands',
-          style: TextStyle(color: AppTheme.textTertiary, fontSize: 11),
-        ),
-      );
-    }
-
-    final run = runs[activeRunId];
-    if (run == null) {
-      return const Center(
-        child: Text(
-          'No output yet',
-          style: TextStyle(color: AppTheme.textTertiary, fontSize: 11),
-        ),
-      );
-    }
-
-    Color statusColor;
-    if (run.status == 'running') {
-      statusColor = AppTheme.warning;
-    } else if (run.exitCode == 0) {
-      statusColor = AppTheme.success;
-    } else if (run.exitCode != null) {
-      statusColor = AppTheme.error;
-    } else {
-      statusColor = AppTheme.textTertiary;
-    }
-    final header = [run.command, ...run.args].join(' ');
-    final output = _stripAnsi(run.output);
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Container(
-          width: double.infinity,
-          padding: const EdgeInsets.all(10),
-          decoration: const BoxDecoration(
-            border: Border(bottom: BorderSide(color: AppTheme.border)),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  const Icon(Icons.terminal, size: 14, color: AppTheme.info),
-                  const SizedBox(width: 6),
-                  Expanded(
-                    child: Text(
-                      header,
-                      style: GoogleFonts.jetBrainsMono(
-                        textStyle: const TextStyle(
-                          color: AppTheme.textPrimary,
-                          fontSize: 11,
-                        ),
-                      ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                  const SizedBox(width: 6),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 6,
-                      vertical: 2,
-                    ),
-                    decoration: BoxDecoration(
-                      border: Border.all(color: statusColor),
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: Text(
-                      run.status.toUpperCase(),
-                      style: TextStyle(
-                        color: statusColor,
-                        fontSize: 8,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 6),
-              Text(
-                run.cwd,
-                style: const TextStyle(
-                  color: AppTheme.textTertiary,
-                  fontSize: 10,
-                ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ],
-          ),
-        ),
-        Expanded(
-          child: Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(10),
-            color: AppTheme.surfaceVariant,
-            child: SelectableText(
-              output.isEmpty ? 'Running...' : output,
-              style: GoogleFonts.jetBrainsMono(
-                textStyle: const TextStyle(
-                  color: AppTheme.textSecondary,
-                  fontSize: 11,
-                  height: 1.4,
-                ),
-              ),
-            ),
-          ),
-        ),
-        Container(
-          width: double.infinity,
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-          decoration: const BoxDecoration(
-            border: Border(top: BorderSide(color: AppTheme.border)),
-          ),
-          child: Row(
-            children: [
-              Text(
-                run.exitCode == null ? '' : 'Exit ${run.exitCode}',
-                style: const TextStyle(
-                  color: AppTheme.textTertiary,
-                  fontSize: 10,
-                ),
-              ),
-              const Spacer(),
-              IconButton(
-                icon: const Icon(Icons.copy, size: 14),
-                onPressed: output.isEmpty
-                    ? null
-                    : () {
-                        Clipboard.setData(ClipboardData(text: output));
-                        if (!mounted) return;
-                        AppSnackBar.showSuccess(context, 'Output copied.');
-                      },
-                padding: EdgeInsets.zero,
-                constraints: const BoxConstraints(minWidth: 24, minHeight: 24),
-                visualDensity: VisualDensity.compact,
-                tooltip: 'Copy output',
-              ),
-            ],
-          ),
-        ),
-      ],
     );
   }
 
@@ -1697,11 +1450,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     );
   }
 
-  String _stripAnsi(String input) {
-    final ansiRegex = RegExp(r'\x1B\[[0-9;]*[A-Za-z]');
-    return input.replaceAll(ansiRegex, '');
-  }
-
   Future<bool> _sendMessage(
     String text, {
     List<Map<String, dynamic>>? fileParts,
@@ -1719,16 +1467,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     }
 
     parts.add({'type': 'text', 'text': text});
-
-    if (model == null) {
-      if (mounted) {
-        AppSnackBar.showWarning(
-          context,
-          'No model selected. Pick a model first.',
-        );
-      }
-      return false;
-    }
 
     final messageId = _optimisticId();
     final currentCount = ref.read(messagesProvider).messages.length;
@@ -1756,8 +1494,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
       await messageService.sendMessageAsync(
         session.id,
         parts: parts,
-        providerID: model['providerID'],
-        modelID: model['modelID'],
+        providerID: model?['providerID'],
+        modelID: model?['modelID'],
         agent: mode,
         directory: session.directory,
       );
@@ -1789,10 +1527,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
   Future<void> _sendCommand(String command, String arguments) async {
     final session = ref.read(selectedSessionProvider);
     if (session == null) return;
-    if (command == 'run') {
-      await _executeShellCommand(arguments);
-      return;
-    }
     final mode = ref.read(sessionModeProvider);
 
     try {
@@ -1817,127 +1551,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
         ).showSnackBar(SnackBar(content: Text('Failed: $e')));
       }
     }
-  }
-
-  Future<void> _executeShellCommand(String input) async {
-    final session = ref.read(selectedSessionProvider);
-    final project = ref.read(selectedProjectProvider);
-    if (session == null || project == null) return;
-    final trimmed = input.trim();
-    if (trimmed.isEmpty) return;
-
-    final tokens = _splitCommand(trimmed);
-    if (tokens.isEmpty) return;
-    final command = tokens.first;
-    final args = tokens.skip(1).toList();
-    final cwd = project.worktree;
-
-    try {
-      setState(() => _isBusy = true);
-      _markSessionActive();
-
-      final ptyService = ref.read(ptyServiceProvider);
-      final pty = await ptyService.createPty(
-        command: command,
-        args: args,
-        cwd: cwd,
-        title: trimmed,
-        directory: project.worktree,
-      );
-
-      final run = CommandRun(
-        id: pty.id,
-        command: command,
-        args: args,
-        cwd: cwd,
-        status: pty.status,
-        output: '',
-        startedAt: DateTime.now().millisecondsSinceEpoch,
-        exitCode: pty.exitCode,
-      );
-      ref.read(commandRunsProvider.notifier).upsert(run);
-      ref.read(ptyProvider.notifier).upsert(pty);
-      ref.read(activeCommandRunProvider.notifier).state = pty.id;
-      _activeRunId = pty.id;
-
-      unawaited(_connectPtyStream(pty.id, directory: project.worktree));
-
-      _scrollToBottom();
-    } catch (e) {
-      if (mounted) {
-        setState(() => _isBusy = false);
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Command failed: $e')));
-      }
-    }
-  }
-
-  Future<void> _connectPtyStream(String ptyId, {String? directory}) async {
-    await _ptyStreamSub?.cancel();
-    _ptyChannel?.sink.close();
-    final ptyService = ref.read(ptyServiceProvider);
-    final channel = ptyService.connect(ptyId, directory: directory);
-    _ptyChannel = channel;
-    _ptyStreamSub = channel.stream.listen(
-      (event) {
-        if (event == null) return;
-        String chunk;
-        if (event is List<int>) {
-          chunk = utf8.decode(event);
-        } else {
-          chunk = event.toString();
-        }
-        if (chunk.isEmpty) return;
-        ref.read(commandRunsProvider.notifier).appendOutput(ptyId, chunk);
-        if (_isPinnedToBottom) {
-          _scrollToBottom();
-        }
-      },
-      onError: (_) {},
-      onDone: () {
-        if (_ptyChannel == channel) {
-          _ptyChannel = null;
-        }
-        if (mounted) {
-          setState(() => _isBusy = false);
-        }
-      },
-      cancelOnError: false,
-    );
-  }
-
-  List<String> _splitCommand(String input) {
-    final tokens = <String>[];
-    final buffer = StringBuffer();
-    String? quote;
-    for (var i = 0; i < input.length; i++) {
-      final ch = input[i];
-      if (quote != null) {
-        if (ch == quote) {
-          quote = null;
-        } else {
-          buffer.write(ch);
-        }
-        continue;
-      }
-      if (ch == '\'' || ch == '"') {
-        quote = ch;
-        continue;
-      }
-      if (ch.trim().isEmpty) {
-        if (buffer.isNotEmpty) {
-          tokens.add(buffer.toString());
-          buffer.clear();
-        }
-        continue;
-      }
-      buffer.write(ch);
-    }
-    if (buffer.isNotEmpty) {
-      tokens.add(buffer.toString());
-    }
-    return tokens;
   }
 
   Future<void> _abortSession() async {
@@ -2203,12 +1816,16 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     final messagesState = ref.watch(messagesProvider);
     final mode = ref.watch(sessionModeProvider);
     final activeModel = ref.watch(activeModelProvider);
+    final selectedAgent = ref.watch(selectedAgentProvider);
+    final selectedAgentLabel =
+        selectedAgent.agentId != null &&
+            selectedAgent.agentId == session?.agentID &&
+            selectedAgent.agentName != null
+        ? selectedAgent.agentName
+        : session?.agentID;
     final statusAsync = ref.watch(sessionStatusProvider);
 
     final errorState = ref.watch(sessionErrorProvider);
-    final activeRunId = ref.watch(activeCommandRunProvider);
-    final commandRuns = ref.watch(commandRunsProvider).items;
-    final activeRun = activeRunId != null ? commandRuns[activeRunId] : null;
 
     final messages = messagesState.messages;
     final baseMessages = _cachedMessages.isNotEmpty
@@ -2250,27 +1867,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
       );
     }
 
-    final commandParts = <Part>[];
-    if (activeRun != null) {
-      commandParts.add(
-        CommandOutputPart(
-          id: activeRun.id,
-          sessionID: session.id,
-          messageID: activeRun.id,
-          command: activeRun.command,
-          args: activeRun.args,
-          cwd: activeRun.cwd,
-          status: activeRun.status,
-          exitCode: activeRun.exitCode,
-          time: PartTime(
-            start: activeRun.startedAt,
-            end: activeRun.completedAt,
-          ),
-          metadata: {'output': activeRun.output},
-        ),
-      );
-    }
-
     final effectiveBusy = _isBusy || isSessionBusy || _isSyncing;
 
     return Scaffold(
@@ -2301,7 +1897,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
                       ? 'Syncing...'
                       : effectiveBusy
                       ? (mode == 'plan' ? 'Planning...' : 'Building...')
-                      : 'Ready${(activeModel != null) ? " • ${activeModel['modelID']}" : ""}',
+                      : 'Ready${activeModel != null ? " • ${activeModel['modelID']}" : selectedAgentLabel != null ? " • $selectedAgentLabel" : ""}',
                   style: TextStyle(
                     fontSize: 10,
                     color: effectiveBusy
@@ -2420,15 +2016,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
                     messagesState: messagesState,
                     isInitialLoading: isInitialLoading,
                     mode: mode,
-                    extraParts: commandParts,
                   ),
                 ),
                 if (_isSidebarOpen)
-                  _buildSidebar(
-                    errorState: errorState,
-                    activeRunId: activeRunId,
-                    commandRuns: commandRuns,
-                  ),
+                  _buildSidebar(errorState: errorState),
               ],
             ),
           ),

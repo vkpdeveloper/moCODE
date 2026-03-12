@@ -15,7 +15,7 @@ class FileService {
   }) async {
     try {
       final response = await _apiClient.dio.get(
-        '/file',
+        '/v1/files',
         queryParameters: {'directory': directory, 'path': path},
       );
       final data = parseJsonListBytes(response.data as List<int>);
@@ -34,7 +34,7 @@ class FileService {
   }) async {
     try {
       final response = await _apiClient.dio.get(
-        '/find/file',
+        '/v1/files/search',
         queryParameters: {
           'directory': directory,
           'type': 'directory',

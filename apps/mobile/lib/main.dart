@@ -1,4 +1,5 @@
 import 'dart:io' show Platform;
+import 'dart:ui';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_app_check/firebase_app_check.dart';
 import 'package:flutter/foundation.dart';
@@ -16,10 +17,34 @@ import 'widgets/path_bootstrap.dart';
 import 'widgets/update_dialog.dart';
 import 'providers/providers.dart';
 import 'services/in_app_update_service.dart';
+import 'services/app_logger.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   FlutterForegroundTask.initCommunicationPort();
+  await AppLogger.instance.initialize();
+  FlutterError.onError = (details) {
+    AppLogger.instance.error(
+      'Flutter framework error',
+      scope: 'flutter',
+      data: {
+        'library': details.library,
+        'context': details.context?.toDescription(),
+      },
+      error: details.exception,
+      stackTrace: details.stack,
+    );
+    FlutterError.presentError(details);
+  };
+  PlatformDispatcher.instance.onError = (error, stackTrace) {
+    AppLogger.instance.error(
+      'Uncaught platform error',
+      scope: 'flutter',
+      error: error,
+      stackTrace: stackTrace,
+    );
+    return false;
+  };
 
   final envFile = kReleaseMode ? '.prod.env' : '.dev.env';
   await dotenv.load(fileName: envFile);

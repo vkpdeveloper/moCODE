@@ -21,6 +21,7 @@ import {
 import { corsOrigins, env } from "./lib/env";
 import { createDodoCheckoutSession } from "./lib/dodo";
 import { sendEarlyAccessEmail } from "./lib/email";
+import { isVerboseLoggingEnabled, logError, logInfo } from "./lib/logging";
 import { firebaseAuthMiddleware } from "./middleware/firebase-auth";
 import asrRouter from "./routes/asr";
 
@@ -57,7 +58,9 @@ const earlyAccessSchema = z.object({
 
 const app = new Hono<{ Variables: Variables }>();
 
-app.use("*", logger());
+if (isVerboseLoggingEnabled()) {
+  app.use("*", logger());
+}
 
 const isHttpsAppBaseUrl = env.APP_BASE_URL.startsWith("https://");
 
@@ -441,8 +444,8 @@ app.post("/api/early-access", async (c) => {
     }
 
     sendEarlyAccessEmail({ to: input.data.email })
-      .then(() => console.log(`Early access email sent to ${input.data.email}`))
-      .catch((err) => console.error(`Failed to send early access email to ${input.data.email}:`, err));
+      .then(() => logInfo(`Early access email sent to ${input.data.email}`))
+      .catch((err) => logError(`Failed to send early access email to ${input.data.email}:`, err));
 
     let message = existing.length
       ? "You're already on the list! We'll keep you updated."
@@ -456,7 +459,7 @@ app.post("/api/early-access", async (c) => {
 
     return c.json({ ok: true, message, seatsAvailable });
   } catch (error) {
-    console.error("Early access error:", error);
+    logError("Early access error:", error);
     return c.json({ error: "Failed to join early access" }, 500);
   }
 });

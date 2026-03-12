@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../providers/providers.dart';
+import '../services/app_logger.dart';
 import '../theme/app_theme.dart';
 
 class SplashScreen extends ConsumerStatefulWidget {
@@ -31,6 +32,19 @@ class _SplashScreenState extends ConsumerState<SplashScreen> {
             .timeout(const Duration(seconds: 5));
         if (!mounted) return;
       }
+      if (!ref.read(settingsProvider).hasSelectedDevice) {
+        context.go('/connect');
+        return;
+      }
+      final selectedAgentNotifier = ref.read(selectedAgentProvider.notifier);
+      await selectedAgentNotifier.loadForConnection(
+        ref.read(settingsProvider).selectedConnectionKey,
+      );
+      if (!mounted) return;
+      if (!ref.read(selectedAgentProvider).hasSelection) {
+        context.go('/agents');
+        return;
+      }
       final hadError = await ref
           .read(appPreloadProvider.future)
           .timeout(const Duration(seconds: 8), onTimeout: () => true);
@@ -40,7 +54,11 @@ class _SplashScreenState extends ConsumerState<SplashScreen> {
       });
       context.go('/projects');
     } catch (e) {
-      debugPrint('Splash preload failed: $e');
+      AppLogger.instance.error(
+        'Splash preload failed',
+        scope: 'splash',
+        error: e,
+      );
       if (!mounted) return;
       setState(() {
         _hasError = true;

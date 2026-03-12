@@ -39,6 +39,8 @@
 	<true/>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Microphone access is needed for voice input</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Local network access is needed to discover and pair with your moCODE CLI devices.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

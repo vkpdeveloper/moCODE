@@ -1,41 +1,50 @@
 import 'package:dio/dio.dart';
 
+import '../models/acp_models.dart';
 import '../models/permission_request.dart';
-import 'api_client.dart';
 import '../utils/json_parser.dart';
+import 'api_client.dart';
 
 class PermissionService {
   final ApiClient _apiClient;
 
   PermissionService(this._apiClient);
 
-  Future<List<PermissionRequest>> listPending({String? directory}) async {
+  Future<List<PermissionRequest>> listPending({
+    required String sessionID,
+  }) async {
     try {
       final response = await _apiClient.dio.get(
-        '/permission',
-        queryParameters: {'directory': ?directory},
+        '/v1/sessions/$sessionID/permissions',
       );
-      final data = parseJsonListBytes(response.data as List<int>);
-      return data
-          .map(
-            (item) => PermissionRequest.fromJson(item as Map<String, dynamic>),
-          )
-          .toList();
+      final data = parseJsonObjectBytes(response.data as List<int>);
+      final permissions = (data['permissions'] as List<dynamic>? ?? const [])
+          .map((item) {
+            final record = item as Map<String, dynamic>;
+            return permissionRequestFromAcp(
+              requestId: record['requestId'] as String? ?? '',
+              sessionId: record['sessionId'] as String? ?? sessionID,
+              request:
+                  (record['request'] as Map?)?.cast<String, dynamic>() ??
+                  const <String, dynamic>{},
+            );
+          })
+          .toList(growable: false);
+      return permissions;
     } on DioException {
       rethrow;
     }
   }
 
   Future<bool> reply(
+    String sessionID,
     String requestID, {
     required String reply,
-    String? directory,
   }) async {
     try {
       await _apiClient.dio.post(
-        '/permission/$requestID/reply',
+        '/v1/sessions/$sessionID/permissions/$requestID/reply',
         data: {'reply': reply},
-        queryParameters: {'directory': ?directory},
       );
       return true;
     } on DioException {

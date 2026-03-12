@@ -61,14 +61,16 @@ class Command {
 class Agent {
   final String name;
   final String? description;
+  final String? iconSvg;
   final String? mode;
 
-  const Agent({required this.name, this.description, this.mode});
+  const Agent({required this.name, this.description, this.iconSvg, this.mode});
 
   factory Agent.fromJson(Map<String, dynamic> json) {
     return Agent(
       name: json['name'] as String? ?? '',
       description: json['description'] as String?,
+      iconSvg: json['iconSvg'] as String?,
       mode: json['mode'] as String?,
     );
   }

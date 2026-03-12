@@ -1,6 +1,5 @@
 export 'agent.dart';
 export 'command.dart';
-export 'command_run.dart';
 export 'config.dart';
 export 'file_diff.dart';
 export 'health.dart';
@@ -15,5 +14,4 @@ export 'project.dart';
 export 'provider_model.dart';
 export 'session.dart';
 export 'todo.dart';
-export 'pty.dart';
 export 'vcs_info.dart';

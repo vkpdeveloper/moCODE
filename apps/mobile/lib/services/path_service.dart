@@ -12,7 +12,7 @@ class PathService {
   Future<PathInfo> getPaths({String? directory}) async {
     try {
       final response = await _apiClient.dio.get(
-        '/path',
+        '/v1/path',
         queryParameters: {'directory': directory},
       );
       final data = parseJsonObjectBytes(response.data as List<int>);

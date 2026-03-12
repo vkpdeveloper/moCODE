@@ -28,7 +28,7 @@ I wanted to TALK to my code. Have an AI agent write it while I review from my ph
 ---
 
 **Tweet 4:**
-moCode connects to OpenCode/KiloCode servers.
+moCode connects to the moCODE ACP CLI running on your machine.
 
 Instead of typing brackets on a tiny keyboard:
 → "@server.js find the memory leak"
@@ -63,7 +63,7 @@ Dogfooding isn't a buzzword here. It's how we build.
 
 **Tweet 7:**
 Setup is stupid simple:
-1. Run your OpenCode Server (Tailscale makes this 🔥)
+1. Run the moCODE CLI on your machine (Tailscale still makes this great)
 2. Enter server address in moCode
 3. Start coding from anywhere
 

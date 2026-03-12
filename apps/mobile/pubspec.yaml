@@ -19,6 +19,7 @@ dependencies:
   go_router: ^14.8.1
   shared_preferences: ^2.3.4
   google_fonts: ^6.2.1
+  flutter_svg: ^2.2.0
   flutter_markdown: ^0.7.7
   uuid: ^4.5.1
   intl: ^0.19.0
@@ -32,7 +33,6 @@ dependencies:
   flutter_dotenv: ^5.2.1
   url_launcher: ^6.3.2
   webview_flutter: ^4.9.0
-  web_socket_channel: ^2.4.0
   lucide_icons_flutter: ^3.1.9
   markdown: ^7.2.2
   xterm: ^4.0.0
@@ -47,6 +47,7 @@ dependencies:
   record: ^6.2.0
   audioplayers: ^6.1.0
   in_app_update: ^4.2.5
+  logger: ^2.6.2
 
 dev_dependencies:
   flutter_test:

@@ -1,6 +1,6 @@
-moCODE - OpenCode/KiloCode Server Client
+moCODE - ACP Coding Assistant Client
 
-The mobile companion for OpenCode/KiloCode Server. Connect to your server and bring AI-assisted coding to your mobile device.
+The mobile companion for the moCODE CLI. Connect to your machine and bring AI-assisted coding to your mobile device.
 
 AI Chat Interface
 - Smart chat with @file mentions to reference files in conversations
@@ -31,6 +31,6 @@ File Browser
 - Download files to your device
 - Bookmarks and sorting options
 
-SETUP: Have an OpenCode Server running, enter server address in Settings, sign in with Google, start coding smarter.
+SETUP: Start the moCODE CLI on your machine, enter the host and port in Settings, sign in with Google, and start coding smarter.
 
 Secure, modern, and built for developers.

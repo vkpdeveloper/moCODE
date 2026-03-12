@@ -25,6 +25,7 @@ class AgentModel {
 class Agent {
   final String name;
   final String? description;
+  final String? iconSvg;
   final String mode;
   final bool? native;
   final bool? hidden;
@@ -38,6 +39,7 @@ class Agent {
   Agent({
     required this.name,
     this.description,
+    this.iconSvg,
     required this.mode,
     this.native,
     this.hidden,
@@ -53,6 +55,7 @@ class Agent {
     return Agent(
       name: json['name'] as String,
       description: json['description'] as String?,
+      iconSvg: json['iconSvg'] as String?,
       mode: json['mode'] as String,
       native: json['native'] as bool?,
       hidden: json['hidden'] as bool?,
@@ -71,6 +74,7 @@ class Agent {
     return {
       'name': name,
       if (description != null) 'description': description,
+      if (iconSvg != null) 'iconSvg': iconSvg,
       'mode': mode,
       if (native != null) 'native': native,
       if (hidden != null) 'hidden': hidden,
