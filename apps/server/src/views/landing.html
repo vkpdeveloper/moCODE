@@ -158,31 +158,16 @@
             device. Write, review, and ship code from anywhere with direct
             voice-to-text at real-time speed.
           </p>
-          <form class="hero-early-access" id="early-access-form">
-            <div class="hero-early-access-header">
-              <p class="hero-early-access-title">Get Your <span class="accent">100% Free Lifetime</span> Early Access</p>
-              <p class="hero-early-access-subtitle">
-                <span id="available-seats" class="hero-early-access-seats" data-seats="15">15</span> free lifetime seats remaining — claim yours before they're gone!
-              </p>
-            </div>
-            <div class="hero-early-access-input-group">
-              <input
-                type="email"
-                name="email"
-                placeholder="Enter your email"
-                required
-                autocomplete="email"
-                class="hero-early-access-input"
-              />
-              <button
-                type="submit"
-                class="btn btn-primary hero-early-access-btn"
-              >
-                Claim Free Seat
-              </button>
-            </div>
-            <p id="early-access-message" class="hero-early-access-message"></p>
-          </form>
+          <div class="hero-cta">
+            <a
+              href="https://play.google.com/store/apps/details?id=com.ordinity.mocode"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="btn btn-primary hero-cta-btn"
+            >
+              Get it on Google Play
+            </a>
+          </div>
         </div>
 
         <div class="hero-visual">
@@ -402,75 +387,6 @@
       </div>
     </footer>
 
-    <script>
-      const earlyAccessForm = document.getElementById("early-access-form");
-      const earlyAccessMessage = document.getElementById(
-        "early-access-message",
-      );
-      const earlyAccessCountEl = document.getElementById("early-access-count");
-      const availableSeatsEl = document.getElementById("available-seats");
 
-      if (earlyAccessCountEl) {
-        const count = parseInt(earlyAccessCountEl.dataset.count, 10);
-        if (!isNaN(count)) {
-          earlyAccessCountEl.textContent = count.toLocaleString() + " joined";
-        }
-      }
-
-      if (availableSeatsEl) {
-        const seats = parseInt(availableSeatsEl.dataset.seats, 10);
-        if (!isNaN(seats)) {
-          availableSeatsEl.textContent = seats;
-        }
-      }
-
-      earlyAccessForm.addEventListener("submit", async (event) => {
-        event.preventDefault();
-        earlyAccessMessage.textContent = "";
-        const formData = new FormData(earlyAccessForm);
-        const email = String(formData.get("email") || "").trim();
-        if (!email) {
-          earlyAccessMessage.textContent =
-            "Please enter a valid email address.";
-          return;
-        }
-
-        const submitBtn = earlyAccessForm.querySelector('button[type="submit"]');
-        const originalBtnText = submitBtn.textContent;
-        submitBtn.disabled = true;
-        submitBtn.innerHTML = '<span class="btn-loader"></span>';
-
-        try {
-          const response = await fetch("/api/early-access", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ email }),
-          });
-          const data = await response.json();
-          if (!response.ok) {
-            earlyAccessMessage.textContent =
-              data.error || "Failed to join early access.";
-            submitBtn.disabled = false;
-            submitBtn.textContent = originalBtnText;
-            return;
-          }
-          earlyAccessForm.reset();
-          earlyAccessMessage.textContent =
-            data.message || "You're on the list!";
-
-          if (data.seatsAvailable && availableSeatsEl) {
-            const currentSeats = parseInt(availableSeatsEl.textContent, 10);
-            if (!isNaN(currentSeats) && currentSeats > 0) {
-              availableSeatsEl.textContent = (currentSeats - 1).toString();
-            }
-          }
-        } catch (error) {
-          earlyAccessMessage.textContent = "Network error. Please try again.";
-        } finally {
-          submitBtn.disabled = false;
-          submitBtn.textContent = originalBtnText;
-        }
-      });
-    </script>
   </body>
 </html>

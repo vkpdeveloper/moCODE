@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -21,6 +23,8 @@ class _DeviceConnectionScreenState
   bool _isPairing = false;
   String? _error;
   List<DiscoveredCliDevice> _devices = const [];
+  StreamSubscription<List<DiscoveredCliDevice>>? _scanSubscription;
+  int _scanToken = 0;
 
   @override
   void initState() {
@@ -28,32 +32,57 @@ class _DeviceConnectionScreenState
     _scan();
   }
 
+  @override
+  void dispose() {
+    final scanSubscription = _scanSubscription;
+    if (scanSubscription != null) {
+      unawaited(scanSubscription.cancel());
+    }
+    super.dispose();
+  }
+
   Future<void> _scan() async {
     if (_isScanning) return;
+    final scanToken = ++_scanToken;
+    final existingSubscription = _scanSubscription;
+    if (existingSubscription != null) {
+      await existingSubscription.cancel();
+    }
+
     setState(() {
       _isScanning = true;
       _error = null;
+      _devices = const [];
     });
 
-    try {
-      final service = ref.read(lanDiscoveryServiceProvider);
-      final devices = await service.scan();
-      if (!mounted) return;
-      setState(() {
-        _devices = devices;
-      });
-    } catch (error) {
-      if (!mounted) return;
-      setState(() {
-        _error = error.toString();
-      });
-    } finally {
-      if (mounted) {
+    final service = ref.read(lanDiscoveryServiceProvider);
+    _scanSubscription = service.scanStream().listen(
+      (devices) {
+        if (!mounted || scanToken != _scanToken) {
+          return;
+        }
+        setState(() {
+          _devices = devices;
+        });
+      },
+      onError: (Object error, StackTrace _) {
+        if (!mounted || scanToken != _scanToken) {
+          return;
+        }
+        setState(() {
+          _error = error.toString();
+        });
+      },
+      onDone: () {
+        if (!mounted || scanToken != _scanToken) {
+          return;
+        }
         setState(() {
           _isScanning = false;
         });
-      }
-    }
+      },
+      cancelOnError: false,
+    );
   }
 
   Future<void> _selectDevice(DiscoveredCliDevice device) async {
@@ -106,10 +135,22 @@ class _DeviceConnectionScreenState
           style: TextStyle(fontSize: 14, letterSpacing: 2),
         ),
         actions: [
-          IconButton(
-            onPressed: _isScanning ? null : _scan,
-            icon: const Icon(Icons.refresh),
-          ),
+          if (_isScanning)
+            const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 16),
+              child: Center(
+                child: SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(
+                    color: AppTheme.accent,
+                    strokeWidth: 2,
+                  ),
+                ),
+              ),
+            )
+          else
+            IconButton(onPressed: _scan, icon: const Icon(Icons.refresh)),
           IconButton(
             onPressed: () => context.push('/settings'),
             icon: const Icon(Icons.settings),
@@ -119,11 +160,55 @@ class _DeviceConnectionScreenState
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          if (_isScanning)
+          if (_isScanning && _devices.isNotEmpty)
+            Container(
+              margin: const EdgeInsets.only(bottom: 12),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              decoration: BoxDecoration(
+                color: AppTheme.surface,
+                border: Border.all(color: AppTheme.border),
+              ),
+              child: Row(
+                children: const [
+                  SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(
+                      color: AppTheme.accent,
+                      strokeWidth: 2,
+                    ),
+                  ),
+                  SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      'Scanning local network for more devices...',
+                      style: TextStyle(
+                        color: AppTheme.textSecondary,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          if (_isScanning && _devices.isEmpty)
             const Padding(
               padding: EdgeInsets.symmetric(vertical: 32),
               child: Center(
-                child: CircularProgressIndicator(color: AppTheme.accent),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    CircularProgressIndicator(color: AppTheme.accent),
+                    SizedBox(height: 16),
+                    Text(
+                      'Scanning local network...',
+                      style: TextStyle(
+                        color: AppTheme.textSecondary,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ),
               ),
             )
           else if (_devices.isEmpty)

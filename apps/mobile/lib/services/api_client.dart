@@ -24,7 +24,10 @@ class ApiClient {
     AppLogger.instance.info(
       'CLI API client initialized',
       scope: 'apiClient',
-      data: {'baseUrl': _baseUrl, 'hasBearerToken': bearerToken?.isNotEmpty == true},
+      data: {
+        'baseUrl': _baseUrl,
+        'hasBearerToken': bearerToken?.isNotEmpty == true,
+      },
     );
   }
 
@@ -61,9 +64,9 @@ class ApiClient {
   Dio get dio => _dio;
 
   Uri buildUri(String path, {Map<String, dynamic>? queryParameters}) {
-    final resolved = Uri.parse(_baseUrl).resolve(
-      path.startsWith('/') ? path.substring(1) : path,
-    );
+    final resolved = Uri.parse(
+      _baseUrl,
+    ).resolve(path.startsWith('/') ? path.substring(1) : path);
     final filtered = <String, String>{};
     if (queryParameters != null && queryParameters.isNotEmpty) {
       queryParameters.forEach((key, value) {
@@ -82,5 +85,15 @@ class ApiClient {
     return resolved.replace(
       queryParameters: filtered.isEmpty ? null : filtered,
     );
+  }
+
+  Uri buildWebSocketUri(String path, {Map<String, dynamic>? queryParameters}) {
+    final uri = buildUri(path, queryParameters: queryParameters);
+    final scheme = switch (uri.scheme) {
+      'https' => 'wss',
+      'http' => 'ws',
+      _ => uri.scheme,
+    };
+    return uri.replace(scheme: scheme);
   }
 }

@@ -10,6 +10,8 @@ import '../models/acp_models.dart';
 import '../models/app_models.dart' as app_models;
 import '../models/cli_device.dart';
 import '../models/provider.dart';
+import '../models/resource_item.dart';
+import '../models/session_control.dart';
 import '../config/app_env.dart';
 
 import '../services/api_client.dart';
@@ -130,10 +132,7 @@ class SettingsNotifier extends StateNotifier<SettingsState> {
       scope: 'settings',
       data: {'useNerdFont': useNerdFont},
     );
-    state = SettingsState(
-      isLoaded: true,
-      useNerdFont: useNerdFont,
-    );
+    state = SettingsState(isLoaded: true, useNerdFont: useNerdFont);
   }
 
   Future<void> selectCliDevice(DiscoveredCliDevice device) async {
@@ -405,11 +404,17 @@ final appServiceProvider = Provider<AppService>((ref) {
 });
 
 final sessionServiceProvider = Provider<SessionService>((ref) {
-  return SessionService(ref.watch(apiClientProvider));
+  return SessionService(
+    ref.watch(apiClientProvider),
+    ref.watch(eventServiceProvider),
+  );
 });
 
 final messageServiceProvider = Provider<MessageService>((ref) {
-  return MessageService(ref.watch(apiClientProvider));
+  return MessageService(
+    ref.watch(apiClientProvider),
+    ref.watch(eventServiceProvider),
+  );
 });
 
 final projectServiceProvider = Provider<ProjectService>((ref) {
@@ -448,6 +453,52 @@ class _NormalizedEvent {
   const _NormalizedEvent({required this.type, required this.payload});
 }
 
+Map<String, dynamic>? _asEventObject(Object? value) {
+  if (value is Map<String, dynamic>) {
+    return value;
+  }
+  if (value is Map) {
+    return Map<String, dynamic>.from(value);
+  }
+  return null;
+}
+
+List<Todo> _todosFromPlanEntry(AcpSessionEntry entry) {
+  final payload = _asEventObject(entry.payload);
+  final update = _asEventObject(payload?['update']) ?? payload;
+  final entries = update?['entries'];
+  if (entries is! List) {
+    return const <Todo>[];
+  }
+  return entries
+      .whereType<Map<String, dynamic>>()
+      .map(
+        (item) => Todo(
+          id:
+              item['id']?.toString() ??
+              '${item['content']?.toString() ?? 'todo'}:${item['status']?.toString() ?? 'pending'}',
+          content: item['content']?.toString() ?? '',
+          status: item['status']?.toString() ?? 'pending',
+          priority: item['priority']?.toString() ?? 'normal',
+        ),
+      )
+      .where((todo) => todo.content.trim().isNotEmpty)
+      .toList(growable: false);
+}
+
+List<FileDiff> _diffsFromEntry(AcpSessionEntry entry) {
+  final payload = _asEventObject(entry.payload);
+  final update = _asEventObject(payload?['update']) ?? payload;
+  final diffs = update?['diff'];
+  if (diffs is! List) {
+    return const <FileDiff>[];
+  }
+  return diffs
+      .whereType<Map<String, dynamic>>()
+      .map(FileDiff.fromJson)
+      .toList(growable: false);
+}
+
 class GlobalEventCoordinator {
   final Ref _ref;
   StreamSubscription<Map<String, dynamic>>? _subscription;
@@ -455,16 +506,19 @@ class GlobalEventCoordinator {
   Timer? _sessionsRefreshTimer;
 
   GlobalEventCoordinator(this._ref) {
-    _subscription = _ref.read(eventServiceProvider).subscribe().listen(
-      _handleRawEvent,
-      onError: (Object error) {
-        AppLogger.instance.error(
-          'Global event stream error',
-          scope: 'events',
-          error: error,
+    _subscription = _ref
+        .read(eventServiceProvider)
+        .subscribe()
+        .listen(
+          _handleRawEvent,
+          onError: (Object error) {
+            AppLogger.instance.error(
+              'Global event stream error',
+              scope: 'events',
+              error: error,
+            );
+          },
         );
-      },
-    );
   }
 
   void syncSessionIds(Set<String> sessionIds) {
@@ -499,6 +553,9 @@ class GlobalEventCoordinator {
   void _onReconnected() {
     _scheduleSessionsRefresh(immediate: true);
     _ref.invalidate(sessionStatusProvider);
+    unawaited(_ref.read(sessionModeProvider.notifier).refreshCurrentSession());
+    unawaited(_ref.read(sessionControlProvider.notifier).refresh());
+    _ref.invalidate(commandsProvider);
     final session = _ref.read(selectedSessionProvider);
     unawaited(_ref.read(messagesProvider.notifier).loadForSession(session));
   }
@@ -527,9 +584,30 @@ class GlobalEventCoordinator {
     final selected = _ref.read(selectedSessionProvider);
     if (selected != null && selected.id == sessionId) {
       _ref.read(messagesProvider.notifier).appendEntry(selected, entry);
+      if (entry.kind == 'available_commands_update' ||
+          entry.kind == 'config_option_update' ||
+          entry.kind == 'current_mode_update') {
+        unawaited(
+          _ref.read(sessionModeProvider.notifier).refreshCurrentSession(),
+        );
+        unawaited(_ref.read(sessionControlProvider.notifier).refresh());
+        _ref.invalidate(commandsProvider);
+      }
+      if (entry.kind == 'plan') {
+        _ref
+            .read(todosProvider.notifier)
+            .setTodos(sessionId, _todosFromPlanEntry(entry));
+      }
+      if (entry.kind == 'session_diff_update') {
+        _ref
+            .read(sessionDiffProvider.notifier)
+            .setDiff(sessionId, _diffsFromEntry(entry));
+      }
       if (entry.kind == 'session_info_update') {
         final payload = entry.payload;
-        final entryPayload = payload is Map ? Map<String, dynamic>.from(payload) : null;
+        final entryPayload = payload is Map
+            ? Map<String, dynamic>.from(payload)
+            : null;
         final update = entryPayload?['update'];
         final updateObject = update is Map<String, dynamic>
             ? update
@@ -613,19 +691,25 @@ final globalEventCoordinatorProvider = Provider<GlobalEventCoordinator>((ref) {
 });
 
 final permissionServiceProvider = Provider<PermissionService>((ref) {
-  return PermissionService(ref.watch(apiClientProvider));
+  return PermissionService(
+    ref.watch(apiClientProvider),
+    ref.watch(eventServiceProvider),
+  );
 });
 
 final questionServiceProvider = Provider<QuestionService>((ref) {
-  return QuestionService();
+  return QuestionService(
+    ref.watch(apiClientProvider),
+    ref.watch(eventServiceProvider),
+  );
 });
 
 final sessionDiffServiceProvider = Provider<SessionDiffService>((ref) {
-  return SessionDiffService();
+  return SessionDiffService(ref.watch(apiClientProvider));
 });
 
 final todoServiceProvider = Provider<TodoService>((ref) {
-  return TodoService();
+  return TodoService(ref.watch(apiClientProvider));
 });
 
 final preferencesServiceProvider = Provider<PreferencesService>((ref) {
@@ -704,18 +788,11 @@ final sessionsProvider = FutureProvider<List<Session>>((ref) {
   final selectedProject = ref.watch(selectedProjectProvider);
   final selectedAgent = ref.watch(selectedAgentProvider);
   final sessionService = ref.watch(sessionServiceProvider);
-  return sessionService
-      .listSessions(
-        projectID: selectedProject?.id,
-        directory: selectedProject?.worktree,
-      )
-      .then((sessions) {
-    final agentId = selectedAgent.agentId;
-    if (agentId == null || agentId.isEmpty) {
-      return sessions;
-    }
-    return sessions.where((session) => session.agentID == agentId).toList();
-  });
+  return sessionService.listSessions(
+    agentID: selectedAgent.agentId,
+    projectID: selectedProject?.id,
+    directory: selectedProject?.worktree,
+  );
 });
 
 final selectedSessionProvider = StateProvider<Session?>((ref) => null);
@@ -1128,7 +1205,8 @@ class MessagesNotifier extends StateNotifier<MessagesState> {
         ..._entries.skip(existingIndex + 1),
       ];
     } else {
-      _entries = [..._entries, entry]..sort((left, right) => left.seq.compareTo(right.seq));
+      _entries = [..._entries, entry]
+        ..sort((left, right) => left.seq.compareTo(right.seq));
     }
     state = state.copyWith(
       messages: messageWrappersFromAcpSnapshot(
@@ -1237,9 +1315,12 @@ final vcsInfoProvider = FutureProvider<app_models.VcsInfo>((ref) {
 // ---------------------------------------------------------------------------
 
 final commandsProvider = FutureProvider<List<app_models.Command>>((ref) {
-  final project = ref.watch(selectedProjectProvider);
-  final appService = ref.watch(appServiceProvider);
-  return appService.listCommands(directory: project?.worktree);
+  final session = ref.watch(selectedSessionProvider);
+  if (session == null) {
+    return Future.value(const <app_models.Command>[]);
+  }
+  final sessionService = ref.watch(sessionServiceProvider);
+  return sessionService.listCommands(session.id);
 });
 
 // ---------------------------------------------------------------------------
@@ -1250,10 +1331,6 @@ final providersListProvider = FutureProvider<ProviderListResponse>((ref) {
   final providerService = ref.watch(providerServiceProvider);
   return providerService.listProviders();
 });
-
-// ---------------------------------------------------------------------------
-// Model / Mode Selection
-// ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
 // Model / Mode Selection
@@ -1276,23 +1353,20 @@ bool _isUsableModelSelection(Map<String, String>? model) {
 }
 
 class SessionModeNotifier extends StateNotifier<String> {
-  final PreferencesService _preferencesService;
+  final SessionService _sessionService;
   final Map<String, String> _sessionModes = {};
-  final Set<String> _hydratedFromMessages = {};
-  final Map<String, String> _persistDesired = {};
-  final Set<String> _persistInFlight = {};
   String? _activeSessionId;
   int _loadToken = 0;
   static const String _defaultMode = 'build';
 
-  SessionModeNotifier(this._preferencesService) : super(_defaultMode);
+  SessionModeNotifier(this._sessionService) : super(_defaultMode);
 
   String _normalizeMode(String mode) {
-    final normalized = mode.trim().toLowerCase();
-    if (normalized == 'plan' || normalized == 'build') {
-      return normalized;
+    final normalized = mode.trim();
+    if (normalized.isEmpty) {
+      return _defaultMode;
     }
-    return _defaultMode;
+    return normalized;
   }
 
   void setActiveSession(String? sessionId) {
@@ -1307,7 +1381,7 @@ class SessionModeNotifier extends StateNotifier<String> {
     if (state != cachedMode) {
       state = cachedMode;
     }
-    unawaited(_loadMode(sessionId));
+    unawaited(refreshSession(sessionId));
   }
 
   Future<void> setModeForCurrentSession(String mode) async {
@@ -1324,87 +1398,151 @@ class SessionModeNotifier extends StateNotifier<String> {
 
   Future<void> setModeForSession(String sessionId, String mode) async {
     final normalized = _normalizeMode(mode);
-    _sessionModes[sessionId] = normalized;
-    if (_activeSessionId == sessionId && state != normalized) {
-      state = normalized;
-    }
-    _persistDesired[sessionId] = normalized;
-    _schedulePersist(sessionId);
+    await _sessionService.setSessionMode(sessionId, modeId: normalized);
+    applyRemoteMode(sessionId, normalized);
   }
 
-  void resetMessageHydration(String sessionId) {
-    _hydratedFromMessages.remove(sessionId);
-  }
-
-  Future<void> hydrateFromMessages(
-    String sessionId,
-    List<MessageWrapper> messages,
-  ) async {
-    if (_hydratedFromMessages.contains(sessionId)) return;
-    _hydratedFromMessages.add(sessionId);
-    final mode = _extractModeFromMessages(messages);
-    if (mode == null) return;
-    await setModeForSession(sessionId, mode);
-  }
-
-  String? _extractModeFromMessages(List<MessageWrapper> messages) {
-    for (var i = messages.length - 1; i >= 0; i--) {
-      final info = messages[i].info;
-      if (info is UserMessageInfo) {
-        final agent = info.agent;
-        if (agent != null && agent.trim().isNotEmpty) {
-          return _normalizeMode(agent);
-        }
-      }
-      if (info is AssistantMessageInfo && info.mode.trim().isNotEmpty) {
-        return _normalizeMode(info.mode);
-      }
-    }
-    return null;
-  }
-
-  void _schedulePersist(String sessionId) {
-    if (_persistInFlight.contains(sessionId)) return;
-    unawaited(_flushPersist(sessionId));
-  }
-
-  Future<void> _flushPersist(String sessionId) async {
-    _persistInFlight.add(sessionId);
-    try {
-      while (true) {
-        final mode = _persistDesired.remove(sessionId);
-        if (mode == null) break;
-        await _preferencesService.saveSessionMode(sessionId, mode);
-      }
-    } finally {
-      _persistInFlight.remove(sessionId);
-      if (_persistDesired.containsKey(sessionId)) {
-        _schedulePersist(sessionId);
-      }
-    }
-  }
-
-  Future<void> _loadMode(String sessionId) async {
-    final token = ++_loadToken;
-    final savedMode = await _preferencesService.getSessionMode(sessionId);
-    if (token != _loadToken) return;
-    if (savedMode == null || savedMode.isEmpty) return;
-    final normalized = _normalizeMode(savedMode);
-    final currentMode = _sessionModes[sessionId];
-    if (currentMode != null && currentMode != normalized) {
+  Future<void> refreshCurrentSession() async {
+    final sessionId = _activeSessionId;
+    if (sessionId == null) {
       return;
     }
+    await refreshSession(sessionId);
+  }
+
+  Future<void> refreshSession(String sessionId) async {
+    final token = ++_loadToken;
+    try {
+      final control = await _sessionService.getSessionControl(sessionId);
+      if (token != _loadToken) {
+        return;
+      }
+      final remoteMode = control.currentModeId;
+      if (remoteMode == null || remoteMode.trim().isEmpty) {
+        return;
+      }
+      applyRemoteMode(sessionId, remoteMode);
+    } catch (_) {
+      if (token != _loadToken) {
+        return;
+      }
+    }
+  }
+
+  void applyRemoteMode(String sessionId, String mode) {
+    final normalized = _normalizeMode(mode);
     _sessionModes[sessionId] = normalized;
     if (_activeSessionId == sessionId && state != normalized) {
       state = normalized;
     }
+  }
+
+  void resetMessageHydration(String _) {}
+
+  Future<void> hydrateFromMessages(
+    String _,
+    List<MessageWrapper> unusedMessages,
+  ) async {}
+}
+
+class SessionControlState {
+  final SessionControl? control;
+  final bool isLoading;
+  final String? error;
+
+  const SessionControlState({this.control, this.isLoading = false, this.error});
+
+  SessionControlState copyWith({
+    SessionControl? control,
+    bool? isLoading,
+    Object? error = _messagesNoChange,
+  }) {
+    return SessionControlState(
+      control: control ?? this.control,
+      isLoading: isLoading ?? this.isLoading,
+      error: identical(error, _messagesNoChange)
+          ? this.error
+          : error as String?,
+    );
+  }
+}
+
+class SessionControlNotifier extends StateNotifier<SessionControlState> {
+  SessionControlNotifier(this._sessionService)
+    : super(const SessionControlState());
+
+  final SessionService _sessionService;
+  String? _activeSessionId;
+  int _loadToken = 0;
+
+  Future<void> loadForSession(Session? session) async {
+    final token = ++_loadToken;
+    _activeSessionId = session?.id;
+    if (session == null) {
+      state = const SessionControlState();
+      return;
+    }
+
+    state = const SessionControlState(isLoading: true);
+    try {
+      final control = await _sessionService.getSessionControl(session.id);
+      if (!mounted || token != _loadToken) {
+        return;
+      }
+      state = SessionControlState(control: control, isLoading: false);
+    } catch (e) {
+      if (!mounted || token != _loadToken) {
+        return;
+      }
+      state = state.copyWith(isLoading: false, error: e.toString());
+    }
+  }
+
+  Future<void> refresh() async {
+    final sessionId = _activeSessionId;
+    if (sessionId == null) {
+      return;
+    }
+    try {
+      final control = await _sessionService.getSessionControl(sessionId);
+      if (!mounted || sessionId != _activeSessionId) {
+        return;
+      }
+      state = SessionControlState(control: control, isLoading: false);
+    } catch (e) {
+      if (!mounted || sessionId != _activeSessionId) {
+        return;
+      }
+      state = state.copyWith(isLoading: false, error: e.toString());
+    }
+  }
+
+  Future<void> setConfigOption({
+    required String configId,
+    bool? boolValue,
+    String? valueId,
+  }) async {
+    final sessionId = _activeSessionId;
+    if (sessionId == null) {
+      return;
+    }
+    final control = await _sessionService.setSessionConfigOption(
+      sessionId,
+      configId: configId,
+      boolValue: boolValue,
+      valueId: valueId,
+    );
+    if (!mounted || sessionId != _activeSessionId) {
+      return;
+    }
+    state = SessionControlState(control: control, isLoading: false);
   }
 }
 
 final sessionModeProvider = StateNotifierProvider<SessionModeNotifier, String>((
   ref,
 ) {
-  final notifier = SessionModeNotifier(ref.watch(preferencesServiceProvider));
+  final notifier = SessionModeNotifier(ref.watch(sessionServiceProvider));
   ref.listen<Session?>(selectedSessionProvider, (previous, next) {
     final previousId = previous?.id;
     final nextId = next?.id;
@@ -1413,6 +1551,20 @@ final sessionModeProvider = StateNotifierProvider<SessionModeNotifier, String>((
   }, fireImmediately: true);
   return notifier;
 });
+
+final sessionControlProvider =
+    StateNotifierProvider<SessionControlNotifier, SessionControlState>((ref) {
+      final notifier = SessionControlNotifier(
+        ref.watch(sessionServiceProvider),
+      );
+      ref.listen<Session?>(selectedSessionProvider, (previous, next) {
+        final previousId = previous?.id;
+        final nextId = next?.id;
+        if (previousId == nextId) return;
+        unawaited(notifier.loadForSession(next));
+      }, fireImmediately: true);
+      return notifier;
+    });
 
 class DefaultModelNotifier extends StateNotifier<Map<String, String>?> {
   final PreferencesService _preferencesService;
@@ -1643,13 +1795,13 @@ final skillsProvider = FutureProvider<List<Map<String, dynamic>>>((ref) {
 // File Search
 // ---------------------------------------------------------------------------
 
-final fileSearchProvider = FutureProvider.family<List<String>, String>((
+final fileSearchProvider = FutureProvider.family<List<ResourceItem>, String>((
   ref,
   query,
 ) {
   final project = ref.watch(selectedProjectProvider);
   final appService = ref.watch(appServiceProvider);
-  return appService.findFiles(query: query, directory: project?.worktree);
+  return appService.findResources(query: query, directory: project?.worktree);
 });
 
 // ---------------------------------------------------------------------------

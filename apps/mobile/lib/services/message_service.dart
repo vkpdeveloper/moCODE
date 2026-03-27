@@ -4,17 +4,21 @@ import '../models/acp_models.dart';
 import '../models/message.dart';
 import '../utils/json_parser.dart';
 import 'api_client.dart';
+import 'event_service.dart';
 
 class MessageService {
   final ApiClient _apiClient;
+  final EventService _eventService;
 
-  MessageService(this._apiClient);
+  MessageService(this._apiClient, this._eventService);
 
   Future<AcpSessionSnapshot> getSnapshot(String sessionID) async {
     try {
       final response = await _apiClient.dio.get('/v1/sessions/$sessionID');
       final data = parseJsonObjectBytes(response.data as List<int>);
-      final session = sessionFromAcpJson(data['session'] as Map<String, dynamic>);
+      final session = sessionFromAcpJson(
+        data['session'] as Map<String, dynamic>,
+      );
       final entries = (data['entries'] as List<dynamic>? ?? const [])
           .map((item) => AcpSessionEntry.fromJson(item as Map<String, dynamic>))
           .toList(growable: false);
@@ -77,20 +81,11 @@ class MessageService {
     String? directory,
   }) async {
     try {
-      final text = parts
-          .map((part) => part['type'] == 'text' ? part['text']?.toString() : '')
-          .where((value) => value != null && value.trim().isNotEmpty)
-          .cast<String>()
-          .join('\n')
-          .trim();
-      if (text.isEmpty) {
-        throw StateError('Message must contain text.');
+      final prompt = _partsToPrompt(parts);
+      if (prompt.isEmpty) {
+        throw StateError('Message must contain text or resources.');
       }
-      await _apiClient.dio.post(
-        '/v1/sessions/$sessionID/prompt',
-        data: {'text': text},
-        options: Options(receiveTimeout: Duration.zero),
-      );
+      await _eventService.promptSession(sessionID, prompt: prompt);
     } on DioException {
       rethrow;
     }
@@ -106,11 +101,63 @@ class MessageService {
     String? directory,
   }) async {
     final text = '/$command${arguments.trim().isEmpty ? '' : ' $arguments'}';
-    await _apiClient.dio.post(
-      '/v1/sessions/$sessionID/prompt',
-      data: {'text': text},
-      options: Options(receiveTimeout: Duration.zero),
-    );
+    await _eventService.promptSession(sessionID, text: text);
     return const {'accepted': true};
+  }
+
+  List<Map<String, dynamic>> _partsToPrompt(List<Map<String, dynamic>> parts) {
+    final prompt = <Map<String, dynamic>>[];
+
+    for (final part in parts) {
+      final type = part['type']?.toString();
+      if (type == 'text') {
+        final text = part['text']?.toString().trim() ?? '';
+        if (text.isEmpty) {
+          continue;
+        }
+        prompt.add({'type': 'text', 'text': text});
+        continue;
+      }
+
+      if (type == 'file') {
+        final uri = part['url']?.toString().trim() ?? '';
+        if (uri.isEmpty) {
+          continue;
+        }
+
+        final filename = part['filename']?.toString().trim();
+        final mimeType = part['mime']?.toString().trim();
+        final name = (filename != null && filename.isNotEmpty)
+            ? filename
+            : _resourceNameFromUri(uri);
+
+        prompt.add({
+          'type': 'resource_link',
+          'uri': uri,
+          'name': name,
+          'title': filename ?? name,
+          if (mimeType != null && mimeType.isNotEmpty) 'mimeType': mimeType,
+        });
+      }
+    }
+
+    return prompt;
+  }
+
+  String _resourceNameFromUri(String uri) {
+    if (uri.startsWith('data:')) {
+      return 'attachment';
+    }
+
+    final parsed = Uri.tryParse(uri);
+    final segments = parsed?.pathSegments ?? const <String>[];
+    if (segments.isNotEmpty) {
+      final last = segments.last.trim();
+      if (last.isNotEmpty) {
+        return last;
+      }
+    }
+
+    return 'attachment';
   }
 }

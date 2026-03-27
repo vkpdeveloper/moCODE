@@ -9,6 +9,7 @@ import '../models/message.dart';
 import '../models/permission_request.dart';
 import '../models/question_request.dart';
 import '../models/session.dart';
+import '../models/session_control.dart';
 import '../models/todo.dart';
 import '../models/file_diff.dart';
 import '../models/part.dart';
@@ -149,6 +150,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
           final payload = event['payload'];
           if (payload is Map<String, dynamic>) {
             _handlePermissionRequest(payload);
+          }
+        } else if (type == 'question_request') {
+          final payload = event['payload'];
+          if (payload is Map<String, dynamic>) {
+            _handleQuestionRequest(payload);
           }
         } else if (type == 'daemon_warning') {
           final payload = event['payload'];
@@ -296,36 +302,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     return type != 'idle';
   }
 
-  void _handleSessionStatusEvent(dynamic props) {
-    if (props is! Map<String, dynamic>) return;
-    final session = ref.read(selectedSessionProvider);
-    if (session == null) return;
-    final sessionID = props['sessionID']?.toString();
-    if (sessionID == null || sessionID != session.id) return;
-    final status = props['status'];
-    ref.read(sessionStatusProvider.notifier).upsertStatus(sessionID, status);
-    final isBusy = _isBusyStatus(status, fallback: true);
-    if (mounted && _isBusy != isBusy) {
-      setState(() => _isBusy = isBusy);
-    }
-    if (!isBusy) {
-      _releaseActiveSession(sessionID);
-    }
-  }
-
-  void _handleSessionIdleEvent(dynamic props) {
-    if (props is! Map<String, dynamic>) return;
-    final session = ref.read(selectedSessionProvider);
-    if (session == null) return;
-    final sessionID = props['sessionID']?.toString();
-    if (sessionID == null || sessionID != session.id) return;
-    ref.read(sessionStatusProvider.notifier).markIdle(sessionID);
-    if (mounted && _isBusy) {
-      setState(() => _isBusy = false);
-    }
-    _releaseActiveSession(sessionID);
-  }
-
   void _listenToMessageUpdates() {
     _messagesSub = ref.listenManual<MessagesState>(messagesProvider, (
       MessagesState? prev,
@@ -354,68 +330,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     });
   }
 
-  bool _isCurrentSessionEvent(dynamic props) {
-    if (props is! Map<String, dynamic>) return false;
-    final sessionId = props['sessionID']?.toString();
-    final session = ref.read(selectedSessionProvider);
-    if (session == null || sessionId == null) return false;
-    return sessionId == session.id;
-  }
-
-  void _handlePromptAppend(dynamic props) {
-    if (props is! Map<String, dynamic>) return;
-    final text = props['text']?.toString();
-    if (text == null || text.isEmpty) return;
-    if (!mounted) return;
-    ChatInput.appendText(context, text);
-  }
-
-  void _handleCommandExecuted(dynamic props) {
-    if (props is! Map<String, dynamic>) return;
-    final name = props['name']?.toString() ?? props['command']?.toString();
-    if (name == null || name.isEmpty) return;
-    final args = props['arguments']?.toString();
-    if (mounted) {
-      final label = args != null && args.isNotEmpty
-          ? 'Command executed: $name $args'
-          : 'Command executed: $name';
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(label)));
-    }
-  }
-
   void _restoreDraft(String text, List<Map<String, dynamic>>? fileParts) {
     if (!mounted) return;
     ChatInput.restoreDraft(
       _chatInputKey.currentContext ?? context,
       text,
       fileParts ?? const <Map<String, dynamic>>[],
-    );
-  }
-
-  void _handleToastEvent(dynamic props) {
-    if (!mounted) return;
-    if (props is! Map<String, dynamic>) return;
-    final message = props['message']?.toString();
-    if (message == null || message.isEmpty) return;
-    final title = props['title']?.toString();
-    final variant = props['variant']?.toString() ?? 'info';
-    final durationMs = (props['duration'] as num?)?.toInt();
-    final snackText = title != null && title.isNotEmpty
-        ? '$title: $message'
-        : message;
-    final type = switch (variant) {
-      'success' => SnackBarType.success,
-      'warning' => SnackBarType.warning,
-      'error' => SnackBarType.error,
-      _ => SnackBarType.info,
-    };
-    AppSnackBar.show(
-      context,
-      message: snackText,
-      type: type,
-      duration: Duration(milliseconds: durationMs ?? 2800),
     );
   }
 
@@ -453,31 +373,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     });
   }
 
-  void _handleSessionDeleted(dynamic props) {
-    if (props is! Map<String, dynamic>) return;
-    final info = props['info'];
-    if (info is! Map<String, dynamic>) return;
-    final deletedId = info['id']?.toString();
-    if (deletedId == null || deletedId.isEmpty) return;
-    _releaseActiveSession(deletedId);
-    final session = ref.read(selectedSessionProvider);
-    if (session != null && session.id == deletedId) {
-      ref.read(selectedSessionProvider.notifier).state = null;
-      if (mounted) {
-        context.go('/sessions');
-      }
-    }
-  }
-
-  Color _toastColor(String variant) {
-    return switch (variant) {
-      'success' => AppTheme.success,
-      'warning' => AppTheme.warning,
-      'error' => AppTheme.error,
-      _ => AppTheme.info,
-    };
-  }
-
   void _resetSessionState(String sessionId) {
     if (!mounted) return;
     setState(() {
@@ -508,7 +403,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     if (_permissionDialogVisible) return;
     try {
       final permissionService = ref.read(permissionServiceProvider);
-      final pending = await permissionService.listPending(sessionID: session.id);
+      final pending = await permissionService.listPending(
+        sessionID: session.id,
+      );
       if (!mounted || pending.isEmpty) return;
       await _showPermissionDialog(pending.first);
     } catch (_) {
@@ -517,21 +414,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
   }
 
   Future<void> _loadPendingQuestions() async {
-    final project = ref.read(selectedProjectProvider);
     final session = ref.read(selectedSessionProvider);
-    if (project == null || session == null) return;
+    if (session == null) return;
     if (_questionDialogVisible) return;
     try {
       final questionService = ref.read(questionServiceProvider);
-      final pending = await questionService.listPending(
-        directory: project.worktree,
-      );
+      final pending = await questionService.listPending(sessionID: session.id);
       if (!mounted || pending.isEmpty) return;
-      final matches = pending
-          .where((request) => request.sessionID == session.id)
-          .toList();
-      if (matches.isEmpty) return;
-      await _showQuestionDialog(matches.first);
+      await _showQuestionDialog(pending.first);
     } catch (_) {
       // ignore question polling failures
     }
@@ -552,20 +442,19 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     _showPermissionDialog(permission);
   }
 
-  void _handleQuestionAsked(Map<String, dynamic> props) {
+  void _handleQuestionRequest(Map<String, dynamic> payload) {
     final session = ref.read(selectedSessionProvider);
     if (session == null) return;
     if (_questionDialogVisible) return;
-    if (props['sessionID'] != session.id) return;
-    _showQuestionDialog(QuestionRequest.fromJson(props));
-  }
-
-  void _handleQuestionUpdated(dynamic props) {
-    if (props is! Map<String, dynamic>) return;
-    final session = ref.read(selectedSessionProvider);
-    if (session == null) return;
-    if (props['sessionID'] != session.id) return;
-    _loadPendingQuestions();
+    if (payload['sessionId']?.toString() != session.id) return;
+    final requestRaw = payload['request'];
+    if (requestRaw is! Map) return;
+    final question = QuestionRequest.fromJson({
+      ...Map<String, dynamic>.from(requestRaw),
+      'id': payload['requestId']?.toString() ?? '',
+      'sessionID': session.id,
+    });
+    _showQuestionDialog(question);
   }
 
   String _formatPermissionTitle(PermissionRequest request) {
@@ -599,11 +488,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     if (session == null) return;
     try {
       final permissionService = ref.read(permissionServiceProvider);
-      await permissionService.reply(
-        session.id,
-        request.id,
-        reply: reply,
-      );
+      await permissionService.reply(session.id, request.id, reply: reply);
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(
@@ -617,15 +502,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     QuestionRequest request,
     List<List<String>> answers,
   ) async {
-    final project = ref.read(selectedProjectProvider);
-    if (project == null) return;
     try {
       final questionService = ref.read(questionServiceProvider);
-      await questionService.reply(
-        request.id,
-        answers: answers,
-        directory: project.worktree,
-      );
+      await questionService.reply(request, answers: answers);
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(
@@ -636,11 +515,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
   }
 
   Future<void> _rejectQuestion(QuestionRequest request) async {
-    final project = ref.read(selectedProjectProvider);
-    if (project == null) return;
     try {
       final questionService = ref.read(questionServiceProvider);
-      await questionService.reject(request.id, directory: project.worktree);
+      await questionService.reject(request);
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(
@@ -869,6 +746,120 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     await ref.read(sessionModeProvider.notifier).setModeForCurrentSession(mode);
   }
 
+  Future<void> _handleModeAction(
+    BuildContext context, {
+    required String currentMode,
+    required List<SessionModeOption> availableModes,
+  }) async {
+    if (availableModes.isEmpty) {
+      return;
+    }
+
+    if (availableModes.length == 1) {
+      return;
+    }
+
+    if (availableModes.length == 2) {
+      final fallback = availableModes.first;
+      var next = fallback;
+      for (final item in availableModes) {
+        if (item.id != currentMode) {
+          next = item;
+          break;
+        }
+      }
+      await _setSessionMode(next.id);
+      return;
+    }
+
+    final selected = await showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: AppTheme.surface,
+      builder: (context) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Padding(
+                padding: EdgeInsets.fromLTRB(16, 16, 16, 8),
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    'Session Mode',
+                    style: TextStyle(
+                      color: AppTheme.textPrimary,
+                      fontSize: 15,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ),
+              for (final item in availableModes)
+                ListTile(
+                  dense: true,
+                  title: Text(
+                    item.name,
+                    style: const TextStyle(
+                      color: AppTheme.textPrimary,
+                      fontSize: 13,
+                    ),
+                  ),
+                  subtitle:
+                      item.description == null || item.description!.isEmpty
+                      ? null
+                      : Text(
+                          item.description!,
+                          style: const TextStyle(
+                            color: AppTheme.textTertiary,
+                            fontSize: 11,
+                          ),
+                        ),
+                  trailing: item.id == currentMode
+                      ? const Icon(
+                          Icons.check,
+                          size: 16,
+                          color: AppTheme.accent,
+                        )
+                      : null,
+                  onTap: () => Navigator.of(context).pop(item.id),
+                ),
+            ],
+          ),
+        );
+      },
+    );
+
+    if (selected != null && selected != currentMode) {
+      await _setSessionMode(selected);
+    }
+  }
+
+  Future<void> _showSessionConfigSheet(
+    BuildContext context,
+    SessionControl control,
+  ) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: AppTheme.surface,
+      builder: (context) {
+        return _SessionConfigSheet(
+          control: control,
+          onSelectValue: (configId, valueId) async {
+            await ref
+                .read(sessionControlProvider.notifier)
+                .setConfigOption(configId: configId, valueId: valueId);
+          },
+          onToggleValue: (configId, value) async {
+            await ref
+                .read(sessionControlProvider.notifier)
+                .setConfigOption(configId: configId, boolValue: value);
+          },
+        );
+      },
+    );
+  }
+
   bool _isNearBottom() {
     if (!_scrollController.hasClients) return true;
     final position = _scrollController.position;
@@ -993,8 +984,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
       return 'Session busy';
     }();
 
-    if (messagesState.error != null &&
-        displayMessages.isEmpty) {
+    if (messagesState.error != null && displayMessages.isEmpty) {
       return Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -1133,13 +1123,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     return listWithButton;
   }
 
-  int _messageCreatedAt(MessageWrapper msg) {
-    final info = msg.info;
-    if (info is UserMessageInfo) return info.time.created;
-    if (info is AssistantMessageInfo) return info.time.created;
-    return 0;
-  }
-
   List<MessageWrapper> _mergeAssistantMessagesByTurn(
     List<MessageWrapper> source,
   ) {
@@ -1237,9 +1220,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     return ids.length > 1;
   }
 
-  Widget _buildSidebar({
-    required SessionErrorState errorState,
-  }) {
+  Widget _buildSidebar({required SessionErrorState errorState}) {
     final todosState = ref.watch(todosProvider);
     final diffState = ref.watch(sessionDiffProvider);
 
@@ -1300,19 +1281,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
           ),
         ],
       ),
-    );
-  }
-
-  Widget _buildSidebarToggle() {
-    return IconButton(
-      icon: Icon(
-        _isSidebarOpen ? Icons.view_sidebar : Icons.view_sidebar_outlined,
-        size: 20,
-      ),
-      onPressed: () {
-        setState(() => _isSidebarOpen = !_isSidebarOpen);
-      },
-      tooltip: 'Sidebar',
     );
   }
 
@@ -1785,36 +1753,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     );
   }
 
-  Future<void> _openTerminal(BuildContext context) async {
-    final settings = ref.read(settingsProvider);
-    final project = ref.read(selectedProjectProvider);
-    final sshState = ref.read(sshProvider);
-
-    if (sshState.isConnected) {
-      Navigator.of(
-        context,
-      ).push(MaterialPageRoute(builder: (context) => const TerminalPage()));
-    } else {
-      final connected = await showSshConnectionDialog(
-        context,
-        defaultHost: settings.serverHost,
-        workingDirectory: project?.worktree ?? '/',
-      );
-      if (connected == true) {
-        if (context.mounted) {
-          Navigator.of(
-            context,
-          ).push(MaterialPageRoute(builder: (context) => const TerminalPage()));
-        }
-      }
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     final session = ref.watch(selectedSessionProvider);
     final messagesState = ref.watch(messagesProvider);
     final mode = ref.watch(sessionModeProvider);
+    final sessionControlState = ref.watch(sessionControlProvider);
+    final sessionControl = sessionControlState.control;
     final activeModel = ref.watch(activeModelProvider);
     final selectedAgent = ref.watch(selectedAgentProvider);
     final selectedAgentLabel =
@@ -1868,6 +1813,17 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     }
 
     final effectiveBusy = _isBusy || isSessionBusy || _isSyncing;
+    final availableModes = sessionControl?.modes ?? const <SessionModeOption>[];
+    final modelOption = sessionControl?.optionByCategory('model');
+    final activeModelLabel =
+        modelOption?.selectedChoice?.name ??
+        modelOption?.currentValue ??
+        activeModel?['modelID'];
+    final busyLabel = switch (mode.toLowerCase()) {
+      'plan' => 'Planning...',
+      'build' => 'Building...',
+      _ => 'Working...',
+    };
 
     return Scaffold(
       appBar: AppBar(
@@ -1896,8 +1852,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
                   _isSyncing
                       ? 'Syncing...'
                       : effectiveBusy
-                      ? (mode == 'plan' ? 'Planning...' : 'Building...')
-                      : 'Ready${activeModel != null ? " • ${activeModel['modelID']}" : selectedAgentLabel != null ? " • $selectedAgentLabel" : ""}',
+                      ? busyLabel
+                      : 'Ready${activeModelLabel != null
+                            ? " • $activeModelLabel"
+                            : selectedAgentLabel != null
+                            ? " • $selectedAgentLabel"
+                            : ""}',
                   style: TextStyle(
                     fontSize: 10,
                     color: effectiveBusy
@@ -1911,10 +1871,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
         ),
         actions: [
           GestureDetector(
-            onTap: () {
-              final newMode = mode == 'plan' ? 'build' : 'plan';
-              unawaited(_setSessionMode(newMode));
-            },
+            onTap: () => unawaited(
+              _handleModeAction(
+                context,
+                currentMode: mode,
+                availableModes: availableModes,
+              ),
+            ),
             child: Container(
               margin: const EdgeInsets.only(right: 4),
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
@@ -1948,8 +1911,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
                 case 'tools':
                   _showToolsMenu(context);
                   break;
-                case 'models':
-                  context.push('/models', extra: {'mode': 'session'});
+                case 'session_config':
+                  if (sessionControl != null) {
+                    unawaited(_showSessionConfigSheet(context, sessionControl));
+                  }
                   break;
               }
             },
@@ -1987,20 +1952,18 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
                   ],
                 ),
               ),
-              const PopupMenuItem<String>(
-                value: 'models',
-                child: Row(
-                  children: [
-                    Icon(
-                      Icons.swap_horiz,
-                      size: 18,
-                      color: AppTheme.textSecondary,
-                    ),
-                    SizedBox(width: 12),
-                    Text('Models', style: TextStyle(fontSize: 13)),
-                  ],
+              if (sessionControl != null &&
+                  sessionControl.configOptions.isNotEmpty)
+                const PopupMenuItem<String>(
+                  value: 'session_config',
+                  child: Row(
+                    children: [
+                      Icon(Icons.tune, size: 18, color: AppTheme.textSecondary),
+                      SizedBox(width: 12),
+                      Text('Session Config', style: TextStyle(fontSize: 13)),
+                    ],
+                  ),
                 ),
-              ),
             ],
           ),
         ],
@@ -2018,8 +1981,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
                     mode: mode,
                   ),
                 ),
-                if (_isSidebarOpen)
-                  _buildSidebar(errorState: errorState),
+                if (_isSidebarOpen) _buildSidebar(errorState: errorState),
               ],
             ),
           ),
@@ -2251,6 +2213,8 @@ class _QuestionDialogState extends State<_QuestionDialog> {
 
   bool _allowsCustom(QuestionInfo question) => question.custom ?? true;
 
+  bool _isSecret(QuestionInfo question) => question.secret ?? false;
+
   void _toggleSelection(int index, String label) {
     final question = widget.request.questions[index];
     final current = List<String>.from(_answers[index]);
@@ -2462,12 +2426,15 @@ class _QuestionDialogState extends State<_QuestionDialog> {
                             const SizedBox(height: 6),
                             TextField(
                               onChanged: (value) => _setCustomAnswer(i, value),
+                              obscureText: _isSecret(question),
                               style: const TextStyle(
                                 fontSize: 11,
                                 color: AppTheme.textPrimary,
                               ),
                               decoration: InputDecoration(
-                                hintText: 'Type your own answer',
+                                hintText: _isSecret(question)
+                                    ? 'Type secret answer'
+                                    : 'Type your own answer',
                                 hintStyle: const TextStyle(
                                   fontSize: 11,
                                   color: AppTheme.textTertiary,
@@ -2541,6 +2508,131 @@ class _QuestionDialogState extends State<_QuestionDialog> {
                 ),
               ],
             ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SessionConfigSheet extends StatelessWidget {
+  const _SessionConfigSheet({
+    required this.control,
+    required this.onSelectValue,
+    required this.onToggleValue,
+  });
+
+  final SessionControl control;
+  final Future<void> Function(String configId, String valueId) onSelectValue;
+  final Future<void> Function(String configId, bool value) onToggleValue;
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.of(context).size.height * 0.8,
+        ),
+        child: ListView(
+          shrinkWrap: true,
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+          children: [
+            const Text(
+              'Session Config',
+              style: TextStyle(
+                color: AppTheme.textPrimary,
+                fontSize: 15,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 12),
+            for (final option in control.configOptions) ...[
+              Text(
+                option.name,
+                style: const TextStyle(
+                  color: AppTheme.textPrimary,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              if (option.description != null && option.description!.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(top: 2, bottom: 6),
+                  child: Text(
+                    option.description!,
+                    style: const TextStyle(
+                      color: AppTheme.textTertiary,
+                      fontSize: 11,
+                    ),
+                  ),
+                )
+              else
+                const SizedBox(height: 6),
+              if (option.isBoolean)
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  value: option.currentBoolValue ?? false,
+                  title: Text(
+                    option.currentBoolValue == true ? 'Enabled' : 'Disabled',
+                    style: const TextStyle(
+                      color: AppTheme.textSecondary,
+                      fontSize: 12,
+                    ),
+                  ),
+                  onChanged: (value) async {
+                    Navigator.of(context).pop();
+                    await onToggleValue(option.id, value);
+                  },
+                )
+              else
+                for (final choice in option.choices)
+                  ListTile(
+                    dense: true,
+                    contentPadding: EdgeInsets.zero,
+                    title: Text(
+                      choice.name,
+                      style: const TextStyle(
+                        color: AppTheme.textSecondary,
+                        fontSize: 12,
+                      ),
+                    ),
+                    subtitle:
+                        choice.description == null ||
+                            choice.description!.isEmpty
+                        ? (choice.group == null
+                              ? null
+                              : Text(
+                                  choice.group!,
+                                  style: const TextStyle(
+                                    color: AppTheme.textTertiary,
+                                    fontSize: 10,
+                                  ),
+                                ))
+                        : Text(
+                            [
+                              if (choice.group != null) choice.group!,
+                              choice.description!,
+                            ].join(' • '),
+                            style: const TextStyle(
+                              color: AppTheme.textTertiary,
+                              fontSize: 10,
+                            ),
+                          ),
+                    trailing: option.currentValue == choice.value
+                        ? const Icon(
+                            Icons.check,
+                            size: 16,
+                            color: AppTheme.accent,
+                          )
+                        : null,
+                    onTap: () async {
+                      Navigator.of(context).pop();
+                      await onSelectValue(option.id, choice.value);
+                    },
+                  ),
+              const Divider(color: AppTheme.border),
+              const SizedBox(height: 8),
+            ],
           ],
         ),
       ),

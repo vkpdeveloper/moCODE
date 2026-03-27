@@ -21,16 +21,14 @@ final mergedProjectsProvider = FutureProvider<List<Project>>((ref) async {
   final sessionService = ref.watch(sessionServiceProvider);
   final results = await Future.wait([
     projectService.listProjects(),
-    sessionService.listSessions(limit: 200, roots: false),
+    sessionService.listSessions(
+      agentID: selectedAgent.agentId,
+      limit: 200,
+      roots: false,
+    ),
   ]);
   final projects = results[0] as List<Project>;
-  final sessions = (results[1] as List<Session>).where((session) {
-    final agentId = selectedAgent.agentId;
-    if (agentId == null || agentId.isEmpty) {
-      return true;
-    }
-    return session.agentID == agentId;
-  }).toList();
+  final sessions = results[1] as List<Session>;
 
   final mergedByDirectory = <String, Project>{};
   for (final project in projects) {

@@ -5,6 +5,7 @@ import { readdir, readFile, stat } from "node:fs/promises";
 import { homedir, hostname, platform } from "node:os";
 import { basename, isAbsolute, join, relative, resolve } from "node:path";
 
+import type * as acp from "@agentclientprotocol/sdk";
 import { z } from "zod";
 
 import { syncAgentCatalog } from "./agents";
@@ -14,6 +15,10 @@ import { StateDatabase } from "./db";
 import { getLogger, sanitizeLogValue, serializeError } from "./logger";
 import { buildOpenApiSpec, createApiDocsHtml } from "./openapi";
 import { getStatePaths } from "./paths";
+import {
+  latestDiffsFromEntries,
+  latestTodosFromEntries,
+} from "./session-derived-state";
 import type {
   BroadcastEvent,
   JsonObject,
@@ -45,13 +50,64 @@ const updateSessionSchema = z.object({
   title: z.string().trim().min(1).max(240).nullable().optional(),
 });
 
-const promptSessionSchema = z.object({
-  text: z.string().trim().min(1),
+const promptContentBlockSchema = z.discriminatedUnion("type", [
+  z.object({
+    type: z.literal("text"),
+    text: z.string().trim().min(1),
+  }),
+  z.object({
+    type: z.literal("resource_link"),
+    uri: z.string().trim().min(1),
+    name: z.string().trim().min(1),
+    title: z.string().trim().min(1).nullable().optional(),
+    description: z.string().trim().min(1).nullable().optional(),
+    mimeType: z.string().trim().min(1).nullable().optional(),
+    size: z.number().int().nonnegative().nullable().optional(),
+  }),
+]);
+
+const promptSessionSchema = z
+  .object({
+    text: z.string().trim().min(1).optional(),
+    prompt: z.array(promptContentBlockSchema).min(1).optional(),
+  })
+  .refine((value) => value.text || value.prompt, {
+    message: "Either text or prompt is required.",
+    path: ["text"],
+  });
+
+const setSessionModeSchema = z.object({
+  modeId: z.string().trim().min(1),
 });
+
+const setSessionConfigOptionSchema = z.discriminatedUnion("type", [
+  z.object({
+    type: z.literal("boolean"),
+    configId: z.string().trim().min(1),
+    value: z.boolean(),
+  }),
+  z.object({
+    type: z.literal("value"),
+    configId: z.string().trim().min(1),
+    value: z.string().trim().min(1),
+  }),
+]);
 
 const replyPermissionSchema = z.object({
   reply: z.enum(["once", "always", "reject"]),
 });
+
+const questionAnswerSchema = z.array(z.string());
+
+const replyQuestionSchema = z.discriminatedUnion("outcome", [
+  z.object({
+    outcome: z.literal("cancelled"),
+  }),
+  z.object({
+    outcome: z.literal("answered"),
+    answers: z.record(z.string(), questionAnswerSchema),
+  }),
+]);
 
 const wsMessageSchema = z.discriminatedUnion("type", [
   z.object({
@@ -74,7 +130,8 @@ const wsMessageSchema = z.discriminatedUnion("type", [
     requestId: z.string().optional(),
     type: z.literal("prompt_session"),
     sessionId: z.string(),
-    text: z.string().min(1),
+    text: z.string().min(1).optional(),
+    prompt: z.array(promptContentBlockSchema).min(1).optional(),
   }),
   z.object({
     requestId: z.string().optional(),
@@ -95,6 +152,13 @@ const wsMessageSchema = z.discriminatedUnion("type", [
         optionId: z.string(),
       }),
     ]),
+  }),
+  z.object({
+    requestId: z.string().optional(),
+    type: z.literal("reply_question"),
+    sessionId: z.string(),
+    questionRequestId: z.string(),
+    outcome: replyQuestionSchema,
   }),
 ]);
 
@@ -123,12 +187,36 @@ type PendingPermissionRecord = {
   createdAt: number;
 };
 
+type PendingQuestionRecord = {
+  id: string;
+  sessionId: string;
+  request: JsonObject;
+  createdAt: number;
+};
+
+type ResourceSearchItem = {
+  absolute: string;
+  extension: string | null;
+  name: string;
+  path: string;
+  score: number;
+  type: "file";
+};
+
+type ResourceIndexCacheEntry = {
+  expiresAt: number;
+  files: string[];
+};
+
 const IGNORE_DIRS = new Set([
   ".cache",
   ".DS_Store",
+  ".dart_tool",
   ".git",
   ".next",
   ".pnpm-store",
+  "build",
+  "dist",
   "Library",
   "Movies",
   "Music",
@@ -137,6 +225,9 @@ const IGNORE_DIRS = new Set([
   "tmp",
   "vendor",
 ]);
+
+const RESOURCE_INDEX_TTL_MS = 3_000;
+const resourceIndexCache = new Map<string, ResourceIndexCacheEntry>();
 
 function json(data: unknown, init: ResponseInit = {}) {
   return new Response(JSON.stringify(data), {
@@ -281,6 +372,20 @@ function sendWs(
   socket.send(JSON.stringify(event));
 }
 
+function sendWsRequestError(
+  socket: Bun.ServerWebSocket<SocketData>,
+  requestId: string | null | undefined,
+  error: string,
+) {
+  sendWs(socket, {
+    type: "request_error",
+    payload: {
+      requestId: requestId ?? null,
+      error,
+    },
+  });
+}
+
 function broadcastSessionEvent(
   wsClients: Map<Bun.ServerWebSocket<SocketData>, SocketData>,
   sseClients: Set<SseClient>,
@@ -422,6 +527,191 @@ async function searchFiles(input: {
   return results;
 }
 
+function normalizeSearchText(value: string) {
+  return value.trim().toLowerCase();
+}
+
+function subsequenceScore(text: string, query: string) {
+  if (!query) {
+    return 0;
+  }
+
+  let score = 0;
+  let queryIndex = 0;
+  let streak = 0;
+
+  for (let textIndex = 0; textIndex < text.length; textIndex += 1) {
+    if (queryIndex >= query.length) {
+      break;
+    }
+
+    if (text[textIndex] !== query[queryIndex]) {
+      streak = 0;
+      continue;
+    }
+
+    streak += 1;
+    score += 2 + streak;
+    queryIndex += 1;
+  }
+
+  return queryIndex === query.length ? score : 0;
+}
+
+function scoreResourceMatch(relativePath: string, query: string) {
+  const normalizedQuery = normalizeSearchText(query);
+  if (normalizedQuery.length === 0) {
+    return 1;
+  }
+
+  const normalizedPath = normalizeSearchText(relativePath);
+  const segments = normalizedPath.split("/");
+  const fileName = segments.at(-1) ?? normalizedPath;
+
+  if (fileName === normalizedQuery) {
+    return 1_000;
+  }
+
+  if (fileName.startsWith(normalizedQuery)) {
+    return 800 - Math.min(fileName.length - normalizedQuery.length, 50);
+  }
+
+  if (fileName.includes(normalizedQuery)) {
+    return 700 - Math.min(fileName.indexOf(normalizedQuery), 100);
+  }
+
+  if (normalizedPath.startsWith(normalizedQuery)) {
+    return 650 - Math.min(normalizedPath.length - normalizedQuery.length, 100);
+  }
+
+  if (normalizedPath.includes(normalizedQuery)) {
+    return 500 - Math.min(normalizedPath.indexOf(normalizedQuery), 200);
+  }
+
+  const fuzzyFileScore = subsequenceScore(fileName, normalizedQuery);
+  if (fuzzyFileScore > 0) {
+    return 300 + fuzzyFileScore;
+  }
+
+  const fuzzyPathScore = subsequenceScore(normalizedPath, normalizedQuery);
+  if (fuzzyPathScore > 0) {
+    return 150 + fuzzyPathScore;
+  }
+
+  return 0;
+}
+
+function listIndexedFiles(root: string) {
+  const cached = resourceIndexCache.get(root);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.files;
+  }
+
+  const globArgs = [
+    "!**/.cache/**",
+    "!**/.dart_tool/**",
+    "!**/.git/**",
+    "!**/.next/**",
+    "!**/.pnpm-store/**",
+    "!**/build/**",
+    "!**/dist/**",
+    "!**/node_modules/**",
+    "!**/tmp/**",
+    "!**/vendor/**",
+  ];
+  const args = ["--files", "--hidden", "--follow", "--color", "never"];
+  for (const glob of globArgs) {
+    args.push("--glob", glob);
+  }
+
+  const result = spawnSync("rg", args, {
+    cwd: root,
+    encoding: "utf8",
+    maxBuffer: 32 * 1024 * 1024,
+  });
+
+  if (result.status !== 0) {
+    return null;
+  }
+
+  const files = result.stdout
+    .split(/\r?\n/)
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
+
+  resourceIndexCache.set(root, {
+    expiresAt: Date.now() + RESOURCE_INDEX_TTL_MS,
+    files,
+  });
+
+  return files;
+}
+
+async function searchResources(input: {
+  directory: string | null;
+  limit: number;
+  query: string;
+}) {
+  const root = input.directory ? resolve(input.directory) : homedir();
+  const limit = Number.isFinite(input.limit)
+    ? Math.max(1, Math.min(Math.trunc(input.limit), 200))
+    : 50;
+  const indexed = listIndexedFiles(root);
+
+  const buildResource = (relativePath: string, score: number): ResourceSearchItem => {
+    const absolute = resolve(root, relativePath);
+    const slashIndex = relativePath.lastIndexOf("/");
+    const name = slashIndex === -1 ? relativePath : relativePath.slice(slashIndex + 1);
+    const dotIndex = name.lastIndexOf(".");
+    return {
+      absolute,
+      extension:
+        dotIndex > 0 && dotIndex < name.length - 1 ? name.slice(dotIndex + 1).toLowerCase() : null,
+      name,
+      path: relativePath,
+      score,
+      type: "file",
+    };
+  };
+
+  if (indexed) {
+    const matches = indexed
+      .map((relativePath) => ({
+        relativePath,
+        score: scoreResourceMatch(relativePath, input.query),
+      }))
+      .filter((entry) => entry.score > 0)
+      .sort((left, right) => {
+        if (left.score !== right.score) {
+          return right.score - left.score;
+        }
+        return left.relativePath.localeCompare(right.relativePath);
+      })
+      .slice(0, limit)
+      .map((entry) => buildResource(entry.relativePath, entry.score));
+
+    return {
+      resources: matches,
+      root,
+    };
+  }
+
+  const fallbackResults = await searchFiles({
+    directory: root,
+    limit,
+    query: input.query,
+    type: "file",
+  });
+  const resources = fallbackResults.map((absolute) =>
+    buildResource(relative(root, absolute), scoreResourceMatch(relative(root, absolute), input.query)),
+  );
+
+  return {
+    resources,
+    root,
+  };
+}
+
 function getGitBranch(directory: string | null) {
   if (!directory) {
     return "";
@@ -555,6 +845,15 @@ function serializePendingPermission(record: PendingPermissionRecord) {
   };
 }
 
+function serializePendingQuestion(record: PendingQuestionRecord) {
+  return {
+    requestId: record.id,
+    sessionId: record.sessionId,
+    request: record.request,
+    createdAt: record.createdAt,
+  };
+}
+
 export async function startDaemon(options: { port: number }) {
   const paths = getStatePaths();
   const logger = getLogger("daemon").child({ port: options.port });
@@ -564,6 +863,7 @@ export async function startDaemon(options: { port: number }) {
   const wsClients = new Map<Bun.ServerWebSocket<SocketData>, SocketData>();
   const sseClients = new Set<SseClient>();
   const pendingPermissions = new Map<string, PendingPermissionRecord>();
+  const pendingQuestions = new Map<string, PendingQuestionRecord>();
   const runtimeManager = new AgentRuntimeManager(
     db,
     paths,
@@ -580,6 +880,24 @@ export async function startDaemon(options: { port: number }) {
             ? (event.payload.request as JsonObject)
             : {};
         pendingPermissions.set(requestId, {
+          id: requestId,
+          sessionId,
+          request,
+          createdAt: Date.now(),
+        });
+      }
+      if (event.type === "question_request") {
+        const requestId =
+          typeof event.payload.requestId === "string"
+            ? event.payload.requestId
+            : randomUUID();
+        const request =
+          event.payload.request &&
+          typeof event.payload.request === "object" &&
+          !Array.isArray(event.payload.request)
+            ? (event.payload.request as JsonObject)
+            : {};
+        pendingQuestions.set(requestId, {
           id: requestId,
           sessionId,
           request,
@@ -614,13 +932,41 @@ export async function startDaemon(options: { port: number }) {
     }
   };
 
-  const startBackgroundPrompt = async (sessionId: string, text: string) => {
+  const clearPendingQuestionsForSession = (sessionId: string) => {
+    for (const [requestId, record] of pendingQuestions.entries()) {
+      if (record.sessionId === sessionId) {
+        pendingQuestions.delete(requestId);
+      }
+    }
+  };
+
+  const startBackgroundPrompt = async (
+    sessionId: string,
+    prompt: acp.ContentBlock[],
+  ) => {
+    const promptSummary = prompt
+      .map((block) => {
+        switch (block.type) {
+          case "text":
+            return block.text;
+          case "resource_link":
+            return [block.title, block.name, block.uri]
+              .filter((value): value is string => typeof value === "string")
+              .join(" ")
+              .trim();
+          default:
+            return "";
+        }
+      })
+      .filter((value) => value.trim().length > 0)
+      .join("\n")
+      .trim();
     logger.info("background prompt started", {
       sessionId,
-      prompt: sanitizeLogValue(text),
+      prompt: sanitizeLogValue(promptSummary),
     });
     try {
-      await runtimeManager.promptSession(sessionId, text);
+      await runtimeManager.promptSession(sessionId, prompt);
       logger.info("background prompt completed", {
         sessionId,
       });
@@ -634,6 +980,7 @@ export async function startDaemon(options: { port: number }) {
       const session = db.getSession(sessionId);
       if (session?.status === "idle") {
         clearPendingPermissionsForSession(sessionId);
+        clearPendingQuestionsForSession(sessionId);
       }
     }
   };
@@ -845,9 +1192,13 @@ export async function startDaemon(options: { port: number }) {
                     if (closed) {
                       return;
                     }
-                    controller.enqueue(
-                      encoder.encode(`data: ${JSON.stringify(event)}\n\n`),
-                    );
+                    try {
+                      controller.enqueue(
+                        encoder.encode(`data: ${JSON.stringify(event)}\n\n`),
+                      );
+                    } catch {
+                      close();
+                    }
                   },
                   close,
                 };
@@ -992,9 +1343,22 @@ export async function startDaemon(options: { port: number }) {
 
           if (pathname === "/v1/sessions" && request.method === "GET") {
             const projectId = url.searchParams.get("projectId") ?? undefined;
-            return json({
-              sessions: db.listSessions(projectId),
-            });
+            const agentId = url.searchParams.get("agentId") ?? undefined;
+            if (projectId && agentId) {
+              const project = db.getProject(projectId);
+              if (!project) {
+                return json({ error: "Project not found." }, { status: 404 });
+              }
+              const sessions = await runtimeManager.listSessionsForAgent(
+                project,
+                agentId,
+              );
+              return json({ sessions });
+            }
+            const sessions = db.listSessions(projectId).filter((session) =>
+              agentId ? session.agentId === agentId : true,
+            );
+            return json({ sessions });
           }
 
           if (pathname === "/v1/sessions" && request.method === "POST") {
@@ -1064,6 +1428,7 @@ export async function startDaemon(options: { port: number }) {
               return json({ error: "Session not found." }, { status: 404 });
             }
             clearPendingPermissionsForSession(sessionId);
+            clearPendingQuestionsForSession(sessionId);
             db.deleteSession(sessionId);
             return json({ ok: true });
           }
@@ -1080,8 +1445,70 @@ export async function startDaemon(options: { port: number }) {
             const body = promptSessionSchema.parse(
               await readLoggedJson("promptSession"),
             );
-            void startBackgroundPrompt(sessionId, body.text);
+            const prompt: acp.ContentBlock[] =
+              body.prompt ?? [{ type: "text", text: body.text! }];
+            void startBackgroundPrompt(sessionId, prompt);
             return json({ accepted: true, sessionId });
+          }
+
+          if (
+            pathname.match(/^\/v1\/sessions\/[^/]+\/state$/) &&
+            request.method === "GET"
+          ) {
+            const sessionId = pathname.split("/")[3]!;
+            const session = db.getSession(sessionId);
+            if (!session) {
+              return json({ error: "Session not found." }, { status: 404 });
+            }
+            return json(runtimeManager.getSessionState(sessionId));
+          }
+
+          if (
+            pathname.match(/^\/v1\/sessions\/[^/]+\/commands$/) &&
+            request.method === "GET"
+          ) {
+            const sessionId = pathname.split("/")[3]!;
+            const session = db.getSession(sessionId);
+            if (!session) {
+              return json({ error: "Session not found." }, { status: 404 });
+            }
+            const state = runtimeManager.getSessionState(sessionId);
+            return json({ commands: state.availableCommands });
+          }
+
+          if (
+            pathname.match(/^\/v1\/sessions\/[^/]+\/mode$/) &&
+            request.method === "POST"
+          ) {
+            const sessionId = pathname.split("/")[3]!;
+            const session = db.getSession(sessionId);
+            if (!session) {
+              return json({ error: "Session not found." }, { status: 404 });
+            }
+            const body = setSessionModeSchema.parse(
+              await readLoggedJson("setSessionMode"),
+            );
+            const state = await runtimeManager.setSessionMode(
+              sessionId,
+              body.modeId,
+            );
+            return json(state);
+          }
+
+          if (
+            pathname.match(/^\/v1\/sessions\/[^/]+\/config-option$/) &&
+            request.method === "POST"
+          ) {
+            const sessionId = pathname.split("/")[3]!;
+            const session = db.getSession(sessionId);
+            if (!session) {
+              return json({ error: "Session not found." }, { status: 404 });
+            }
+            const body = setSessionConfigOptionSchema.parse(
+              await readLoggedJson("setSessionConfigOption"),
+            );
+            const state = await runtimeManager.setSessionConfigOption(sessionId, body);
+            return json(state);
           }
 
           if (
@@ -1094,6 +1521,7 @@ export async function startDaemon(options: { port: number }) {
               return json({ error: "Session not found." }, { status: 404 });
             }
             clearPendingPermissionsForSession(sessionId);
+            clearPendingQuestionsForSession(sessionId);
             requestLogger.warn("cancel session accepted", {
               sessionId,
             });
@@ -1115,6 +1543,23 @@ export async function startDaemon(options: { port: number }) {
                 .filter((record) => record.sessionId === sessionId)
                 .sort((left, right) => left.createdAt - right.createdAt)
                 .map(serializePendingPermission),
+            });
+          }
+
+          if (
+            pathname.match(/^\/v1\/sessions\/[^/]+\/questions$/) &&
+            request.method === "GET"
+          ) {
+            const sessionId = pathname.split("/")[3]!;
+            const session = db.getSession(sessionId);
+            if (!session) {
+              return json({ error: "Session not found." }, { status: 404 });
+            }
+            return json({
+              questions: [...pendingQuestions.values()]
+                .filter((record) => record.sessionId === sessionId)
+                .sort((left, right) => left.createdAt - right.createdAt)
+                .map(serializePendingQuestion),
             });
           }
 
@@ -1156,6 +1601,69 @@ export async function startDaemon(options: { port: number }) {
             return json({ ok: true });
           }
 
+          if (
+            pathname.match(/^\/v1\/sessions\/[^/]+\/questions\/[^/]+\/reply$/) &&
+            request.method === "POST"
+          ) {
+            const sessionId = pathname.split("/")[3]!;
+            const requestId = pathname.split("/")[5]!;
+            const session = db.getSession(sessionId);
+            if (!session) {
+              return json({ error: "Session not found." }, { status: 404 });
+            }
+            const body = replyQuestionSchema.parse(
+              await readLoggedJson("replyQuestion"),
+            );
+            const record = pendingQuestions.get(requestId) ?? null;
+            if (!record || record.sessionId !== sessionId) {
+              return json(
+                { error: "Question request not found." },
+                { status: 404 },
+              );
+            }
+            const ok = runtimeManager.replyQuestion(
+              sessionId,
+              requestId,
+              body.outcome === "answered" ? body.answers : null,
+            );
+            if (!ok) {
+              return json(
+                { error: "Question reply failed." },
+                { status: 400 },
+              );
+            }
+            pendingQuestions.delete(requestId);
+            return json({ ok: true });
+          }
+
+          if (
+            pathname.match(/^\/v1\/sessions\/[^/]+\/todos$/) &&
+            request.method === "GET"
+          ) {
+            const sessionId = pathname.split("/")[3]!;
+            const snapshot = db.getSessionSnapshot(sessionId);
+            if (!snapshot) {
+              return json({ error: "Session not found." }, { status: 404 });
+            }
+            return json({
+              todos: latestTodosFromEntries(snapshot.entries),
+            });
+          }
+
+          if (
+            pathname.match(/^\/v1\/sessions\/[^/]+\/diff$/) &&
+            request.method === "GET"
+          ) {
+            const sessionId = pathname.split("/")[3]!;
+            const snapshot = db.getSessionSnapshot(sessionId);
+            if (!snapshot) {
+              return json({ error: "Session not found." }, { status: 404 });
+            }
+            return json({
+              diffs: latestDiffsFromEntries(snapshot.entries),
+            });
+          }
+
           if (pathname === "/v1/path" && request.method === "GET") {
             const directory = url.searchParams.get("directory");
             return json(getPathInfo(paths, directory));
@@ -1189,6 +1697,19 @@ export async function startDaemon(options: { port: number }) {
                 type,
                 directory,
                 limit,
+              }),
+            );
+          }
+
+          if (pathname === "/v1/resources/search" && request.method === "GET") {
+            const query = url.searchParams.get("query") ?? "";
+            const directory = url.searchParams.get("directory");
+            const limit = Number(url.searchParams.get("limit") ?? 50);
+            return json(
+              await searchResources({
+                directory,
+                limit,
+                query,
               }),
             );
           }
@@ -1307,16 +1828,15 @@ export async function startDaemon(options: { port: number }) {
               break;
             }
             case "prompt_session": {
-              const result = await runtimeManager.promptSession(
-                payload.sessionId,
-                payload.text,
-              );
+              const prompt: acp.ContentBlock[] =
+                payload.prompt ?? [{ type: "text", text: payload.text ?? "" }];
+              void startBackgroundPrompt(payload.sessionId, prompt);
               sendWs(socket, {
                 type: "prompt_result",
                 payload: {
                   requestId: payload.requestId ?? null,
                   sessionId: payload.sessionId,
-                  stopReason: result.response.stopReason,
+                  accepted: true,
                 },
               });
               break;
@@ -1339,8 +1859,31 @@ export async function startDaemon(options: { port: number }) {
                 payload.permissionRequestId,
                 payload.outcome as never,
               );
+              if (ok) {
+                pendingPermissions.delete(payload.permissionRequestId);
+              }
               sendWs(socket, {
                 type: "permission_reply_result",
+                payload: {
+                  requestId: payload.requestId ?? null,
+                  ok,
+                },
+              });
+              break;
+            }
+            case "reply_question": {
+              const ok = runtimeManager.replyQuestion(
+                payload.sessionId,
+                payload.questionRequestId,
+                payload.outcome.outcome === "answered"
+                  ? payload.outcome.answers
+                  : null,
+              );
+              if (ok) {
+                pendingQuestions.delete(payload.questionRequestId);
+              }
+              sendWs(socket, {
+                type: "question_reply_result",
                 payload: {
                   requestId: payload.requestId ?? null,
                   ok,
@@ -1354,6 +1897,22 @@ export async function startDaemon(options: { port: number }) {
             deviceId: socket.data.deviceId,
             error: serializeError(error),
           });
+          let requestId: string | null = null;
+          try {
+            const raw =
+              typeof message === "string"
+                ? JSON.parse(message)
+                : JSON.parse(Buffer.from(message).toString("utf8"));
+            requestId =
+              raw && typeof raw === "object" && "requestId" in raw
+                ? String((raw as { requestId?: unknown }).requestId ?? "")
+                : null;
+          } catch {}
+          sendWsRequestError(
+            socket,
+            requestId,
+            error instanceof Error ? error.message : "Unknown error",
+          );
           sendWs(socket, {
             type: "daemon_warning",
             payload: {

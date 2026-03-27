@@ -14,7 +14,11 @@ import { tmpdir } from "node:os";
 import type { Logger } from "winston";
 
 import { getLogger } from "./logger";
-import { syncAgentCatalog, upsertManagedAgentSpec } from "./agents";
+import {
+  isSupportedAgentId,
+  syncAgentCatalog,
+  upsertManagedAgentSpec,
+} from "./agents";
 import type { StateDatabase } from "./db";
 import type { AgentDescriptor, AgentSpec, StatePaths } from "./types";
 
@@ -25,11 +29,14 @@ const GITHUB_REGISTRY_RAW_BASE =
 const REGISTRY_CACHE_TTL_MS = 1000 * 60 * 60 * 12;
 
 const AGENT_ID_ALIASES: Record<string, string> = {
+  amp: "amp-acp",
   codex: "codex-acp",
   claude: "claude-acp",
   "claude-agent": "claude-acp",
   "claude-agent-acp": "claude-acp",
   "cursor-agent": "cursor",
+  copilot: "github-copilot-cli",
+  "github-copilot": "github-copilot-cli",
 };
 
 type RegistryBinaryTarget = {
@@ -557,7 +564,9 @@ export async function listRegistryAgents(
   logger: Logger = getLogger("agent-registry"),
 ) {
   const index = await loadRegistryIndex(paths, logger);
-  return [...index.agents].sort((a, b) => a.name.localeCompare(b.name));
+  return [...index.agents]
+    .filter((agent) => isSupportedAgentId(normalizeAgentId(agent.id)))
+    .sort((a, b) => a.name.localeCompare(b.name));
 }
 
 export async function activateRegistryAgent(
@@ -569,6 +578,11 @@ export async function activateRegistryAgent(
   const logger = options.logger ?? getLogger("agent-registry");
   const onProgress = options.onProgress;
   const normalizedId = normalizeAgentId(agentId);
+  if (!isSupportedAgentId(normalizedId)) {
+    throw new Error(
+      `Unsupported agent: ${agentId}. Allowed agents: Amp, OpenCode, Gemini, Cursor, Claude, Codex, GitHub Copilot, Kilo.`,
+    );
+  }
   const current = new Map(syncAgentCatalog(db, paths).map((entry) => [entry.id, entry]));
   const existing = current.get(normalizedId) ?? null;
 

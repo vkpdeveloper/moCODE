@@ -17,22 +17,27 @@ class QuestionOption {
 }
 
 class QuestionInfo {
+  final String id;
   final String question;
   final String header;
   final List<QuestionOption> options;
   final bool? multiple;
   final bool? custom;
+  final bool? secret;
 
   QuestionInfo({
+    required this.id,
     required this.question,
     required this.header,
     required this.options,
     this.multiple,
     this.custom,
+    this.secret,
   });
 
   factory QuestionInfo.fromJson(Map<String, dynamic> json) {
     return QuestionInfo(
+      id: json['id'] as String? ?? '',
       question: json['question'] as String? ?? '',
       header: json['header'] as String? ?? '',
       options:
@@ -43,16 +48,19 @@ class QuestionInfo {
           [],
       multiple: json['multiple'] as bool?,
       custom: json['custom'] as bool?,
+      secret: json['secret'] as bool?,
     );
   }
 
   Map<String, dynamic> toJson() {
     return {
+      'id': id,
       'question': question,
       'header': header,
       'options': options.map((option) => option.toJson()).toList(),
       if (multiple != null) 'multiple': multiple,
       if (custom != null) 'custom': custom,
+      if (secret != null) 'secret': secret,
     };
   }
 }

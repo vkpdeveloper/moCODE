@@ -13,49 +13,88 @@ class LanDiscoveryService {
   LanDiscoveryService(this._preferencesService, {HttpClient? httpClient})
     : _httpClient = httpClient ?? HttpClient();
 
+  Stream<List<DiscoveredCliDevice>> scanStream({
+    int port = 4058,
+    Duration timeout = const Duration(milliseconds: 350),
+  }) {
+    late final StreamController<List<DiscoveredCliDevice>> controller;
+    controller = StreamController<List<DiscoveredCliDevice>>(
+      onCancel: () async {
+        if (!controller.isClosed) {
+          await controller.close();
+        }
+      },
+    );
+    unawaited(_runScan(controller, port: port, timeout: timeout));
+    return controller.stream;
+  }
+
   Future<List<DiscoveredCliDevice>> scan({
     int port = 4058,
     Duration timeout = const Duration(milliseconds: 350),
+  }) async {
+    var latest = const <DiscoveredCliDevice>[];
+    await for (final devices in scanStream(port: port, timeout: timeout)) {
+      latest = devices;
+    }
+    return latest;
+  }
+
+  Future<void> _runScan(
+    StreamController<List<DiscoveredCliDevice>> controller, {
+    required int port,
+    required Duration timeout,
   }) async {
     AppLogger.instance.info(
       'LAN discovery scan started',
       scope: 'discovery',
       data: {'port': port, 'timeoutMs': timeout.inMilliseconds},
     );
-    final paired = await _preferencesService.getPairedCliDevices();
-    final pairedByHost = <String, Map<String, dynamic>>{
-      for (final device in paired)
-        '${device['host']}:${device['port']}': device,
-    };
+    try {
+      final paired = await _preferencesService.getPairedCliDevices();
+      final pairedByHost = <String, Map<String, dynamic>>{
+        for (final device in paired)
+          '${device['host']}:${device['port']}': device,
+      };
 
-    final hosts = await _candidateHosts();
-    final devices = <DiscoveredCliDevice>[];
+      final preferredHosts = paired
+          .map((device) => device['host']?.toString() ?? '')
+          .where((host) => host.isNotEmpty);
+      final hosts = await _candidateHosts(preferredHosts: preferredHosts);
+      final devicesByHost = <String, DiscoveredCliDevice>{};
 
-    for (var i = 0; i < hosts.length; i += 24) {
-      final batch = hosts.skip(i).take(24);
-      final results = await Future.wait(
-        batch.map((host) => _probeHost(host, port, timeout, pairedByHost)),
+      await Future.wait(
+        hosts.map((host) async {
+          final device = await _probeHost(host, port, timeout, pairedByHost);
+          if (device == null || controller.isClosed) {
+            return;
+          }
+
+          devicesByHost['${device.host}:${device.port}'] = device;
+          controller.add(_sortDevices(devicesByHost.values));
+        }),
       );
-      devices.addAll(results.whereType<DiscoveredCliDevice>());
-    }
 
-    devices.sort((left, right) {
-      if (left.isPaired != right.isPaired) {
-        return left.isPaired ? -1 : 1;
+      final devices = _sortDevices(devicesByHost.values);
+      AppLogger.instance.info(
+        'LAN discovery scan completed',
+        scope: 'discovery',
+        data: {
+          'count': devices.length,
+          'devices': devices
+              .map((device) => device.toStored())
+              .toList(growable: false),
+        },
+      );
+      if (!controller.isClosed) {
+        await controller.close();
       }
-      return left.deviceName.toLowerCase().compareTo(
-        right.deviceName.toLowerCase(),
-      );
-    });
-    AppLogger.instance.info(
-      'LAN discovery scan completed',
-      scope: 'discovery',
-      data: {
-        'count': devices.length,
-        'devices': devices.map((device) => device.toStored()).toList(growable: false),
-      },
-    );
-    return devices;
+    } catch (error, stackTrace) {
+      if (!controller.isClosed) {
+        controller.addError(error, stackTrace);
+        await controller.close();
+      }
+    }
   }
 
   Future<DiscoveredCliDevice> redeemPairing({
@@ -65,7 +104,11 @@ class LanDiscoveryService {
     AppLogger.instance.info(
       'Redeeming CLI pairing code',
       scope: 'discovery',
-      data: {'host': device.host, 'port': device.port, 'isPaired': device.isPaired},
+      data: {
+        'host': device.host,
+        'port': device.port,
+        'isPaired': device.isPaired,
+      },
     );
     final uri = Uri.parse('${device.baseUrl}/v1/pairing/code/redeem');
     final request = await _httpClient
@@ -95,12 +138,29 @@ class LanDiscoveryService {
     return paired;
   }
 
-  Future<List<String>> _candidateHosts() async {
+  List<DiscoveredCliDevice> _sortDevices(
+    Iterable<DiscoveredCliDevice> devices,
+  ) {
+    final sorted = devices.toList(growable: false);
+    sorted.sort((left, right) {
+      if (left.isPaired != right.isPaired) {
+        return left.isPaired ? -1 : 1;
+      }
+      return left.deviceName.toLowerCase().compareTo(
+        right.deviceName.toLowerCase(),
+      );
+    });
+    return sorted;
+  }
+
+  Future<List<String>> _candidateHosts({
+    Iterable<String> preferredHosts = const <String>[],
+  }) async {
     final interfaces = await NetworkInterface.list(
       includeLoopback: true,
       type: InternetAddressType.IPv4,
     );
-    final hosts = <String>{'127.0.0.1'};
+    final discoveredHosts = <String>{'127.0.0.1'};
 
     for (final interface in interfaces) {
       for (final address in interface.addresses) {
@@ -115,12 +175,33 @@ class LanDiscoveryService {
         }
         final prefix = '${parts[0]}.${parts[1]}.${parts[2]}';
         for (var i = 1; i <= 254; i++) {
-          hosts.add('$prefix.$i');
+          discoveredHosts.add('$prefix.$i');
         }
       }
     }
 
-    return hosts.toList()..sort();
+    final orderedHosts = <String>[];
+    final seen = <String>{};
+
+    void addHost(String host) {
+      if (host.isEmpty || seen.contains(host)) {
+        return;
+      }
+      seen.add(host);
+      orderedHosts.add(host);
+    }
+
+    addHost('127.0.0.1');
+    for (final host in preferredHosts) {
+      addHost(host);
+    }
+
+    final remainingHosts = discoveredHosts.toList()..sort();
+    for (final host in remainingHosts) {
+      addHost(host);
+    }
+
+    return orderedHosts;
   }
 
   bool _isPrivate(int first, int second) {

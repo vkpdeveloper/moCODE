@@ -1,19 +1,24 @@
 import 'package:dio/dio.dart';
 
 import '../models/acp_models.dart';
+import '../models/app_models.dart' as app_models;
+import '../models/session_control.dart';
 import '../models/session.dart';
 import '../utils/json_parser.dart';
 import 'api_client.dart';
 import 'app_logger.dart';
+import 'event_service.dart';
 
 class SessionService {
   final ApiClient _apiClient;
+  final EventService _eventService;
 
-  SessionService(this._apiClient);
+  SessionService(this._apiClient, this._eventService);
 
   Future<List<Session>> listSessions({
     String? directory,
     String? projectID,
+    String? agentID,
     bool roots = true,
     int? start,
     String? search,
@@ -22,9 +27,7 @@ class SessionService {
     try {
       final response = await _apiClient.dio.get(
         '/v1/sessions',
-        queryParameters: {
-          'projectId': projectID,
-        },
+        queryParameters: {'projectId': projectID, 'agentId': agentID},
       );
       final data = parseJsonObjectBytes(response.data as List<int>);
       final sessions = (data['sessions'] as List<dynamic>? ?? const [])
@@ -46,7 +49,9 @@ class SessionService {
       if (directory == null || directory.isEmpty) {
         return sessions;
       }
-      return sessions.where((session) => session.directory == directory).toList();
+      return sessions
+          .where((session) => session.directory == directory)
+          .toList();
     } on DioException {
       rethrow;
     }
@@ -82,13 +87,12 @@ class SessionService {
 
       final response = await _apiClient.dio.post(
         '/v1/sessions',
-        data: {
-          'projectId': resolvedProjectId,
-          'agentId': agentID,
-        },
+        data: {'projectId': resolvedProjectId, 'agentId': agentID},
       );
       final data = parseJsonObjectBytes(response.data as List<int>);
-      final session = sessionFromAcpJson(data['session'] as Map<String, dynamic>);
+      final session = sessionFromAcpJson(
+        data['session'] as Map<String, dynamic>,
+      );
       if (title != null && title.trim().isNotEmpty) {
         return updateSession(session.id, title: title);
       }
@@ -102,9 +106,7 @@ class SessionService {
     final sessions = await listSessions(directory: directory, limit: 200);
     return {
       for (final session in sessions)
-        session.id: {
-          'type': sessionFromStatus(session),
-        },
+        session.id: {'type': sessionFromStatus(session)},
     };
   }
 
@@ -167,7 +169,7 @@ class SessionService {
 
   Future<bool> abortSession(String sessionID, {String? directory}) async {
     try {
-      await _apiClient.dio.post('/v1/sessions/$sessionID/cancel');
+      await _eventService.cancelSession(sessionID);
       return true;
     } on DioException {
       rethrow;
@@ -203,6 +205,97 @@ class SessionService {
 
   Future<Session> unrevertSession(String sessionID, {String? directory}) async {
     throw StateError('Redo is not available for ACP sessions yet.');
+  }
+
+  Future<SessionControl> getSessionControl(String sessionID) async {
+    try {
+      final response = await _apiClient.dio.get(
+        '/v1/sessions/$sessionID/state',
+      );
+      final data = parseJsonObjectBytes(response.data as List<int>);
+      return SessionControl.fromJson({
+        'sessionId': data['session'] is Map<String, dynamic>
+            ? (data['session'] as Map<String, dynamic>)['id']
+            : sessionID,
+        'modes': data['modes'],
+        'configOptions': data['configOptions'],
+      });
+    } on DioException {
+      rethrow;
+    }
+  }
+
+  Future<SessionControl> setSessionMode(
+    String sessionID, {
+    required String modeId,
+  }) async {
+    try {
+      final response = await _apiClient.dio.post(
+        '/v1/sessions/$sessionID/mode',
+        data: {'modeId': modeId},
+      );
+      final data = parseJsonObjectBytes(response.data as List<int>);
+      return SessionControl.fromJson({
+        'sessionId': data['session'] is Map<String, dynamic>
+            ? (data['session'] as Map<String, dynamic>)['id']
+            : sessionID,
+        'modes': data['modes'],
+        'configOptions': data['configOptions'],
+      });
+    } on DioException {
+      rethrow;
+    }
+  }
+
+  Future<SessionControl> setSessionConfigOption(
+    String sessionID, {
+    required String configId,
+    bool? boolValue,
+    String? valueId,
+  }) async {
+    try {
+      final response = await _apiClient.dio.post(
+        '/v1/sessions/$sessionID/config-option',
+        data: boolValue != null
+            ? {'type': 'boolean', 'configId': configId, 'value': boolValue}
+            : {'type': 'value', 'configId': configId, 'value': valueId},
+      );
+      final data = parseJsonObjectBytes(response.data as List<int>);
+      return SessionControl.fromJson({
+        'sessionId': data['session'] is Map<String, dynamic>
+            ? (data['session'] as Map<String, dynamic>)['id']
+            : sessionID,
+        'modes': data['modes'],
+        'configOptions': data['configOptions'],
+      });
+    } on DioException {
+      rethrow;
+    }
+  }
+
+  Future<List<app_models.Command>> listCommands(String sessionID) async {
+    try {
+      final response = await _apiClient.dio.get(
+        '/v1/sessions/$sessionID/commands',
+      );
+      final data = parseJsonObjectBytes(response.data as List<int>);
+      final commands = (data['commands'] as List<dynamic>? ?? const [])
+          .map((item) => item as Map<String, dynamic>)
+          .map(
+            (item) => app_models.Command(
+              name: item['name']?.toString() ?? '',
+              description: item['description']?.toString(),
+              source: 'command',
+              hints: item['input'] != null
+                  ? const ['Provide command input']
+                  : const [],
+            ),
+          )
+          .toList(growable: false);
+      return commands;
+    } on DioException {
+      rethrow;
+    }
   }
 }
 

@@ -48,6 +48,7 @@ dependencies:
   audioplayers: ^6.1.0
   in_app_update: ^4.2.5
   logger: ^2.6.2
+  web_socket: ^1.0.1
 
 dev_dependencies:
   flutter_test:

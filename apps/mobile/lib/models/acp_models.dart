@@ -110,7 +110,7 @@ List<MessageWrapper> messageWrappersFromAcpSnapshot(
         _createUserMessage(
           snapshot.session,
           entry.id,
-          _asString(payload['text']) ?? '',
+          payload,
           entry.createdAt,
           currentMode,
         ),
@@ -309,11 +309,17 @@ String _toolName(Object? kind, Object? title) {
 Map<String, dynamic> _createUserMessage(
   Session session,
   String entryId,
-  String text,
+  Map<String, dynamic> payload,
   String createdAt,
   String currentMode,
 ) {
   final created = _isoToMillis(createdAt);
+  final parts = _createUserParts(
+    session: session,
+    entryId: entryId,
+    payload: payload,
+    created: created,
+  );
   return {
     'info': {
       'id': entryId,
@@ -325,21 +331,113 @@ Map<String, dynamic> _createUserMessage(
         'completed': created,
       },
     },
-    'parts': [
-      {
-        'id': '$entryId:text',
-        'sessionID': session.id,
-        'messageID': entryId,
-        'type': 'text',
-        'text': text,
-        'synthetic': false,
-        'time': {
-          'start': created,
-          'end': created,
-        },
-      },
-    ],
+    'parts': parts,
   };
+}
+
+List<Map<String, dynamic>> _createUserParts({
+  required Session session,
+  required String entryId,
+  required Map<String, dynamic> payload,
+  required int created,
+}) {
+  final prompt = payload['prompt'];
+  final parts = <Map<String, dynamic>>[];
+
+  if (prompt is List) {
+    for (var index = 0; index < prompt.length; index += 1) {
+      final block = _asObject(prompt[index]);
+      if (block == null) {
+        continue;
+      }
+
+      final type = _asString(block['type']);
+      if (type == 'text') {
+        final text = _asString(block['text']) ?? '';
+        if (text.trim().isEmpty) {
+          continue;
+        }
+        parts.add(
+          _createUserTextPart(
+            session: session,
+            entryId: entryId,
+            created: created,
+            text: text,
+            suffix: 'text_$index',
+          ),
+        );
+        continue;
+      }
+
+      if (type == 'resource_link') {
+        final uri = _asString(block['uri']) ?? '';
+        if (uri.trim().isEmpty) {
+          continue;
+        }
+        final name =
+            _asString(block['title']) ??
+            _asString(block['name']) ??
+            _resourceNameFromUri(uri);
+        parts.add({
+          'id': '$entryId:file_$index',
+          'sessionID': session.id,
+          'messageID': entryId,
+          'type': 'file',
+          'mime': _asString(block['mimeType']) ?? '',
+          'filename': name,
+          'url': uri,
+          'source': block,
+        });
+      }
+    }
+  }
+
+  if (parts.isEmpty) {
+    parts.add(
+      _createUserTextPart(
+        session: session,
+        entryId: entryId,
+        created: created,
+        text: _asString(payload['text']) ?? '',
+        suffix: 'text',
+      ),
+    );
+  }
+
+  return parts;
+}
+
+Map<String, dynamic> _createUserTextPart({
+  required Session session,
+  required String entryId,
+  required int created,
+  required String text,
+  required String suffix,
+}) {
+  return {
+    'id': '$entryId:$suffix',
+    'sessionID': session.id,
+    'messageID': entryId,
+    'type': 'text',
+    'text': text,
+    'synthetic': false,
+    'time': {
+      'start': created,
+      'end': created,
+    },
+  };
+}
+
+String _resourceNameFromUri(String uri) {
+  final parsed = Uri.tryParse(uri);
+  final segments = parsed?.pathSegments ?? const <String>[];
+  if (segments.isNotEmpty) {
+    final last = segments.last.trim();
+    if (last.isNotEmpty) {
+      return last;
+    }
+  }
+  return 'attachment';
 }
 
 Map<String, dynamic> _createAssistantMessage(

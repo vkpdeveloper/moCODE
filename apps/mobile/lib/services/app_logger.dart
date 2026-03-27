@@ -1,12 +1,10 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:developer' as developer;
-import 'dart:io';
 
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:logger/logger.dart' as log_pkg;
-import 'package:path_provider/path_provider.dart';
 
 enum AppLogLevel { debug, info, warning, error }
 
@@ -30,46 +28,10 @@ class AppLogger {
     caseSensitive: false,
   );
 
-  Future<void>? _initializing;
-  IOSink? _sink;
-  String? _logFilePath;
   late final log_pkg.Logger _logger;
 
-  String? get logFilePath => _logFilePath;
-
   Future<void> initialize() {
-    final current = _initializing;
-    if (current != null) {
-      return current;
-    }
-
-    final next = _initializeInternal();
-    _initializing = next;
-    return next;
-  }
-
-  Future<void> _initializeInternal() async {
-    try {
-      final supportDir = await getApplicationSupportDirectory();
-      final logDir = Directory('${supportDir.path}/logs');
-      await logDir.create(recursive: true);
-      final file = File('${logDir.path}/app.log');
-      _sink = file.openWrite(mode: FileMode.append);
-      _logFilePath = file.path;
-      info(
-        'app logger initialized',
-        scope: 'logger',
-        data: {'path': _logFilePath},
-      );
-    } catch (error, stackTrace) {
-      developer.log(
-        'Failed to initialize app logger: $error',
-        name: 'moCODE.logger',
-        level: 1000,
-        error: error,
-        stackTrace: stackTrace,
-      );
-    }
+    return Future<void>.value();
   }
 
   void debug(String message, {String scope = 'app', Object? data}) {
@@ -178,18 +140,26 @@ class AppLogger {
       return <String, Object?>{
         'fields': value.fields
             .take(_maxCollectionItems)
-            .map((entry) => <String, Object?>{
-                  'name': entry.key,
-                  'value': sanitize(entry.value, depth: depth + 1, key: entry.key),
-                })
+            .map(
+              (entry) => <String, Object?>{
+                'name': entry.key,
+                'value': sanitize(
+                  entry.value,
+                  depth: depth + 1,
+                  key: entry.key,
+                ),
+              },
+            )
             .toList(growable: false),
         'files': value.files
             .take(_maxCollectionItems)
-            .map((entry) => <String, Object?>{
-                  'field': entry.key,
-                  'filename': entry.value.filename,
-                  'contentType': entry.value.contentType?.mimeType,
-                })
+            .map(
+              (entry) => <String, Object?>{
+                'field': entry.key,
+                'filename': entry.value.filename,
+                'contentType': entry.value.contentType?.mimeType,
+              },
+            )
             .toList(growable: false),
       };
     }
@@ -199,7 +169,8 @@ class AppLogger {
         'message': _truncate(value.message ?? ''),
         'statusCode': value.response?.statusCode,
         'request': sanitizeRequestOptions(value.requestOptions),
-        if (value.response != null) 'response': sanitizeResponse(value.response!),
+        if (value.response != null)
+          'response': sanitizeResponse(value.response!),
       };
     }
     if (value is RequestOptions) {
@@ -214,11 +185,7 @@ class AppLogger {
         final entryKey = entry.key.toString();
         output[entryKey] = _redactedKey.hasMatch(entryKey)
             ? _mask(entry.value?.toString() ?? '')
-            : sanitize(
-                entry.value,
-                depth: depth + 1,
-                key: entryKey,
-              );
+            : sanitize(entry.value, depth: depth + 1, key: entryKey);
       }
       if (value.length > _maxCollectionItems) {
         output['__truncatedKeys'] = value.length - _maxCollectionItems;
@@ -368,12 +335,6 @@ class _AppLogOutput extends log_pkg.LogOutput {
         error: event.origin.error,
         stackTrace: event.origin.stackTrace,
       );
-
-      final sink = _appLogger._sink;
-      if (sink != null) {
-        sink.writeln(line);
-        unawaited(sink.flush());
-      }
     }
   }
 }
@@ -384,10 +345,7 @@ class AppLogInterceptor extends Interceptor {
   final String clientName;
 
   @override
-  void onRequest(
-    RequestOptions options,
-    RequestInterceptorHandler handler,
-  ) {
+  void onRequest(RequestOptions options, RequestInterceptorHandler handler) {
     options.extra['requestStartedAt'] = DateTime.now();
     AppLogger.instance.info(
       'HTTP request',
@@ -427,7 +385,9 @@ class AppLogInterceptor extends Interceptor {
       'HTTP error',
       scope: 'http.$clientName',
       data: {
-        'request': AppLogger.instance.sanitizeRequestOptions(err.requestOptions),
+        'request': AppLogger.instance.sanitizeRequestOptions(
+          err.requestOptions,
+        ),
         'durationMs': ?durationMs,
       },
       error: AppLogger.instance.sanitize(err),

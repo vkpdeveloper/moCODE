@@ -1,6 +1,6 @@
 import type { Logger } from "winston";
 
-import { syncAgentCatalog } from "./agents";
+import { isSupportedAgentId, syncAgentCatalog } from "./agents";
 import { listRegistryAgents } from "./agent-registry";
 import { getLogger } from "./logger";
 import type { StateDatabase } from "./db";
@@ -38,8 +38,13 @@ export function buildAgentInventory(options: {
   registryAvailable?: boolean;
 }) {
   const registryAvailable = options.registryAvailable ?? true;
-  const registryNameById = new Map(options.registryAgents.map((agent) => [agent.id, agent.name]));
-  const acpDescriptors = options.descriptors.filter((descriptor) => descriptor.source === "acp");
+  const supportedRegistryAgents = options.registryAgents.filter((agent) =>
+    isSupportedAgentId(agent.id),
+  );
+  const registryNameById = new Map(supportedRegistryAgents.map((agent) => [agent.id, agent.name]));
+  const acpDescriptors = options.descriptors.filter(
+    (descriptor) => descriptor.source === "acp" && isSupportedAgentId(descriptor.id),
+  );
 
   const installed = sortByName(
     acpDescriptors
@@ -60,6 +65,7 @@ export function buildAgentInventory(options: {
     ? sortByName(
         options.registryAgents
           .filter((agent) => !installedOrDetectedIds.has(agent.id))
+          .filter((agent) => isSupportedAgentId(agent.id))
           .map((agent) => ({
             id: agent.id,
             name: agent.name,

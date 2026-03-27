@@ -8,7 +8,10 @@ import type { Logger } from "winston";
 
 import { StateDatabase } from "./db";
 import { syncAgentCatalog } from "./agents";
+import { ClaudeCodeRuntime } from "./claude-code-runtime";
+import { CodexRuntime } from "./codex-runtime";
 import { getLogger, sanitizeLogValue, summarizeText } from "./logger";
+import { OpenCodeRuntime } from "./opencode-runtime";
 import { TerminalManager } from "./terminals";
 import type {
   BroadcastEvent,
@@ -40,6 +43,80 @@ type AgentLaunchMetadata = {
   args: string[];
   env: Record<string, string>;
 };
+
+type StoredSessionCapabilities = {
+  agentCapabilities?: acp.AgentCapabilities | null;
+  authMethods?: acp.AuthMethod[] | null;
+  availableCommands?: acp.AvailableCommand[] | null;
+  configOptions?: acp.SessionConfigOption[] | null;
+  models?: acp.SessionModelState | null;
+  modes?: acp.SessionModeState | null;
+};
+
+function extractPromptText(prompt: acp.ContentBlock[]) {
+  return prompt
+    .map((block) => {
+      switch (block.type) {
+        case "text":
+          return block.text;
+        case "resource_link":
+          return [block.title, block.name, block.uri]
+            .filter((value): value is string => typeof value === "string")
+            .join(" ")
+            .trim();
+        default:
+          return "";
+      }
+    })
+    .filter((value) => value.trim().length > 0)
+    .join("\n")
+    .trim();
+}
+
+function parseStoredSessionCapabilities(
+  capabilitiesJson: string | null,
+): StoredSessionCapabilities {
+  if (!capabilitiesJson) {
+    return {};
+  }
+
+  try {
+    const parsed = JSON.parse(capabilitiesJson) as StoredSessionCapabilities;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return {};
+    }
+    return parsed;
+  } catch {
+    return {};
+  }
+}
+
+function buildStoredSessionCapabilities(
+  current: StoredSessionCapabilities,
+  updates: StoredSessionCapabilities,
+): StoredSessionCapabilities {
+  return {
+    authMethods:
+      updates.authMethods === undefined
+        ? (current.authMethods ?? null)
+        : updates.authMethods,
+    agentCapabilities:
+      updates.agentCapabilities === undefined
+        ? (current.agentCapabilities ?? null)
+        : updates.agentCapabilities,
+    availableCommands:
+      updates.availableCommands === undefined
+        ? (current.availableCommands ?? null)
+        : updates.availableCommands,
+    configOptions:
+      updates.configOptions === undefined
+        ? (current.configOptions ?? null)
+        : updates.configOptions,
+    models:
+      updates.models === undefined ? (current.models ?? null) : updates.models,
+    modes: updates.modes === undefined ? (current.modes ?? null) : updates.modes,
+  };
+}
 
 function getAgentLaunchMetadata(metadataJson: string | null): AgentLaunchMetadata {
   if (!metadataJson) {
@@ -139,6 +216,43 @@ class RuntimeClient implements acp.Client {
       this.db.updateSession(binding.localSessionId, {
         title: params.update.title ?? null,
       });
+    }
+
+    if (
+      params.update.sessionUpdate === "available_commands_update" ||
+      params.update.sessionUpdate === "config_option_update" ||
+      params.update.sessionUpdate === "current_mode_update"
+    ) {
+      const session = this.db.getSession(binding.localSessionId);
+      if (session) {
+        const current = parseStoredSessionCapabilities(session.capabilitiesJson);
+        let next = current;
+
+        if (params.update.sessionUpdate === "available_commands_update") {
+          next = buildStoredSessionCapabilities(current, {
+            availableCommands: params.update.availableCommands,
+          });
+        }
+
+        if (params.update.sessionUpdate === "config_option_update") {
+          next = buildStoredSessionCapabilities(current, {
+            configOptions: params.update.configOptions,
+          });
+        }
+
+        if (params.update.sessionUpdate === "current_mode_update") {
+          next = buildStoredSessionCapabilities(current, {
+            modes: {
+              availableModes: current.modes?.availableModes ?? [],
+              currentModeId: params.update.currentModeId,
+            },
+          });
+        }
+
+        this.db.updateSession(binding.localSessionId, {
+          capabilities: toStoredJson(next),
+        });
+      }
     }
 
     this.logger.debug("acp session update stored", {
@@ -386,6 +500,25 @@ class AgentRuntime {
     return this.agentCapabilities;
   }
 
+  supportsSessionListing() {
+    return Boolean(this.agentCapabilities?.sessionCapabilities?.list);
+  }
+
+  private updateStoredCapabilities(
+    sessionId: string,
+    updates: StoredSessionCapabilities,
+  ) {
+    const session = this.db.getSession(sessionId);
+    if (!session) {
+      return;
+    }
+    const current = parseStoredSessionCapabilities(session.capabilitiesJson);
+    const next = buildStoredSessionCapabilities(current, updates);
+    this.db.updateSession(sessionId, {
+      capabilities: toStoredJson(next),
+    });
+  }
+
   async authenticate(params: acp.AuthenticateRequest) {
     const connection = await this.ensureStarted();
     this.logger.info("acp authenticate request", {
@@ -426,6 +559,8 @@ class AgentRuntime {
       capabilities: toStoredJson({
         authMethods: this.authMethods,
         agentCapabilities: this.agentCapabilities,
+        availableCommands: [],
+        models: response.models ?? null,
         modes: response.modes ?? null,
         configOptions: response.configOptions ?? null,
       }),
@@ -478,10 +613,17 @@ class AgentRuntime {
         agentSessionId: session.agentSessionId,
         cwd: session.cwd,
       });
-      await this.connection.loadSession({
+      const response = await this.connection.loadSession({
         sessionId: session.agentSessionId,
         cwd: session.cwd,
         mcpServers: [],
+      });
+      this.updateStoredCapabilities(session.id, {
+        authMethods: this.authMethods,
+        agentCapabilities: this.agentCapabilities,
+        models: response.models ?? null,
+        modes: response.modes ?? null,
+        configOptions: response.configOptions ?? null,
       });
       this.logger.info("acp load_session response", {
         localSessionId: session.id,
@@ -498,7 +640,7 @@ class AgentRuntime {
     return binding;
   }
 
-  async promptSession(session: SessionRecord, text: string) {
+  async promptSession(session: SessionRecord, prompt: acp.ContentBlock[]) {
     if (!this.connection) {
       await this.ensureStarted();
     }
@@ -508,14 +650,16 @@ class AgentRuntime {
 
     await this.ensureSessionLoaded(session);
     this.db.updateSession(session.id, { status: "running" });
+    const promptText = extractPromptText(prompt);
     const entry = this.db.appendSessionEntry(session.id, "user_message", {
       kind: "user_message",
-      text,
+      prompt: toStoredJson(prompt),
+      text: promptText,
     });
     this.logger.info("acp prompt request", {
       localSessionId: session.id,
       agentSessionId: session.agentSessionId,
-      prompt: summarizeText(text, 240),
+      prompt: summarizeText(promptText, 240),
     });
     this.broadcast(session.id, {
       type: "session_update",
@@ -527,7 +671,7 @@ class AgentRuntime {
 
     const response = await this.connection.prompt({
       sessionId: session.agentSessionId,
-      prompt: [{ type: "text", text }],
+      prompt,
     });
     this.logger.info("acp prompt response", {
       localSessionId: session.id,
@@ -572,6 +716,72 @@ class AgentRuntime {
     this.db.updateSession(session.id, { status: "cancelling" });
   }
 
+  async listSessions(cwd: string) {
+    const connection = await this.ensureStarted();
+    const response = await connection.listSessions({
+      cwd,
+    });
+    this.logger.info("acp list_sessions response", {
+      agentId: this.agentId,
+      cwd,
+      sessionCount: response.sessions.length,
+      nextCursor: response.nextCursor ?? null,
+    });
+    return response;
+  }
+
+  async setSessionMode(session: SessionRecord, modeId: string) {
+    const connection = await this.ensureStarted();
+    await this.ensureSessionLoaded(session);
+    await connection.setSessionMode({
+      sessionId: session.agentSessionId,
+      modeId,
+    });
+
+    const current = parseStoredSessionCapabilities(session.capabilitiesJson);
+    this.updateStoredCapabilities(session.id, {
+      modes: {
+        availableModes: current.modes?.availableModes ?? [],
+        currentModeId: modeId,
+      },
+    });
+  }
+
+  async setSessionConfigOption(
+    session: SessionRecord,
+    request:
+      | {
+          configId: string;
+          type: "boolean";
+          value: boolean;
+        }
+      | {
+          type: "value";
+          configId: string;
+          value: string;
+        },
+  ) {
+    const connection = await this.ensureStarted();
+    await this.ensureSessionLoaded(session);
+    const response = await connection.setSessionConfigOption({
+      sessionId: session.agentSessionId,
+      configId: request.configId,
+      ...(request.type === "boolean"
+        ? {
+            type: "boolean" as const,
+            value: request.value,
+          }
+        : {
+            type: "value" as const,
+            value: request.value,
+          }),
+    });
+    this.updateStoredCapabilities(session.id, {
+      configOptions: response.configOptions,
+    });
+    return response;
+  }
+
   replyPermission(
     requestId: string,
     outcome: acp.RequestPermissionOutcome,
@@ -592,6 +802,13 @@ class AgentRuntime {
     this.pendingPermissions.delete(requestId);
     pending.resolve({ outcome });
     return true;
+  }
+
+  replyQuestion(
+    _requestId: string,
+    _answers: Record<string, string[]> | null,
+  ): boolean {
+    return false;
   }
 
   flushPendingPermissionNotifications() {
@@ -643,7 +860,10 @@ function normalizeUpdate(update: acp.SessionUpdate): {
 
 export class AgentRuntimeManager {
   private readonly terminalManager = new TerminalManager();
-  private readonly runtimes = new Map<string, AgentRuntime>();
+  private readonly runtimes = new Map<
+    string,
+    AgentRuntime | OpenCodeRuntime | CodexRuntime | ClaudeCodeRuntime
+  >();
   private readonly logger: Logger;
 
   constructor(
@@ -673,14 +893,45 @@ export class AgentRuntimeManager {
     if (existing) {
       return existing;
     }
-    const runtime = new AgentRuntime(
-      agentId,
-      this.db,
-      this.terminalManager,
-      this.paths,
-      this.broadcast,
-      this.logger,
-    );
+
+    const descriptor =
+      this.db.getAgent(agentId) ??
+      syncAgentCatalog(this.db, this.paths).find((entry) => entry.id === agentId) ??
+      null;
+
+    const runtime =
+      descriptor?.source === "opencode-server"
+        ? new OpenCodeRuntime(
+            agentId,
+            this.db,
+            this.paths,
+            this.broadcast,
+            this.logger,
+          )
+        : descriptor?.source === "codex-app-server"
+          ? new CodexRuntime(
+              agentId,
+              this.db,
+              this.paths,
+              this.broadcast,
+              this.logger,
+            )
+          : descriptor?.source === "claude-code"
+            ? new ClaudeCodeRuntime(
+                agentId,
+                this.db,
+                this.paths,
+                this.broadcast,
+                this.logger,
+              )
+            : new AgentRuntime(
+                agentId,
+                this.db,
+                this.terminalManager,
+                this.paths,
+                this.broadcast,
+                this.logger,
+              );
     this.runtimes.set(agentId, runtime);
     return runtime;
   }
@@ -724,6 +975,53 @@ export class AgentRuntimeManager {
     return this.db.getSessionSnapshot(session.id);
   }
 
+  async listSessionsForAgent(
+    project: ProjectRecord,
+    agentId: string,
+  ): Promise<SessionRecord[]> {
+    try {
+      const runtime = this.getRuntime(agentId);
+      await runtime.ensureStarted();
+      if (!runtime.supportsSessionListing()) {
+        return this.db
+          .listSessions(project.id)
+          .filter((session) => session.agentId === agentId);
+      }
+
+      const response = await runtime.listSessions(project.rootPath);
+      const baseCapabilities = {
+        authMethods: runtime.listAuthMethods(),
+        agentCapabilities: runtime.getCapabilities(),
+      } satisfies StoredSessionCapabilities;
+
+      for (const info of response.sessions) {
+        this.db.upsertSessionFromAgent({
+          projectId: project.id,
+          agentId,
+          agentSessionId: info.sessionId,
+          cwd: info.cwd,
+          title: info.title ?? null,
+          status: "idle",
+          capabilities: toStoredJson(baseCapabilities),
+        });
+      }
+
+      return this.db
+        .listSessions(project.id)
+        .filter((session) => session.agentId === agentId);
+    }
+    catch (error) {
+      this.logger.warn("list sessions via agent failed; falling back to local db", {
+        projectId: project.id,
+        agentId,
+        error: sanitizeLogValue(error),
+      });
+    }
+    return this.db
+      .listSessions(project.id)
+      .filter((session) => session.agentId === agentId);
+  }
+
   async loadSession(localSessionId: string) {
     this.logger.info("load session requested", {
       localSessionId,
@@ -738,17 +1036,18 @@ export class AgentRuntimeManager {
     return this.db.getSessionSnapshot(localSessionId);
   }
 
-  async promptSession(localSessionId: string, text: string) {
+  async promptSession(localSessionId: string, prompt: acp.ContentBlock[]) {
+    const promptText = extractPromptText(prompt);
     this.logger.info("prompt session requested", {
       localSessionId,
-      prompt: summarizeText(text, 240),
+      prompt: summarizeText(promptText, 240),
     });
     const session = this.db.getSession(localSessionId);
     if (!session) {
       throw new Error(`Unknown session ${localSessionId}`);
     }
     const runtime = this.getRuntime(session.agentId);
-    const response = await runtime.promptSession(session, text);
+    const response = await runtime.promptSession(session, prompt);
     return {
       session: this.db.getSession(localSessionId),
       response,
@@ -767,6 +1066,54 @@ export class AgentRuntimeManager {
     await runtime.cancelSession(session);
   }
 
+  getSessionState(localSessionId: string) {
+    const session = this.db.getSession(localSessionId);
+    if (!session) {
+      throw new Error(`Unknown session ${localSessionId}`);
+    }
+    const capabilities = parseStoredSessionCapabilities(session.capabilitiesJson);
+    return {
+      session,
+      availableCommands: capabilities.availableCommands ?? [],
+      configOptions: capabilities.configOptions ?? [],
+      modes: capabilities.modes ?? null,
+      models: capabilities.models ?? null,
+    };
+  }
+
+  async setSessionMode(localSessionId: string, modeId: string) {
+    const session = this.db.getSession(localSessionId);
+    if (!session) {
+      throw new Error(`Unknown session ${localSessionId}`);
+    }
+    const runtime = this.getRuntime(session.agentId);
+    await runtime.setSessionMode(session, modeId);
+    return this.getSessionState(localSessionId);
+  }
+
+  async setSessionConfigOption(
+    localSessionId: string,
+    request:
+      | {
+          configId: string;
+          type: "boolean";
+          value: boolean;
+        }
+      | {
+          type: "value";
+          configId: string;
+          value: string;
+        },
+  ) {
+    const session = this.db.getSession(localSessionId);
+    if (!session) {
+      throw new Error(`Unknown session ${localSessionId}`);
+    }
+    const runtime = this.getRuntime(session.agentId);
+    await runtime.setSessionConfigOption(session, request);
+    return this.getSessionState(localSessionId);
+  }
+
   replyPermission(
     sessionId: string,
     requestId: string,
@@ -783,5 +1130,23 @@ export class AgentRuntimeManager {
     }
     const runtime = this.getRuntime(session.agentId);
     return runtime.replyPermission(requestId, outcome);
+  }
+
+  replyQuestion(
+    sessionId: string,
+    requestId: string,
+    answers: Record<string, string[]> | null,
+  ) {
+    const session = this.db.getSession(sessionId);
+    if (!session) {
+      this.logger.warn("question reply requested for unknown session", {
+        sessionId,
+        requestId,
+        answers: sanitizeLogValue(answers),
+      });
+      return false;
+    }
+    const runtime = this.getRuntime(session.agentId);
+    return runtime.replyQuestion(requestId, answers);
   }
 }

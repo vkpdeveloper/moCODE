@@ -1491,10 +1491,13 @@ class _FileSearchList extends ConsumerWidget {
           itemCount: files.length,
           itemBuilder: (context, index) {
             final file = files[index];
-            final fileName = file.split('/').last;
+            final fileName = file.name;
+            final icon = file.isDirectory
+                ? Icons.folder_outlined
+                : getIconForExtension(file.extension ?? fileName.split('.').last);
 
             return GestureDetector(
-              onTap: () => onSelect(file),
+              onTap: () => onSelect(file.path),
               child: Container(
                 padding: const EdgeInsets.symmetric(
                   horizontal: 12,
@@ -1511,7 +1514,7 @@ class _FileSearchList extends ConsumerWidget {
                 child: Row(
                   children: [
                     Icon(
-                      getIconForExtension(fileName.split('.').last),
+                      icon,
                       size: 14,
                       color: Theme.of(context).colorScheme.primary,
                     ),
@@ -1528,7 +1531,7 @@ class _FileSearchList extends ConsumerWidget {
                             ),
                           ),
                           Text(
-                            file,
+                            file.path,
                             style: TextStyle(
                               color: Theme.of(
                                 context,

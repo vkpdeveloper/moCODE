@@ -6,15 +6,48 @@ import { join, resolve, sep } from "node:path";
 import type { AgentDescriptor, AgentSpec, StatePaths } from "./types";
 import { StateDatabase } from "./db";
 
+export const SUPPORTED_AGENT_IDS = new Set([
+  "amp-acp",
+  "claude-acp",
+  "codex-acp",
+  "cursor",
+  "gemini",
+  "github-copilot-cli",
+  "kilo",
+  "opencode",
+]);
+
+export function isSupportedAgentId(agentId: string) {
+  return SUPPORTED_AGENT_IDS.has(agentId);
+}
+
 export const AGENT_SPECS: AgentSpec[] = [
+  {
+    id: "claude-acp",
+    name: "Claude Code",
+    kind: "native",
+    source: "claude-code",
+    commandCandidates: ["claude"],
+    args: [],
+    envVar: "MOCODE_CLAUDE_BIN",
+  },
+  {
+    id: "codex-acp",
+    name: "Codex",
+    kind: "native",
+    source: "codex-app-server",
+    commandCandidates: ["codex"],
+    args: ["app-server", "--listen", "stdio://"],
+    envVar: "MOCODE_CODEX_BIN",
+  },
   {
     id: "opencode",
     name: "OpenCode",
     kind: "native",
-    source: "acp",
+    source: "opencode-server",
     registryId: "opencode",
     commandCandidates: ["opencode"],
-    args: ["acp"],
+    args: ["serve", "--hostname", "127.0.0.1", "--port", "0"],
     envVar: "MOCODE_OPENCODE_BIN",
   },
   {
@@ -83,10 +116,15 @@ function writeManagedAgentManifest(paths: StatePaths, manifest: ManagedAgentMani
 }
 
 export function listManagedAgentSpecs(paths: StatePaths) {
-  return readManagedAgentManifest(paths).agents;
+  return readManagedAgentManifest(paths).agents.filter((spec) =>
+    isSupportedAgentId(spec.id),
+  );
 }
 
 export function upsertManagedAgentSpec(paths: StatePaths, spec: AgentSpec) {
+  if (!isSupportedAgentId(spec.id)) {
+    throw new Error(`Unsupported managed agent: ${spec.id}`);
+  }
   const manifest = readManagedAgentManifest(paths);
   const nextAgents = manifest.agents.filter((entry) => entry.id !== spec.id);
   nextAgents.push(spec);

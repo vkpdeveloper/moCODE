@@ -318,6 +318,23 @@ export class StateDatabase {
     return parseRecord(row, toSession);
   }
 
+  getSessionByAgentSessionForAgent(
+    agentId: string,
+    agentSessionId: string,
+  ): SessionRecord | null {
+    const row = this.sqlite
+      .query(
+        `
+        SELECT * FROM sessions
+        WHERE agent_id = ?1 AND agent_session_id = ?2
+        ORDER BY updated_at DESC
+        LIMIT 1
+      `,
+      )
+      .get(agentId, agentSessionId) as SqliteRow | null;
+    return parseRecord(row, toSession);
+  }
+
   createSession(input: {
     projectId: string;
     agentId: string;
@@ -357,6 +374,9 @@ export class StateDatabase {
   updateSession(
     id: string,
     updates: {
+      projectId?: string;
+      agentSessionId?: string;
+      cwd?: string;
       title?: string | null;
       status?: string;
       controllerDeviceId?: string | null;
@@ -373,17 +393,23 @@ export class StateDatabase {
       .query(
         `
         UPDATE sessions
-        SET title = ?2,
-            status = ?3,
-            controller_device_id = ?4,
-            updated_at = ?5,
-            last_stop_reason = ?6,
-            capabilities_json = ?7
+        SET project_id = ?2,
+            agent_session_id = ?3,
+            cwd = ?4,
+            title = ?5,
+            status = ?6,
+            controller_device_id = ?7,
+            updated_at = ?8,
+            last_stop_reason = ?9,
+            capabilities_json = ?10
         WHERE id = ?1
       `,
       )
       .run(
         id,
+        updates.projectId ?? current.projectId,
+        updates.agentSessionId ?? current.agentSessionId,
+        updates.cwd === undefined ? current.cwd : resolve(updates.cwd),
         updates.title === undefined ? current.title : updates.title,
         updates.status ?? current.status,
         updates.controllerDeviceId === undefined
@@ -400,6 +426,40 @@ export class StateDatabase {
             : JSON.stringify(updates.capabilities),
       );
     return this.getSession(id);
+  }
+
+  upsertSessionFromAgent(input: {
+    projectId: string;
+    agentId: string;
+    agentSessionId: string;
+    cwd: string;
+    title?: string | null;
+    status?: string;
+    capabilities?: JsonValue | null;
+  }): SessionRecord {
+    const existing = this.getSessionByAgentSessionForAgent(
+      input.agentId,
+      input.agentSessionId,
+    );
+    if (existing) {
+      return this.updateSession(existing.id, {
+        projectId: input.projectId,
+        cwd: input.cwd,
+        title: input.title,
+        status: input.status ?? existing.status,
+        capabilities: input.capabilities,
+      }) as SessionRecord;
+    }
+
+    return this.createSession({
+      projectId: input.projectId,
+      agentId: input.agentId,
+      agentSessionId: input.agentSessionId,
+      cwd: input.cwd,
+      title: input.title,
+      status: input.status ?? "idle",
+      capabilities: input.capabilities ?? undefined,
+    });
   }
 
   listSessionEntries(sessionId: string): SessionEntryRecord[] {

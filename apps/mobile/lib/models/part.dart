@@ -93,7 +93,7 @@ class TextPart extends Part {
       'messageID': messageID,
       'type': type,
       'text': text,
-      if (synthetic != null) 'synthetic': synthetic,
+      'synthetic': synthetic,
       if (ignored != null) 'ignored': ignored,
       if (time != null) 'time': time!.toJson(),
       if (metadata != null) 'metadata': metadata,
