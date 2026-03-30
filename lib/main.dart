@@ -21,7 +21,7 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   FlutterForegroundTask.initCommunicationPort();
 
-  final envFile = kReleaseMode ? '.prod.env' : '.dev.env';
+  final envFile = kReleaseMode ? 'prod.env' : 'dev.env';
   await dotenv.load(fileName: envFile);
   await Firebase.initializeApp();
 

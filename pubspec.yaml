@@ -3,7 +3,7 @@ description: "A new Flutter project."
 repository: https://github.com/vkpdeveloper/moCODE
 homepage: https://github.com/vkpdeveloper/moCODE
 publish_to: "none"
-version: 0.0.7+7
+version: 1.0.0+8
 
 environment:
   sdk: ^3.10.0-290.4.beta

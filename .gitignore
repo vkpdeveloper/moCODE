@@ -58,6 +58,8 @@ GoogleService-Info.plist
 /.env
 /.dev.env
 /.prod.env
+/dev.env
+/prod.env
 
 # Android signing keys
 /keys/
