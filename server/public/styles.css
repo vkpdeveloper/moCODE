@@ -74,10 +74,68 @@ body {
   z-index: 0;
 }
 
+/* Promo Bar */
+.promo-bar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 200;
+  background: var(--accent);
+  padding: 10px 24px;
+  text-align: center;
+}
+
+.promo-bar-inner {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.promo-bar-dot {
+  width: 7px;
+  height: 7px;
+  background: white;
+  border-radius: 50%;
+  opacity: 0.75;
+  flex-shrink: 0;
+  animation: pulse 2s ease infinite;
+}
+
+.promo-bar-text {
+  font-size: 13px;
+  font-weight: 500;
+  color: white;
+  letter-spacing: 0.2px;
+}
+
+.promo-bar-text s {
+  opacity: 0.65;
+}
+
+.promo-bar-cta {
+  font-size: 12px;
+  font-weight: 700;
+  color: white;
+  text-decoration: none;
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  border-radius: 4px;
+  padding: 3px 10px;
+  transition: background 0.2s ease, border-color 0.2s ease;
+  white-space: nowrap;
+}
+
+.promo-bar-cta:hover {
+  background: rgba(255, 255, 255, 0.15);
+  border-color: white;
+}
+
 /* Header */
 .header {
   position: fixed;
-  top: 0;
+  top: 37px; /* sits below the promo bar (~37px tall) */
   left: 0;
   right: 0;
   z-index: 100;
@@ -171,7 +229,7 @@ body {
   min-height: 100vh;
   display: flex;
   align-items: center;
-  padding: 120px 0 80px;
+  padding: 157px 0 80px; /* 37px promo bar + ~80px header + 40px breathing room */
 }
 
 .hero-content {
@@ -981,8 +1039,17 @@ body {
 
 /* Responsive */
 @media (max-width: 968px) {
+  .promo-bar {
+    padding: 8px 16px;
+  }
+
+  .promo-bar-text {
+    font-size: 12px;
+  }
+
   .header {
     padding: 14px 0;
+    top: 33px; /* slightly shorter promo bar on mobile */
   }
 
   .logo {
