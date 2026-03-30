@@ -825,18 +825,20 @@ body {
   color: var(--text-muted);
 }
 
-.nav-link-pricing {
-  color: var(--accent) !important;
-  border: 1px solid rgba(255, 107, 53, 0.35);
+.nav-link-github {
+  display: inline-flex;
+  align-items: center;
+  color: var(--text-secondary) !important;
+  border: 1px solid rgba(255, 255, 255, 0.15);
   padding: 6px 14px;
   border-radius: 4px;
-  transition: background 0.2s ease, border-color 0.2s ease !important;
+  transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease !important;
 }
 
-.nav-link-pricing:hover {
-  background: rgba(255, 107, 53, 0.1);
-  border-color: var(--accent);
-  color: var(--accent) !important;
+.nav-link-github:hover {
+  background: rgba(255, 255, 255, 0.07);
+  border-color: rgba(255, 255, 255, 0.3);
+  color: var(--text-primary) !important;
 }
 
 /* CTA Section */

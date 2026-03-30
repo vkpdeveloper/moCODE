@@ -1,18 +1,14 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-import '../extensions/async_value_extensions.dart';
 import '../providers/providers.dart';
 import '../theme/app_theme.dart';
 import '../utils/app_snackbar.dart';
 
 class SettingsScreen extends ConsumerStatefulWidget {
-  final bool refreshPaymentOnOpen;
-
-  const SettingsScreen({super.key, this.refreshPaymentOnOpen = false});
+  const SettingsScreen({super.key});
 
   @override
   ConsumerState<SettingsScreen> createState() => _SettingsScreenState();
@@ -22,9 +18,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   late TextEditingController _hostController;
   late TextEditingController _portController;
   bool _authLoading = false;
-  bool _checkoutLoading = false;
-  bool _paymentRefreshLoading = false;
-  bool _checkedRefreshOnOpen = false;
 
   @override
   void initState() {
@@ -45,23 +38,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    if (!_checkedRefreshOnOpen && widget.refreshPaymentOnOpen) {
-      _checkedRefreshOnOpen = true;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        _refreshPaymentStateWithLoader();
-      });
-    }
-
     final settings = ref.watch(settingsProvider);
     final healthAsync = ref.watch(healthProvider);
     final defaultModel = ref.watch(defaultModelProvider);
     final authState = ref.watch(authStateProvider);
     final accessStatus = ref.watch(accessGateStatusProvider);
     final firebaseUser = authState.valueOrNull;
-    final profileAsync = ref.watch(accountProfileProvider);
-    final billingAsync = ref.watch(billingStatusProvider);
-    final billingData = billingAsync.valueOrNull;
-    final oneTimeUnlocked = billingData?['oneTimeUnlocked'] == true;
 
     final canAccess = accessStatus == AccessGateStatus.granted;
     final needsAccess = !canAccess;
@@ -276,7 +258,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               ),
 
               const SizedBox(height: 24),
-              _sectionHeader('ACCOUNT & BILLING'),
+              _sectionHeader('ACCOUNT'),
               const SizedBox(height: 8),
               Container(
                 decoration: BoxDecoration(
@@ -317,7 +299,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                             const SizedBox(width: 8),
                             const Expanded(
                               child: Text(
-                                'Sign in and complete setup to unlock access',
+                                'Sign in to unlock access',
                                 style: TextStyle(
                                   color: AppTheme.textSecondary,
                                   fontSize: 11,
@@ -329,12 +311,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       ),
                     ListTile(
                       leading: Icon(
-                        firebaseUser == null
-                            ? Icons.login
-                            : (oneTimeUnlocked
-                                  ? Icons.verified
-                                  : Icons.account_circle),
-                        color: oneTimeUnlocked
+                        firebaseUser == null ? Icons.login : Icons.verified,
+                        color: firebaseUser != null
                             ? AppTheme.success
                             : AppTheme.textSecondary,
                         size: 20,
@@ -349,20 +327,16 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       ),
                       subtitle: firebaseUser == null
                           ? const Text(
-                              'Sign in to continue setup',
+                              'Sign in to get started',
                               style: TextStyle(
                                 color: AppTheme.textTertiary,
                                 fontSize: 11,
                               ),
                             )
-                          : Text(
-                              oneTimeUnlocked
-                                  ? 'You are all set. Full access is active.'
-                                  : 'Complete setup to unlock full access',
+                          : const Text(
+                              'You are all set. Full access is active.',
                               style: TextStyle(
-                                color: oneTimeUnlocked
-                                    ? AppTheme.success
-                                    : AppTheme.textTertiary,
+                                color: AppTheme.success,
                                 fontSize: 11,
                               ),
                             ),
@@ -387,77 +361,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                               _signOut();
                             },
                     ),
-                    if (firebaseUser != null) const Divider(height: 1),
-                    if (firebaseUser != null)
-                      ListTile(
-                        leading: const Icon(
-                          Icons.payments,
-                          color: AppTheme.textSecondary,
-                          size: 20,
-                        ),
-                        title: const Text(
-                          'Complete Setup',
-                          style: TextStyle(fontSize: 13),
-                        ),
-                        subtitle: Text(
-                          oneTimeUnlocked
-                              ? 'Everything is unlocked'
-                              : 'Secure payment, one time only',
-                          style: TextStyle(
-                            color: oneTimeUnlocked
-                                ? AppTheme.success
-                                : AppTheme.textTertiary,
-                            fontSize: 11,
-                          ),
-                        ),
-                        trailing: _checkoutLoading
-                            ? const SizedBox(
-                                width: 16,
-                                height: 16,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                ),
-                              )
-                            : const Icon(
-                                Icons.open_in_new,
-                                color: AppTheme.textTertiary,
-                                size: 18,
-                              ),
-                        onTap: _checkoutLoading || oneTimeUnlocked
-                            ? null
-                            : _startCheckout,
-                      ),
-                    if (firebaseUser != null) const Divider(height: 1),
-                    if (firebaseUser != null)
-                      ListTile(
-                        leading: const Icon(
-                          Icons.sync,
-                          color: AppTheme.textSecondary,
-                          size: 20,
-                        ),
-                        title: const Text(
-                          'Refresh Account Status',
-                          style: TextStyle(fontSize: 13),
-                        ),
-                        subtitle: Text(
-                          _billingSubtitle(
-                            billingData,
-                            profileAsync.valueOrNull,
-                            authState.error,
-                            billingAsync.error,
-                          ),
-                          style: const TextStyle(
-                            color: AppTheme.textTertiary,
-                            fontSize: 11,
-                          ),
-                        ),
-                        trailing: const Icon(
-                          Icons.chevron_right,
-                          color: AppTheme.textTertiary,
-                          size: 18,
-                        ),
-                        onTap: _refreshAccountState,
-                      ),
                   ],
                 ),
               ),
@@ -542,112 +445,109 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   color: AppTheme.surface,
                   border: Border.all(color: AppTheme.border),
                 ),
-                padding: const EdgeInsets.all(16),
-                child: const Column(
+                child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      'moCODE',
-                      style: TextStyle(
-                        color: AppTheme.accent,
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
+                    Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: const [
+                          Text(
+                            'moCODE',
+                            style: TextStyle(
+                              color: AppTheme.accent,
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          SizedBox(height: 4),
+                          Text(
+                            'Connect with your OpenCode server',
+                            style: TextStyle(
+                              color: AppTheme.textTertiary,
+                              fontSize: 11,
+                            ),
+                          ),
+                          SizedBox(height: 12),
+                          Text(
+                            'BUILD',
+                            style: TextStyle(
+                              color: AppTheme.textSecondary,
+                              fontSize: 9,
+                              fontWeight: FontWeight.bold,
+                              letterSpacing: 1,
+                            ),
+                          ),
+                          SizedBox(height: 2),
+                          Text(
+                            'Built with ❤️ by Ordinity',
+                            style: TextStyle(
+                              color: AppTheme.accent,
+                              fontSize: 11,
+                            ),
+                          ),
+                          SizedBox(height: 12),
+                          Text(
+                            'VERSION',
+                            style: TextStyle(
+                              color: AppTheme.textSecondary,
+                              fontSize: 9,
+                              fontWeight: FontWeight.bold,
+                              letterSpacing: 1,
+                            ),
+                          ),
+                          SizedBox(height: 2),
+                          Text(
+                            'v1.0.0',
+                            style: TextStyle(
+                              color: AppTheme.textTertiary,
+                              fontSize: 11,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
-                    SizedBox(height: 4),
-                    Text(
-                      'Connect with your OpenCode server',
-                      style: TextStyle(
-                        color: AppTheme.textTertiary,
-                        fontSize: 11,
-                      ),
-                    ),
-                    SizedBox(height: 12),
-                    Text(
-                      'BUILD',
-                      style: TextStyle(
+                    const Divider(height: 1),
+                    ListTile(
+                      leading: const Icon(
+                        Icons.code,
                         color: AppTheme.textSecondary,
-                        fontSize: 9,
-                        fontWeight: FontWeight.bold,
-                        letterSpacing: 1,
+                        size: 20,
                       ),
-                    ),
-                    SizedBox(height: 2),
-                    Text(
-                      'Built with ❤️ by Ordinity',
-                      style: TextStyle(color: AppTheme.accent, fontSize: 11),
-                    ),
-                    SizedBox(height: 12),
-                    Text(
-                      'VERSION',
-                      style: TextStyle(
-                        color: AppTheme.textSecondary,
-                        fontSize: 9,
-                        fontWeight: FontWeight.bold,
-                        letterSpacing: 1,
+                      title: const Text(
+                        'View on GitHub',
+                        style: TextStyle(fontSize: 13),
                       ),
-                    ),
-                    SizedBox(height: 2),
-                    Text(
-                      'v1.0.0',
-                      style: TextStyle(
+                      subtitle: const Text(
+                        'Open source — free forever',
+                        style: TextStyle(
+                          color: AppTheme.textTertiary,
+                          fontSize: 11,
+                        ),
+                      ),
+                      trailing: const Icon(
+                        Icons.open_in_new,
                         color: AppTheme.textTertiary,
-                        fontSize: 11,
+                        size: 18,
                       ),
+                      onTap: () {
+                        launchUrl(
+                          Uri.parse(
+                            'https://github.com/vkpdeveloper/moCODE',
+                          ),
+                          mode: LaunchMode.externalApplication,
+                        );
+                      },
                     ),
                   ],
                 ),
               ),
             ],
           ),
-          if (_paymentRefreshLoading)
-            Positioned.fill(
-              child: Container(
-                color: Colors.black54,
-                child: const Center(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      CircularProgressIndicator(color: AppTheme.accent),
-                      SizedBox(height: 12),
-                      Text(
-                        'Confirming your payment... ',
-                        style: TextStyle(color: AppTheme.textPrimary),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
         ],
       ),
     );
-  }
-
-  String _billingSubtitle(
-    Map<String, dynamic>? billing,
-    Map<String, dynamic>? profile,
-    Object? authError,
-    Object? billingError,
-  ) {
-    if (authError != null || billingError != null) {
-      return 'Unable to fetch account status';
-    }
-    if (billing == null) {
-      return 'Sign in to load account details';
-    }
-    if (billing['oneTimeUnlocked'] == true) {
-      final paidAt = billing['paidAt']?.toString();
-      if (paidAt == null || paidAt.isEmpty) {
-        return 'Full access is active';
-      }
-      return 'Access active since $paidAt';
-    }
-    final email = profile?['user']?['email']?.toString();
-    if (email != null && email.isNotEmpty) {
-      return 'Logged in as $email';
-    }
-    return 'Setup incomplete';
   }
 
   Widget _sectionHeader(String title) {
@@ -755,93 +655,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     }
   }
 
-  Future<void> _startCheckout() async {
-    final user = ref.read(firebaseUserProvider);
-    if (user == null) {
-      AppSnackBar.showWarning(context, 'Sign in with Google first');
-      return;
-    }
-
-    setState(() {
-      _checkoutLoading = true;
-    });
-
-    try {
-      if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
-        if (!mounted) return;
-        context.push('/payment/checkout');
-        AppSnackBar.showInfo(context, 'Opening secure setup...');
-        return;
-      }
-
-      final idToken = await user.getIdToken();
-      if (idToken == null || idToken.isEmpty) {
-        throw Exception('Unable to fetch Firebase ID token');
-      }
-      final checkoutUrl = await ref
-          .read(accountServiceProvider)
-          .createCheckoutSession(idToken);
-
-      if (!mounted) return;
-      await launchUrl(
-        Uri.parse(checkoutUrl),
-        mode: LaunchMode.externalApplication,
-      );
-
-      if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Opening secure setup...')));
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Checkout failed: $e')));
-    } finally {
-      if (mounted) {
-        setState(() {
-          _checkoutLoading = false;
-        });
-      }
-    }
-  }
-
   void _refreshAccountState() {
     ref.invalidate(idTokenProvider);
     ref.invalidate(accountProfileProvider);
-    ref.invalidate(billingStatusProvider);
-  }
-
-  Future<void> _refreshPaymentStateWithLoader() async {
-    if (_paymentRefreshLoading) return;
-    setState(() {
-      _paymentRefreshLoading = true;
-    });
-
-    var unlocked = false;
-    try {
-      for (var attempt = 0; attempt < 5; attempt++) {
-        _refreshAccountState();
-        final billing = await ref.read(billingStatusProvider.future);
-        unlocked = billing?['oneTimeUnlocked'] == true;
-        if (unlocked) break;
-        await Future<void>.delayed(const Duration(seconds: 2));
-      }
-    } catch (_) {
-      // keep silent and show generic status after loader
-    } finally {
-      if (mounted) {
-        setState(() {
-          _paymentRefreshLoading = false;
-        });
-        AppSnackBar.show(
-          context,
-          message: unlocked
-              ? 'Payment confirmed. Full access unlocked.'
-              : 'We are still verifying payment. Tap refresh in a moment.',
-          type: unlocked ? SnackBarType.success : SnackBarType.info,
-        );
-      }
-    }
   }
 }

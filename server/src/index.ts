@@ -466,43 +466,22 @@ app.use("/api/v1/*", firebaseAuthMiddleware);
 app.get("/api/v1/auth/me", async (c) => {
   const user = c.get("authUser");
 
-  const entitlement = await db
-    .select({
-      oneTimeUnlocked: entitlements.oneTimeUnlocked,
-      paidAt: entitlements.paidAt,
-    })
-    .from(entitlements)
-    .where(eq(entitlements.userId, user.id))
-    .limit(1);
-
   return c.json({
     user,
     access: {
-      oneTimeUnlocked: entitlement[0]?.oneTimeUnlocked ?? false,
-      paidAt: entitlement[0]?.paidAt ?? null,
+      oneTimeUnlocked: true,
+      paidAt: null,
     },
   });
 });
 
 app.get("/api/v1/billing/status", async (c) => {
-  const user = c.get("authUser");
-
-  const entitlement = await db
-    .select({
-      oneTimeUnlocked: entitlements.oneTimeUnlocked,
-      provider: entitlements.provider,
-      paymentId: entitlements.paymentId,
-      paidAt: entitlements.paidAt,
-    })
-    .from(entitlements)
-    .where(eq(entitlements.userId, user.id))
-    .limit(1);
-
+  // moCode is free and open source — any authenticated user has full access
   return c.json({
-    oneTimeUnlocked: entitlement[0]?.oneTimeUnlocked ?? false,
-    provider: entitlement[0]?.provider ?? null,
-    paymentId: entitlement[0]?.paymentId ?? null,
-    paidAt: entitlement[0]?.paidAt ?? null,
+    oneTimeUnlocked: true,
+    provider: null,
+    paymentId: null,
+    paidAt: null,
   });
 });
 

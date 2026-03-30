@@ -207,19 +207,14 @@ final billingStatusProvider = FutureProvider<Map<String, dynamic>?>((
   return accountService.fetchBillingStatus(idToken);
 });
 
-enum AccessGateStatus { loading, signedOut, unpaid, granted }
+enum AccessGateStatus { loading, signedOut, granted }
 
 final accessGateStatusProvider = Provider<AccessGateStatus>((ref) {
   final auth = ref.watch(authStateProvider);
   if (auth.isLoading) return AccessGateStatus.loading;
   final user = auth.hasValue ? auth.value : null;
   if (user == null) return AccessGateStatus.signedOut;
-
-  final billing = ref.watch(billingStatusProvider);
-  if (billing.isLoading) return AccessGateStatus.loading;
-  final billingValue = billing.hasValue ? billing.value : null;
-  final unlocked = billingValue?['oneTimeUnlocked'] == true;
-  return unlocked ? AccessGateStatus.granted : AccessGateStatus.unpaid;
+  return AccessGateStatus.granted;
 });
 
 // ---------------------------------------------------------------------------
