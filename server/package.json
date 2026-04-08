@@ -13,7 +13,7 @@
   },
   "dependencies": {
     "@ai-sdk/groq": "^3.0.24",
-    "@hono/node-server": "^1.14.0",
+    "@hono/node-server": "^1.19.13",
     "ai": "^6.0.97",
     "commander": "^14.0.3",
     "dotenv": "^16.6.1",
