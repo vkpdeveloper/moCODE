@@ -19,7 +19,7 @@
     "dotenv": "^16.6.1",
     "drizzle-orm": "^0.44.5",
     "firebase-admin": "^13.5.0",
-    "hono": "^4.9.9",
+    "hono": "^4.12.18",
     "nodemailer": "^8.0.1",
     "postgres": "^3.4.7",
     "react": "^18.3.1",
